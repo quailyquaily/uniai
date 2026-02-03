@@ -11,15 +11,16 @@ import (
 
 // Chat re-exports
 type (
-	ChatOption   = chat.Option
-	ChatRequest  = chat.Request
-	ChatResult   = chat.Result
-	ChatOptions  = chat.Options
-	Message      = chat.Message
-	Tool         = chat.Tool
-	ToolFunction = chat.ToolFunction
-	ToolChoice   = chat.ToolChoice
-	ToolCall     = chat.ToolCall
+	ChatOption       = chat.Option
+	ChatRequest      = chat.Request
+	ChatResult       = chat.Result
+	ChatOptions      = chat.Options
+	Message          = chat.Message
+	Tool             = chat.Tool
+	ToolFunction     = chat.ToolFunction
+	ToolChoice       = chat.ToolChoice
+	ToolCall         = chat.ToolCall
+	ToolCallFunction = chat.ToolCallFunction
 )
 
 const (
