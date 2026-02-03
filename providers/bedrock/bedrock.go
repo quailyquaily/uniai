@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go/service/bedrockruntime/bedrockruntimeiface"
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 )
 
@@ -103,6 +104,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if len(systemParts) > 0 {
 		payload["system"] = strings.Join(systemParts, "\n")
 	}
+	applyBedrockOptions(payload, req.Options.Bedrock)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -142,4 +144,16 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
 	}
 	return result, nil
+}
+
+func applyBedrockOptions(payload map[string]any, opts structs.JSONMap) {
+	if payload == nil || len(opts) == 0 {
+		return
+	}
+	opt := &opts
+	if opt.HasKey("top_k") {
+		if top := int(opt.GetInt64("top_k")); top > 0 {
+			payload["top_k"] = top
+		}
+	}
 }

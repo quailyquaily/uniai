@@ -1,5 +1,7 @@
 package rerank
 
+import "encoding/json"
+
 type Input struct {
 	Text  string `json:"text,omitempty"`
 	Image string `json:"image,omitempty"`
@@ -17,16 +19,41 @@ type Request struct {
 type Result struct {
 	Model   string `json:"model"`
 	Results []struct {
-		RelevanceScore float64 `json:"relevance_score"`
-		Index          int     `json:"index"`
-		Document       struct {
-			Text string `json:"text,omitempty"`
-			URL  string `json:"url,omitempty"`
-		} `json:"document,omitempty"`
+		RelevanceScore float64  `json:"relevance_score"`
+		Index          int      `json:"index"`
+		Document       Document `json:"document,omitempty"`
 	} `json:"results"`
 	Usage struct {
 		TotalTokens int `json:"total_tokens"`
 	} `json:"usage"`
+}
+
+type Document struct {
+	Text string `json:"text,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+func (d *Document) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		*d = Document{}
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		d.Text = text
+		d.URL = ""
+		return nil
+	}
+	var raw struct {
+		Text string `json:"text,omitempty"`
+		URL  string `json:"url,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	d.Text = raw.Text
+	d.URL = raw.URL
+	return nil
 }
 
 type Option func(*Request)

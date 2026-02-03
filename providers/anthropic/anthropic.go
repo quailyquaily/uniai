@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 )
 
@@ -42,7 +43,9 @@ type anthropicRequest struct {
 	MaxTokens     int                `json:"max_tokens"`
 	Temperature   *float64           `json:"temperature,omitempty"`
 	TopP          *float64           `json:"top_p,omitempty"`
+	TopK          *int               `json:"top_k,omitempty"`
 	StopSequences []string           `json:"stop_sequences,omitempty"`
+	Metadata      *anthropicMetadata `json:"metadata,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -52,6 +55,10 @@ type anthropicResponse struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
+}
+
+type anthropicMetadata struct {
+	UserID string `json:"user_id,omitempty"`
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
@@ -103,6 +110,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		TopP:          req.Options.TopP,
 		StopSequences: req.Options.Stop,
 	}
+	applyAnthropicOptions(&body, req.Options.Anthropic)
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -156,4 +164,43 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	return result, nil
+}
+
+func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {
+	if body == nil || len(opts) == 0 {
+		return
+	}
+	opt := &opts
+	if opt.HasKey("top_k") {
+		if top := int(opt.GetInt64("top_k")); top > 0 {
+			body.TopK = &top
+		}
+	}
+	if userID := readUserID(opt); userID != "" {
+		body.Metadata = &anthropicMetadata{UserID: userID}
+	}
+}
+
+func readUserID(opt *structs.JSONMap) string {
+	if opt == nil {
+		return ""
+	}
+	if opt.HasKey("user_id") {
+		return strings.TrimSpace(opt.GetString("user_id"))
+	}
+	if !opt.HasKey("metadata") {
+		return ""
+	}
+	raw := (*opt)["metadata"]
+	switch v := raw.(type) {
+	case map[string]any:
+		if id, ok := v["user_id"].(string); ok {
+			return strings.TrimSpace(id)
+		}
+	case structs.JSONMap:
+		if id, ok := v["user_id"].(string); ok {
+			return strings.TrimSpace(id)
+		}
+	}
+	return ""
 }

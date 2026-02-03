@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared/constant"
 	uniai "github.com/quailyquaily/uniai"
@@ -89,6 +90,10 @@ func toChatOptions(req openai.ChatCompletionNewParams) ([]chat.Option, error) {
 
 	if choice, ok := toToolChoice(req.ToolChoice); ok {
 		opts = append(opts, chat.WithToolChoice(choice))
+	}
+
+	if extra := toOpenAIOptions(req); len(extra) > 0 {
+		opts = append(opts, chat.WithOpenAIOptions(extra))
 	}
 
 	return opts, nil
@@ -359,4 +364,97 @@ func finishReason(result *chat.Result) string {
 		return "tool_calls"
 	}
 	return "stop"
+}
+
+func toOpenAIOptions(req openai.ChatCompletionNewParams) structs.JSONMap {
+	opts := structs.NewJSONMap()
+	if req.N.Valid() && req.N.Value > 0 {
+		opts["n"] = req.N.Value
+	}
+	if req.Seed.Valid() {
+		opts["seed"] = req.Seed.Value
+	}
+	if req.Logprobs.Valid() {
+		opts["logprobs"] = req.Logprobs.Value
+	}
+	if req.TopLogprobs.Valid() {
+		opts["top_logprobs"] = req.TopLogprobs.Value
+	}
+	if req.ParallelToolCalls.Valid() {
+		opts["parallel_tool_calls"] = req.ParallelToolCalls.Value
+	}
+	if req.Store.Valid() {
+		opts["store"] = req.Store.Value
+	}
+	if req.PromptCacheKey.Valid() {
+		opts["prompt_cache_key"] = req.PromptCacheKey.Value
+	}
+	if req.SafetyIdentifier.Valid() {
+		opts["safety_identifier"] = req.SafetyIdentifier.Value
+	}
+	if req.ReasoningEffort != "" {
+		opts["reasoning_effort"] = string(req.ReasoningEffort)
+	}
+	if req.Verbosity != "" {
+		opts["verbosity"] = string(req.Verbosity)
+	}
+	if req.ServiceTier != "" {
+		opts["service_tier"] = string(req.ServiceTier)
+	}
+	if len(req.Modalities) > 0 {
+		opts["modalities"] = append([]string{}, req.Modalities...)
+	}
+	if len(req.LogitBias) > 0 {
+		bias := make(map[string]any, len(req.LogitBias))
+		for k, v := range req.LogitBias {
+			bias[k] = v
+		}
+		opts["logit_bias"] = bias
+	}
+	if len(req.Metadata) > 0 {
+		meta := make(map[string]any, len(req.Metadata))
+		for k, v := range req.Metadata {
+			meta[k] = v
+		}
+		opts["metadata"] = meta
+	}
+	if rf := toResponseFormatOption(req.ResponseFormat); rf != nil {
+		opts["response_format"] = rf
+	}
+	if len(opts) == 0 {
+		return nil
+	}
+	return opts
+}
+
+func toResponseFormatOption(format openai.ChatCompletionNewParamsResponseFormatUnion) any {
+	if format.OfText != nil {
+		return "text"
+	}
+	if format.OfJSONObject != nil {
+		return "json_object"
+	}
+	if format.OfJSONSchema == nil {
+		return nil
+	}
+	schema := format.OfJSONSchema.JSONSchema
+	if schema.Name == "" {
+		return nil
+	}
+	jsonSchema := map[string]any{
+		"name": schema.Name,
+	}
+	if schema.Strict.Valid() {
+		jsonSchema["strict"] = schema.Strict.Value
+	}
+	if schema.Description.Valid() {
+		jsonSchema["description"] = schema.Description.Value
+	}
+	if schema.Schema != nil {
+		jsonSchema["schema"] = schema.Schema
+	}
+	return map[string]any{
+		"type":        "json_schema",
+		"json_schema": jsonSchema,
+	}
 }

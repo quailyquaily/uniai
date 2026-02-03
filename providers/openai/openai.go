@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
@@ -109,6 +111,8 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if req.ToolChoice != nil {
 		params.ToolChoice = toToolChoice(req.ToolChoice)
 	}
+
+	applyOpenAIOptions(&params, req.Options.OpenAI)
 
 	return params, nil
 }
@@ -289,4 +293,210 @@ func useMaxCompletionTokens(model string) bool {
 		strings.HasPrefix(model, "o1") ||
 		strings.HasPrefix(model, "o3") ||
 		strings.HasPrefix(model, "o4")
+}
+
+func applyOpenAIOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) {
+	if params == nil || len(opts) == 0 {
+		return
+	}
+	opt := &opts
+	if opt.HasKey("n") {
+		if n := opt.GetInt64("n"); n > 0 {
+			params.N = openai.Int(n)
+		}
+	}
+	if opt.HasKey("seed") {
+		params.Seed = openai.Int(opt.GetInt64("seed"))
+	}
+	if opt.HasKey("logprobs") {
+		params.Logprobs = openai.Bool(opt.GetBool("logprobs"))
+	}
+	if opt.HasKey("top_logprobs") {
+		if top := opt.GetInt64("top_logprobs"); top > 0 {
+			params.TopLogprobs = openai.Int(top)
+		}
+	}
+	if opt.HasKey("parallel_tool_calls") {
+		params.ParallelToolCalls = openai.Bool(opt.GetBool("parallel_tool_calls"))
+	}
+	if opt.HasKey("store") {
+		params.Store = openai.Bool(opt.GetBool("store"))
+	}
+	if opt.HasKey("prompt_cache_key") {
+		if val := strings.TrimSpace(opt.GetString("prompt_cache_key")); val != "" {
+			params.PromptCacheKey = openai.String(val)
+		}
+	}
+	if opt.HasKey("safety_identifier") {
+		if val := strings.TrimSpace(opt.GetString("safety_identifier")); val != "" {
+			params.SafetyIdentifier = openai.String(val)
+		}
+	}
+	if opt.HasKey("reasoning_effort") {
+		if val := strings.TrimSpace(opt.GetString("reasoning_effort")); val != "" {
+			params.ReasoningEffort = shared.ReasoningEffort(val)
+		}
+	}
+	if opt.HasKey("verbosity") {
+		if val := strings.TrimSpace(opt.GetString("verbosity")); val != "" {
+			params.Verbosity = openai.ChatCompletionNewParamsVerbosity(val)
+		}
+	}
+	if opt.HasKey("service_tier") {
+		if val := strings.TrimSpace(opt.GetString("service_tier")); val != "" {
+			params.ServiceTier = openai.ChatCompletionNewParamsServiceTier(val)
+		}
+	}
+	if opt.HasKey("modalities") {
+		if modalities := opt.GetStringArray("modalities"); len(modalities) > 0 {
+			params.Modalities = append([]string{}, modalities...)
+		}
+	}
+	if opt.HasKey("logit_bias") {
+		if bias := parseLogitBias((*opt)["logit_bias"]); len(bias) > 0 {
+			params.LogitBias = bias
+		}
+	}
+	if opt.HasKey("metadata") {
+		if meta := parseStringMap((*opt)["metadata"]); len(meta) > 0 {
+			params.Metadata = shared.Metadata(meta)
+		}
+	}
+	if opt.HasKey("response_format") {
+		applyResponseFormat(params, (*opt)["response_format"])
+	}
+}
+
+func applyResponseFormat(params *openai.ChatCompletionNewParams, value any) {
+	switch v := value.(type) {
+	case string:
+		setResponseFormatByType(params, v, nil)
+	case map[string]any:
+		setResponseFormatByType(params, "", v)
+	case structs.JSONMap:
+		setResponseFormatByType(params, "", map[string]any(v))
+	}
+}
+
+func setResponseFormatByType(params *openai.ChatCompletionNewParams, typeName string, payload map[string]any) {
+	if params == nil {
+		return
+	}
+	typ := strings.ToLower(strings.TrimSpace(typeName))
+	if typ == "" && payload != nil {
+		if raw, ok := payload["type"]; ok {
+			if s, ok := raw.(string); ok {
+				typ = strings.ToLower(strings.TrimSpace(s))
+			}
+		}
+	}
+	switch typ {
+	case "text":
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfText: &shared.ResponseFormatTextParam{Type: "text"},
+		}
+	case "json_object":
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONObject: &shared.ResponseFormatJSONObjectParam{Type: "json_object"},
+		}
+	case "json_schema":
+		schemaPayload := payload
+		if payload != nil {
+			if raw, ok := payload["json_schema"]; ok {
+				switch s := raw.(type) {
+				case map[string]any:
+					schemaPayload = s
+				case structs.JSONMap:
+					schemaPayload = map[string]any(s)
+				}
+			}
+		}
+		if schemaPayload == nil {
+			return
+		}
+		name, _ := schemaPayload["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		jsonSchema := shared.ResponseFormatJSONSchemaJSONSchemaParam{
+			Name: name,
+		}
+		if raw, ok := schemaPayload["strict"]; ok {
+			if strict, ok := raw.(bool); ok {
+				jsonSchema.Strict = openai.Bool(strict)
+			}
+		}
+		if raw, ok := schemaPayload["description"]; ok {
+			if desc, ok := raw.(string); ok && strings.TrimSpace(desc) != "" {
+				jsonSchema.Description = openai.String(desc)
+			}
+		}
+		if raw, ok := schemaPayload["schema"]; ok {
+			jsonSchema.Schema = raw
+		}
+		params.ResponseFormat = openai.ChatCompletionNewParamsResponseFormatUnion{
+			OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{JSONSchema: jsonSchema},
+		}
+	}
+}
+
+func parseLogitBias(value any) map[string]int64 {
+	out := map[string]int64{}
+	switch m := value.(type) {
+	case map[string]any:
+		for k, v := range m {
+			if val, ok := toInt64(v); ok {
+				out[k] = val
+			}
+		}
+	case structs.JSONMap:
+		for k, v := range m {
+			if val, ok := toInt64(v); ok {
+				out[k] = val
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseStringMap(value any) map[string]string {
+	out := map[string]string{}
+	switch m := value.(type) {
+	case map[string]any:
+		for k, v := range m {
+			out[k] = fmt.Sprint(v)
+		}
+	case structs.JSONMap:
+		for k, v := range m {
+			out[k] = fmt.Sprint(v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func toInt64(value any) (int64, bool) {
+	switch v := value.(type) {
+	case int:
+		return int64(v), true
+	case int64:
+		return v, true
+	case float64:
+		return int64(v), true
+	case json.Number:
+		if val, err := v.Int64(); err == nil {
+			return val, true
+		}
+	case string:
+		if val, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return val, true
+		}
+	}
+	return 0, false
 }

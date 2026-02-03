@@ -1,6 +1,10 @@
 package chat
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/lyricat/goutils/structs"
+)
 
 const (
 	RoleSystem    = "system"
@@ -53,13 +57,18 @@ func ToolChoiceFunction(name string) ToolChoice {
 }
 
 type Options struct {
-	Temperature      *float64 `json:"temperature,omitempty"`
-	TopP             *float64 `json:"top_p,omitempty"`
-	MaxTokens        *int     `json:"max_tokens,omitempty"`
-	Stop             []string `json:"stop,omitempty"`
-	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
-	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
-	User             *string  `json:"user,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"top_p,omitempty"`
+	MaxTokens        *int            `json:"max_tokens,omitempty"`
+	Stop             []string        `json:"stop,omitempty"`
+	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
+	User             *string         `json:"user,omitempty"`
+	OpenAI           structs.JSONMap `json:"openai_options,omitempty"`
+	Azure            structs.JSONMap `json:"azure_options,omitempty"`
+	Anthropic        structs.JSONMap `json:"anthropic_options,omitempty"`
+	Bedrock          structs.JSONMap `json:"bedrock_options,omitempty"`
+	Susanoo          structs.JSONMap `json:"susanoo_options,omitempty"`
 }
 
 type Request struct {
@@ -152,6 +161,26 @@ func WithFrequencyPenalty(v float64) Option {
 
 func WithUser(user string) Option {
 	return func(r *Request) { r.Options.User = &user }
+}
+
+func WithOpenAIOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.OpenAI = opts }
+}
+
+func WithAzureOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.Azure = opts }
+}
+
+func WithAnthropicOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.Anthropic = opts }
+}
+
+func WithBedrockOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.Bedrock = opts }
+}
+
+func WithSusanooOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.Susanoo = opts }
 }
 
 func WithTools(tools []Tool) Option {
