@@ -40,3 +40,22 @@ type Config struct {
 	GeminiAPIKey  string
 	GeminiAPIBase string
 }
+
+const (
+	DefaultOpenAIAPIBase = "https://api.openai.com/v1"
+	DefaultJinaAPIBase   = "https://api.jina.ai"
+	DefaultGeminiAPIBase = "https://generativelanguage.googleapis.com"
+)
+
+func (cfg Config) withDefaults() Config {
+	if cfg.OpenAIAPIBase == "" {
+		cfg.OpenAIAPIBase = DefaultOpenAIAPIBase
+	}
+	if cfg.JinaAPIBase == "" {
+		cfg.JinaAPIBase = DefaultJinaAPIBase
+	}
+	if cfg.GeminiAPIBase == "" {
+		cfg.GeminiAPIBase = DefaultGeminiAPIBase
+	}
+	return cfg
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -63,14 +64,30 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("bedrock model arn is required")
 	}
 
+	systemParts := make([]string, 0, 1)
 	messages := make([]bedrockMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
-		messages = append(messages, bedrockMessage{
-			Role: m.Role,
-			Content: []bedrockMsgContent{
-				{Type: "text", Text: m.Content},
-			},
-		})
+		switch m.Role {
+		case chat.RoleSystem:
+			if m.Content != "" {
+				systemParts = append(systemParts, m.Content)
+			}
+		case chat.RoleUser, chat.RoleAssistant:
+			if m.Content == "" {
+				continue
+			}
+			messages = append(messages, bedrockMessage{
+				Role: m.Role,
+				Content: []bedrockMsgContent{
+					{Type: "text", Text: m.Content},
+				},
+			})
+		default:
+			return nil, fmt.Errorf("bedrock provider does not support role %q", m.Role)
+		}
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("at least one user or assistant message is required")
 	}
 
 	maxTokens := 10000
@@ -82,6 +99,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		"anthropic_version": "bedrock-2023-05-31",
 		"max_tokens":        maxTokens,
 		"messages":          messages,
+	}
+	if len(systemParts) > 0 {
+		payload["system"] = strings.Join(systemParts, "\n")
 	}
 
 	body, err := json.Marshal(payload)

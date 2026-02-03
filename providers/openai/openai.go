@@ -183,7 +183,8 @@ func toResult(resp openai.ChatCompletionResponse) *chat.Result {
 
 func useMaxCompletionTokens(model string) bool {
 	model = strings.ToLower(model)
-	return strings.HasPrefix(model, "o1") ||
+	return strings.HasPrefix(model, "gpt") ||
+		strings.HasPrefix(model, "o1") ||
 		strings.HasPrefix(model, "o3") ||
 		strings.HasPrefix(model, "o4")
 }

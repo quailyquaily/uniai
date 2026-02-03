@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -74,6 +75,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			}
 			continue
 		}
+		if m.Role != chat.RoleUser && m.Role != chat.RoleAssistant {
+			return nil, fmt.Errorf("anthropic provider does not support role %q", m.Role)
+		}
 		messages = append(messages, anthropicMessage{
 			Role: m.Role,
 			Content: []anthropicContentPart{
@@ -118,12 +122,16 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	defer resp.Body.Close()
 
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("anthropic api error: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respData)))
 	}
 
 	var out anthropicResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(respData, &out); err != nil {
 		return nil, err
 	}
 

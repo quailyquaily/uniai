@@ -11,42 +11,49 @@ import (
 )
 
 func TestChatEchoJSON(t *testing.T) {
-	cfg, provider, model, ok := pickChatConfig()
-	if !ok {
+	configs := pickChatConfigs()
+	if len(configs) == 0 {
 		t.Skip("no chat provider env configured")
 	}
 
-	client := New(cfg)
 	payload := `{"ok":true,"echo":"ping"}`
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+	for _, tc := range configs {
+		tc := tc
+		t.Run(tc.provider, func(t *testing.T) {
+			client := New(tc.cfg)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
 
-	resp, err := client.Chat(ctx,
-		WithProvider(provider),
-		WithModel(model),
-		WithMessages(
-			System("Return exactly the JSON object from the user message, and nothing else."),
-			User("echo json: "+payload),
-		),
-		WithTemperature(0),
-	)
-	if err != nil {
-		t.Fatalf("chat failed: %v", err)
-	}
-	if resp == nil || strings.TrimSpace(resp.Text) == "" {
-		t.Fatalf("empty chat response")
-	}
+			t.Logf("chat provider=%s model=%s", tc.provider, tc.model)
+			resp, err := client.Chat(ctx,
+				WithProvider(tc.provider),
+				WithModel(tc.model),
+				WithMessages(
+					System("Return exactly the JSON object from the user message, and nothing else."),
+					User("echo json: "+payload),
+				),
+				WithTemperature(0),
+			)
+			if err != nil {
+				t.Fatalf("chat failed: %v", err)
+			}
+			if resp == nil || strings.TrimSpace(resp.Text) == "" {
+				t.Fatalf("empty chat response")
+			}
+			t.Logf("chat response length=%d", len(resp.Text))
 
-	obj, err := parseJSONObject(resp.Text)
-	if err != nil {
-		t.Fatalf("expected JSON response, got: %q (err: %v)", resp.Text, err)
-	}
-	if okVal, ok := obj["ok"].(bool); !ok || !okVal {
-		t.Fatalf("expected ok=true, got: %#v", obj["ok"])
-	}
-	if obj["echo"] != "ping" {
-		t.Fatalf("expected echo=ping, got: %#v", obj["echo"])
+			obj, err := parseJSONObject(resp.Text)
+			if err != nil {
+				t.Fatalf("expected JSON response, got: %q (err: %v)", resp.Text, err)
+			}
+			if okVal, ok := obj["ok"].(bool); !ok || !okVal {
+				t.Fatalf("expected ok=true, got: %#v", obj["ok"])
+			}
+			if obj["echo"] != "ping" {
+				t.Fatalf("expected echo=ping, got: %#v", obj["echo"])
+			}
+		})
 	}
 }
 
@@ -149,113 +156,144 @@ func TestOtherFeatures(t *testing.T) {
 	})
 }
 
-func pickChatConfig() (Config, string, string, bool) {
+type chatConfig struct {
+	provider string
+	model    string
+	cfg      Config
+}
+
+func pickChatConfigs() []chatConfig {
+	var out []chatConfig
 	if key := env("TEST_OPENAI_CUSTOM_API_KEY"); key != "" {
 		model := env("TEST_OPENAI_CUSTOM_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "openai_custom",
+				model:    model,
+				cfg: Config{
+					Provider:      "openai_custom",
+					OpenAIAPIKey:  key,
+					OpenAIAPIBase: env("TEST_OPENAI_CUSTOM_API_BASE"),
+					OpenAIModel:   model,
+				},
+			})
 		}
-		return Config{
-			Provider:      "openai_custom",
-			OpenAIAPIKey:  key,
-			OpenAIAPIBase: env("TEST_OPENAI_CUSTOM_API_BASE"),
-			OpenAIModel:   model,
-		}, "openai_custom", model, true
 	}
 
 	if key := env("TEST_OPENAI_API_KEY"); key != "" {
 		model := env("TEST_OPENAI_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "openai",
+				model:    model,
+				cfg: Config{
+					Provider:      "openai",
+					OpenAIAPIKey:  key,
+					OpenAIAPIBase: env("TEST_OPENAI_API_BASE"),
+					OpenAIModel:   model,
+				},
+			})
 		}
-		return Config{
-			Provider:      "openai",
-			OpenAIAPIKey:  key,
-			OpenAIAPIBase: env("TEST_OPENAI_API_BASE"),
-			OpenAIModel:   model,
-		}, "openai", model, true
 	}
 
 	if key := env("TEST_GEMINI_API_KEY"); key != "" {
 		model := env("TEST_GEMINI_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "gemini",
+				model:    model,
+				cfg: Config{
+					Provider:      "gemini",
+					GeminiAPIKey:  key,
+					GeminiAPIBase: env("TEST_GEMINI_API_BASE"),
+					OpenAIModel:   model,
+				},
+			})
 		}
-		return Config{
-			Provider:      "gemini",
-			OpenAIAPIKey:  key,
-			OpenAIAPIBase: env("TEST_GEMINI_API_BASE"),
-			OpenAIModel:   model,
-		}, "gemini", model, true
 	}
 
 	if key := env("TEST_XAI_API_KEY"); key != "" {
 		model := env("TEST_XAI_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "xai",
+				model:    model,
+				cfg: Config{
+					Provider:     "xai",
+					OpenAIAPIKey: key,
+					OpenAIModel:  model,
+				},
+			})
 		}
-		return Config{
-			Provider:     "xai",
-			OpenAIAPIKey: key,
-			OpenAIModel:  model,
-		}, "xai", model, true
 	}
 
 	if key := env("TEST_DEEPSEEK_API_KEY"); key != "" {
 		model := env("TEST_DEEPSEEK_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "deepseek",
+				model:    model,
+				cfg: Config{
+					Provider:     "deepseek",
+					OpenAIAPIKey: key,
+					OpenAIModel:  model,
+				},
+			})
 		}
-		return Config{
-			Provider:     "deepseek",
-			OpenAIAPIKey: key,
-			OpenAIModel:  model,
-		}, "deepseek", model, true
 	}
 
 	if key := env("TEST_AZURE_API_KEY"); key != "" {
 		endpoint := env("TEST_AZURE_ENDPOINT")
 		model := env("TEST_AZURE_MODEL")
-		if endpoint == "" || model == "" {
-			return Config{}, "", "", false
+		if endpoint != "" && model != "" {
+			out = append(out, chatConfig{
+				provider: "azure",
+				model:    model,
+				cfg: Config{
+					Provider:            "azure",
+					AzureOpenAIAPIKey:   key,
+					AzureOpenAIEndpoint: endpoint,
+					AzureOpenAIModel:    model,
+				},
+			})
 		}
-		return Config{
-			Provider:            "azure",
-			AzureOpenAIAPIKey:   key,
-			AzureOpenAIEndpoint: endpoint,
-			AzureOpenAIModel:    model,
-		}, "azure", model, true
 	}
 
 	if key := env("TEST_ANTHROPIC_API_KEY"); key != "" {
 		model := env("TEST_ANTHROPIC_MODEL")
-		if model == "" {
-			return Config{}, "", "", false
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "anthropic",
+				model:    model,
+				cfg: Config{
+					Provider:        "anthropic",
+					AnthropicAPIKey: key,
+					AnthropicModel:  model,
+				},
+			})
 		}
-		return Config{
-			Provider:        "anthropic",
-			AnthropicAPIKey: key,
-			AnthropicModel:  model,
-		}, "anthropic", model, true
 	}
 
 	if key := env("TEST_BEDROCK_AWS_KEY"); key != "" {
 		secret := env("TEST_BEDROCK_AWS_SECRET")
 		region := env("TEST_BEDROCK_AWS_REGION")
 		arn := env("TEST_BEDROCK_MODEL_ARN")
-		if secret == "" || arn == "" {
-			return Config{}, "", "", false
+		if secret != "" && arn != "" {
+			out = append(out, chatConfig{
+				provider: "bedrock",
+				model:    arn,
+				cfg: Config{
+					Provider:           "bedrock",
+					AwsKey:             key,
+					AwsSecret:          secret,
+					AwsRegion:          region,
+					AwsBedrockModelArn: arn,
+				},
+			})
 		}
-		return Config{
-			Provider:           "bedrock",
-			AwsKey:             key,
-			AwsSecret:          secret,
-			AwsRegion:          region,
-			AwsBedrockModelArn: arn,
-		}, "bedrock", arn, true
 	}
 
-	return Config{}, "", "", false
+	return out
 }
 
 func pickEmbeddingConfig() (Config, string, string, bool) {

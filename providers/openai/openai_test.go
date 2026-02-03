@@ -47,8 +47,8 @@ func TestBuildRequestMapping(t *testing.T) {
 	if payload.Temperature != float32(temp) || payload.TopP != float32(topP) {
 		t.Fatalf("temperature/top_p mismatch")
 	}
-	if payload.MaxTokens != maxTokens {
-		t.Fatalf("max tokens mismatch")
+	if payload.MaxCompletionTokens != maxTokens {
+		t.Fatalf("max completion tokens mismatch")
 	}
 	if len(payload.Stop) != 1 || payload.Stop[0] != "END" {
 		t.Fatalf("stop mismatch")

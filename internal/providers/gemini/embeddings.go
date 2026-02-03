@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/lyricat/goutils/structs"
 )
@@ -65,13 +66,8 @@ func CreateEmbeddings(ctx context.Context, token, base string, inputs []string, 
 		return nil, err
 	}
 
-	if base == "" {
-		base = geminiAPIBase
-	}
+	base = normalizeGeminiBase(base)
 	url := fmt.Sprintf("%s/v1beta/models/gemini-embedding-001:embedContent", base)
-
-	fmt.Printf("url: %s\n", url)
-	fmt.Printf("data: %s\n", string(data))
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
 	if err != nil {
@@ -112,6 +108,22 @@ func CreateEmbeddings(ctx context.Context, token, base string, inputs []string, 
 	}
 
 	return json.Marshal(output)
+}
+
+func normalizeGeminiBase(base string) string {
+	if base == "" {
+		return geminiAPIBase
+	}
+	trimmed := strings.TrimRight(base, "/")
+	if idx := strings.Index(trimmed, "/openai"); idx >= 0 {
+		trimmed = trimmed[:idx]
+		trimmed = strings.TrimRight(trimmed, "/")
+	}
+	trimmed = strings.TrimSuffix(trimmed, "/v1beta")
+	if trimmed == "" {
+		return geminiAPIBase
+	}
+	return trimmed
 }
 
 func loadGeminiEmbeddingsInput(dst *geminiCreateEmbeddingsInput, inputs []string, options structs.JSONMap) {

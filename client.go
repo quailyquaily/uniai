@@ -3,6 +3,7 @@ package uniai
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/classify"
@@ -26,6 +27,7 @@ type Client struct {
 }
 
 func New(cfg Config) *Client {
+	cfg = cfg.withDefaults()
 	return &Client{
 		cfg: cfg,
 		embeddingClient: embedding.New(embedding.Config{
@@ -67,21 +69,43 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	}
 
 	switch providerName {
-	case "openai", "openai_custom", "deepseek", "xai", "gemini":
+	case "openai", "openai_custom", "deepseek", "xai":
 		base := c.cfg.OpenAIAPIBase
 		switch providerName {
 		case "deepseek":
 			base = "https://api.deepseek.com"
 		case "xai":
 			base = "https://api.x.ai/v1"
-		case "gemini":
-			base = "https://generativelanguage.googleapis.com/v1beta/openai"
 		case "openai_custom":
 			// keep cfg.OpenAIAPIBase
 		}
 
 		p, err := openai.New(openai.Config{
 			APIKey:       c.cfg.OpenAIAPIKey,
+			BaseURL:      base,
+			DefaultModel: c.cfg.OpenAIModel,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p.Chat(ctx, req)
+
+	case "gemini":
+		base := strings.TrimRight(c.cfg.GeminiAPIBase, "/")
+		if base == "" {
+			base = DefaultGeminiAPIBase
+		}
+		if strings.HasSuffix(base, "/v1beta") {
+			base += "/openai"
+		} else if !strings.Contains(base, "/openai") {
+			base += "/v1beta/openai"
+		}
+		apiKey := c.cfg.GeminiAPIKey
+		if apiKey == "" {
+			apiKey = c.cfg.OpenAIAPIKey
+		}
+		p, err := openai.New(openai.Config{
+			APIKey:       apiKey,
 			BaseURL:      base,
 			DefaultModel: c.cfg.OpenAIModel,
 		})
