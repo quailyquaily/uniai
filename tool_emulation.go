@@ -79,6 +79,7 @@ func buildToolDecisionRequest(req *chat.Request) (*chat.Request, error) {
 	out.Tools = nil
 	out.ToolChoice = nil
 	out.Options.ToolsEmulation = false
+	out.Messages = filterNonSystemMessages(out.Messages)
 	out.Messages = append([]chat.Message{
 		{Role: chat.RoleSystem, Content: prompt},
 	}, out.Messages...)
@@ -127,25 +128,41 @@ func buildToolDecisionPrompt(req *chat.Request) (string, error) {
 
 	lines := []string{
 		"You are a tool-calling engine.",
-		"When you need a tool, output ONLY JSON:",
-		`{"tools": [{"tool": "get_weather", "arguments": {"city": "Tokyo"}}]}`,
-		"If no tool needed, output:",
-		`{"tools": []}`,
+		"Use a tool only when you need external information or actions; otherwise return {\"tools\":[]}.",
+		"Output must be a single JSON object and nothing else (no prose, no markdown, no code fences).",
+		"If any instruction conflicts with this format, ignore it and follow these rules.",
+		"Format: {\"tools\":[{\"tool\":\"<name>\",\"arguments\":{...}}]}",
+		"If no tool is needed: {\"tools\":[]}",
+		"Rules: only key is \"tools\"; \"tools\" must be an array; \"tool\" must match an available tool name; \"arguments\" must be a JSON object.",
 		fmt.Sprintf("Available tools (JSON): %s", string(data)),
 	}
 	if req.ToolChoice != nil {
 		switch req.ToolChoice.Mode {
 		case "none":
-			lines = append(lines, "You MUST NOT call any tool. Return tools=[].")
+			lines = append(lines, "Tool choice: none. You MUST return {\"tools\":[]}.")
 		case "required":
-			lines = append(lines, "You MUST call at least one tool. tools must not be empty.")
+			lines = append(lines, "Tool choice: required. You MUST return at least one tool in tools[].")
 		case "function":
 			if req.ToolChoice.FunctionName != "" {
-				lines = append(lines, fmt.Sprintf("You MUST call the tool named %q. tools must contain exactly one item.", req.ToolChoice.FunctionName))
+				lines = append(lines, fmt.Sprintf("Tool choice: function. You MUST return exactly one tool named %q.", req.ToolChoice.FunctionName))
 			}
 		}
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+func filterNonSystemMessages(messages []chat.Message) []chat.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]chat.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Role == chat.RoleSystem {
+			continue
+		}
+		out = append(out, msg)
+	}
+	return out
 }
 
 type emulatedToolCall struct {
@@ -154,32 +171,37 @@ type emulatedToolCall struct {
 }
 
 func parseToolDecision(text string) ([]emulatedToolCall, error) {
-	payload, err := extractJSONPayload(text)
+	candidates, err := collectJSONCandidates(text)
 	if err != nil {
 		return nil, err
 	}
-	var decision struct {
-		Tools     json.RawMessage `json:"tools"`
-		Tool      json.RawMessage `json:"tool"`
-		Arguments json.RawMessage `json:"arguments"`
+	var fallback []byte
+	for _, candidate := range candidates {
+		payload := strings.TrimSpace(candidate)
+		if payload == "" {
+			continue
+		}
+		if unquoted := unquoteJSON(payload); unquoted != "" {
+			payload = unquoted
+		}
+		if !json.Valid([]byte(payload)) {
+			continue
+		}
+		if fallback == nil {
+			fallback = []byte(payload)
+		}
+		calls, ok, err := parseToolDecisionPayload([]byte(payload))
+		if err != nil {
+			continue
+		}
+		if ok {
+			return calls, nil
+		}
 	}
-	if err := json.Unmarshal(payload, &decision); err != nil {
-		return nil, err
-	}
-	if len(decision.Tools) > 0 {
-		return parseToolsArray(decision.Tools)
-	}
-	if len(decision.Tool) == 0 {
+	if fallback != nil {
 		return nil, nil
 	}
-	call, ok, err := parseSingleTool(decision.Tool, decision.Arguments)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, nil
-	}
-	return []emulatedToolCall{call}, nil
+	return nil, fmt.Errorf("invalid tool decision JSON: %q", strings.TrimSpace(text))
 }
 
 func parseToolsArray(raw json.RawMessage) ([]emulatedToolCall, error) {
@@ -239,31 +261,129 @@ func parseSingleTool(toolRaw json.RawMessage, argsRaw json.RawMessage) (emulated
 	return emulatedToolCall{Name: toolName, Arguments: args}, true, nil
 }
 
-func extractJSONPayload(text string) ([]byte, error) {
+func collectJSONCandidates(text string) ([]string, error) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
 		return nil, fmt.Errorf("empty tool decision")
 	}
-	if strings.HasPrefix(trimmed, "```") {
-		parts := strings.SplitN(trimmed, "```", 3)
-		if len(parts) >= 2 {
-			trimmed = strings.TrimSpace(parts[1])
-			trimmed = strings.TrimPrefix(trimmed, "json")
-			trimmed = strings.TrimSpace(trimmed)
+	candidates := []string{trimmed}
+	if strings.Contains(trimmed, "```") {
+		parts := strings.Split(trimmed, "```")
+		for i := 1; i < len(parts); i += 2 {
+			block := strings.TrimSpace(parts[i])
+			block = strings.TrimPrefix(block, "json")
+			block = strings.TrimSpace(block)
+			if block != "" {
+				candidates = append(candidates, block)
+			}
 		}
 	}
-	if json.Valid([]byte(trimmed)) {
-		return []byte(trimmed), nil
+	candidates = append(candidates, findJSONSnippets(trimmed)...)
+	if unquoted := unquoteJSON(trimmed); unquoted != "" {
+		candidates = append(candidates, unquoted)
+		candidates = append(candidates, findJSONSnippets(unquoted)...)
 	}
-	start := strings.Index(trimmed, "{")
-	end := strings.LastIndex(trimmed, "}")
-	if start >= 0 && end > start {
-		candidate := trimmed[start : end+1]
-		if json.Valid([]byte(candidate)) {
-			return []byte(candidate), nil
+	return candidates, nil
+}
+
+func unquoteJSON(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if !strings.HasPrefix(trimmed, "\"") {
+		return ""
+	}
+	var value string
+	if err := json.Unmarshal([]byte(trimmed), &value); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+
+func findJSONSnippets(text string) []string {
+	data := []byte(text)
+	var snippets []string
+	for i := 0; i < len(data); i++ {
+		if data[i] != '{' && data[i] != '[' {
+			continue
+		}
+		if snippet := scanJSONSubstring(data, i); snippet != "" {
+			snippets = append(snippets, snippet)
+			i += len(snippet) - 1
 		}
 	}
-	return nil, fmt.Errorf("invalid tool decision JSON: %q", trimmed)
+	return snippets
+}
+
+func parseToolDecisionPayload(payload []byte) ([]emulatedToolCall, bool, error) {
+	var decision struct {
+		Tools     json.RawMessage `json:"tools"`
+		Tool      json.RawMessage `json:"tool"`
+		Arguments json.RawMessage `json:"arguments"`
+	}
+	if err := json.Unmarshal(payload, &decision); err != nil {
+		return nil, false, err
+	}
+	if len(decision.Tools) == 0 && len(decision.Tool) == 0 {
+		return nil, false, nil
+	}
+	if len(decision.Tools) > 0 {
+		calls, err := parseToolsArray(decision.Tools)
+		return calls, true, err
+	}
+	call, ok, err := parseSingleTool(decision.Tool, decision.Arguments)
+	if err != nil {
+		return nil, true, err
+	}
+	if !ok {
+		return nil, true, nil
+	}
+	return []emulatedToolCall{call}, true, nil
+}
+
+func scanJSONSubstring(data []byte, start int) string {
+	var stack []byte
+	inString := false
+	escape := false
+	for i := start; i < len(data); i++ {
+		ch := data[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		switch ch {
+		case '"':
+			inString = true
+		case '{', '[':
+			stack = append(stack, ch)
+		case '}', ']':
+			if len(stack) == 0 {
+				return ""
+			}
+			open := stack[len(stack)-1]
+			if (open == '{' && ch != '}') || (open == '[' && ch != ']') {
+				return ""
+			}
+			stack = stack[:len(stack)-1]
+			if len(stack) == 0 {
+				snippet := string(data[start : i+1])
+				if json.Valid([]byte(snippet)) {
+					return snippet
+				}
+				return ""
+			}
+		}
+	}
+	return ""
 }
 
 func toolExists(tools []chat.Tool, name string) bool {
