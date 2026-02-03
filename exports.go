@@ -1,6 +1,7 @@
 package uniai
 
 import (
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/classify"
 	"github.com/quailyquaily/uniai/embedding"
@@ -42,8 +43,23 @@ func WithPresencePenalty(v float64) ChatOption       { return chat.WithPresenceP
 func WithFrequencyPenalty(v float64) ChatOption      { return chat.WithFrequencyPenalty(v) }
 func WithUser(user string) ChatOption                { return chat.WithUser(user) }
 func WithToolsEmulation(enabled bool) ChatOption     { return chat.WithToolsEmulation(enabled) }
-func WithTools(tools []Tool) ChatOption              { return chat.WithTools(tools) }
-func WithToolChoice(choice ToolChoice) ChatOption    { return chat.WithToolChoice(choice) }
+func WithOpenAIOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithOpenAIOptions(opts)
+}
+func WithAzureOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithAzureOptions(opts)
+}
+func WithAnthropicOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithAnthropicOptions(opts)
+}
+func WithBedrockOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithBedrockOptions(opts)
+}
+func WithSusanooOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithSusanooOptions(opts)
+}
+func WithTools(tools []Tool) ChatOption           { return chat.WithTools(tools) }
+func WithToolChoice(choice ToolChoice) ChatOption { return chat.WithToolChoice(choice) }
 
 func System(text string) Message                    { return chat.System(text) }
 func User(text string) Message                      { return chat.User(text) }
