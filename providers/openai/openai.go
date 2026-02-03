@@ -12,17 +12,20 @@ import (
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/diag"
 )
 
 type Config struct {
 	APIKey       string
 	BaseURL      string
 	DefaultModel string
+	Debug        bool
 }
 
 type Provider struct {
 	client       openai.Client
 	defaultModel string
+	debug        bool
 }
 
 func New(cfg Config) (*Provider, error) {
@@ -37,6 +40,7 @@ func New(cfg Config) (*Provider, error) {
 	return &Provider{
 		client:       openai.NewClient(opts...),
 		defaultModel: cfg.DefaultModel,
+		debug:        cfg.Debug,
 	}, nil
 }
 
@@ -45,9 +49,19 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
+	if p.debug {
+		diag.LogJSON(true, "openai.chat.request", params)
+	}
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, err
+	}
+	if p.debug {
+		if raw := resp.RawJSON(); raw != "" {
+			diag.LogText(true, "openai.chat.response", raw)
+		} else {
+			diag.LogJSON(true, "openai.chat.response", resp)
+		}
 	}
 	return toResult(resp), nil
 }

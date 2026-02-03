@@ -57,6 +57,62 @@ func TestChatEchoJSON(t *testing.T) {
 	}
 }
 
+func TestChatToolCalling(t *testing.T) {
+	configs := pickChatConfigs()
+	if len(configs) == 0 {
+		t.Skip("no chat provider env configured")
+	}
+
+	toolSchema := []byte(`{
+		"type": "object",
+		"properties": { "city": { "type": "string" } },
+		"required": ["city"]
+	}`)
+
+	for _, tc := range configs {
+		tc := tc
+		t.Run(tc.provider, func(t *testing.T) {
+			client := New(tc.cfg)
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			resp, err := client.Chat(ctx,
+				WithProvider(tc.provider),
+				WithModel(tc.model),
+				WithMessages(
+					System("You must call the tool. Do not answer with text."),
+					User("What's the weather in Tokyo?"),
+				),
+				WithTools([]Tool{
+					FunctionTool("get_weather", "Get current weather", toolSchema),
+				}),
+				WithToolChoice(ToolChoiceFunction("get_weather")),
+				WithToolsEmulation(true),
+				WithTemperature(0),
+			)
+
+			fmt.Printf("\n\n%s - Response: %+v\n\n", tc.provider, resp)
+
+			if err != nil {
+				t.Fatalf("chat failed: %v", err)
+			}
+			if resp == nil || len(resp.ToolCalls) == 0 {
+				t.Fatalf("expected tool calls, got: %#v", resp)
+			}
+			if resp.ToolCalls[0].Function.Name != "get_weather" {
+				t.Fatalf("unexpected tool name: %s", resp.ToolCalls[0].Function.Name)
+			}
+			var args map[string]any
+			if err := json.Unmarshal([]byte(resp.ToolCalls[0].Function.Arguments), &args); err != nil {
+				t.Fatalf("invalid tool arguments: %v", err)
+			}
+			if city, ok := args["city"].(string); !ok || strings.TrimSpace(city) == "" {
+				t.Fatalf("expected city argument, got: %#v", args["city"])
+			}
+		})
+	}
+}
+
 func TestOtherFeatures(t *testing.T) {
 	t.Run("embedding", func(t *testing.T) {
 		cfg, provider, model, ok := pickEmbeddingConfig()

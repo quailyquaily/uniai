@@ -63,13 +63,9 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 	resp := &chat.Result{
 		Model:     decisionResp.Model,
 		ToolCalls: calls,
-		Messages: []chat.Message{{
-			Role:      chat.RoleAssistant,
-			ToolCalls: calls,
-		}},
-		Usage:    decisionResp.Usage,
-		Raw:      decisionResp.Raw,
-		Warnings: []string{"tool calls emulated"},
+		Usage:     decisionResp.Usage,
+		Raw:       decisionResp.Raw,
+		Warnings:  []string{"tool calls emulated"},
 	}
 	return resp, nil
 }

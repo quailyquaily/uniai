@@ -97,6 +97,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      base,
 			DefaultModel: c.cfg.OpenAIModel,
+			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
 			return nil, err
@@ -121,6 +122,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:       apiKey,
 			BaseURL:      base,
 			DefaultModel: c.cfg.OpenAIModel,
+			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
 			return nil, err
@@ -132,6 +134,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:     c.cfg.AzureOpenAIAPIKey,
 			Endpoint:   c.cfg.AzureOpenAIEndpoint,
 			Deployment: c.cfg.AzureOpenAIModel,
+			Debug:      c.cfg.Debug,
 		})
 		if err != nil {
 			return nil, err
@@ -142,6 +145,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		p := anthropic.New(anthropic.Config{
 			APIKey:       c.cfg.AnthropicAPIKey,
 			DefaultModel: c.cfg.AnthropicModel,
+			Debug:        c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
 
@@ -151,6 +155,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			AwsSecret: c.cfg.AwsSecret,
 			AwsRegion: c.cfg.AwsRegion,
 			ModelArn:  c.cfg.AwsBedrockModelArn,
+			Debug:     c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
 
@@ -158,6 +163,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		p := susanoo.New(susanoo.Config{
 			APIBase: c.cfg.SusanooAPIBase,
 			APIKey:  c.cfg.SusanooAPIKey,
+			Debug:   c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
 

@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/bedrockruntime/bedrockruntimeiface"
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/diag"
 )
 
 type Config struct {
@@ -20,11 +21,13 @@ type Config struct {
 	AwsSecret string
 	AwsRegion string
 	ModelArn  string
+	Debug     bool
 }
 
 type Provider struct {
 	client   bedrockruntimeiface.BedrockRuntimeAPI
 	modelArn string
+	debug    bool
 }
 
 func New(cfg Config) *Provider {
@@ -39,6 +42,7 @@ func New(cfg Config) *Provider {
 	return &Provider{
 		client:   bedrockruntime.New(sess),
 		modelArn: cfg.ModelArn,
+		debug:    cfg.Debug,
 	}
 }
 
@@ -110,6 +114,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
+	if p.debug {
+		diag.LogText(true, "bedrock.chat.request", string(body))
+	}
 
 	resp, err := p.client.InvokeModelWithContext(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(p.modelArn),
@@ -124,6 +131,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	var out bedrockResponse
 	if err := json.Unmarshal(resp.Body, &out); err != nil {
 		return nil, err
+	}
+	if p.debug {
+		diag.LogText(true, "bedrock.chat.response", string(resp.Body))
 	}
 
 	text := ""

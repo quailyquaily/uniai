@@ -195,6 +195,18 @@ All configuration is provided via `uniai.Config`. Only the fields required for t
 - Susanoo: `SusanooAPIBase`, `SusanooAPIKey`
 - Embeddings/Rerank/Classify (Jina): `JinaAPIKey`, `JinaAPIBase`
 - Gemini: `GeminiAPIKey`, `GeminiAPIBase`
+- Debug logging: `Debug` (prints request/response payloads for chat providers)
+
+Example:
+
+```go
+client := uniai.New(uniai.Config{
+    Provider:     "openai",
+    OpenAIAPIKey: "...",
+    OpenAIModel:  "gpt-5.2",
+    Debug:        true,
+})
+```
 
 ## Development
 

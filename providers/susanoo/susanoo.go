@@ -6,15 +6,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/diag"
 )
 
 type Config struct {
 	APIBase string
 	APIKey  string
+	Debug   bool
 }
 
 type Provider struct {
@@ -98,6 +101,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
+	if p.cfg.Debug {
+		diag.LogJSON(true, "susanoo.chat.response", result)
+	}
 
 	text := ""
 	if val, ok := result.Data.Result["response"]; ok {
@@ -122,6 +128,9 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest) (string, e
 	if err != nil {
 		return "", err
 	}
+	if p.cfg.Debug {
+		diag.LogText(true, "susanoo.chat.request", string(data))
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fmt.Sprintf("%s/tasks", p.cfg.APIBase), bytes.NewReader(data))
 	if err != nil {
 		return "", err
@@ -135,8 +144,15 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest) (string, e
 	}
 	defer resp.Body.Close()
 
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if p.cfg.Debug {
+		diag.LogText(true, "susanoo.chat.create_task.response", string(respData))
+	}
 	var out taskResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(respData, &out); err != nil {
 		return "", err
 	}
 	if out.Data.Code != 0 {
@@ -178,8 +194,15 @@ func (p *Provider) fetchResult(ctx context.Context, traceID string) (*taskResult
 	}
 	defer resp.Body.Close()
 
+	respData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if p.cfg.Debug {
+		diag.LogText(true, "susanoo.chat.fetch_result.response", string(respData))
+	}
 	var out taskResultResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	if err := json.Unmarshal(respData, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

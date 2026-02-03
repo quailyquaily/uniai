@@ -11,11 +11,13 @@ import (
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/diag"
 )
 
 type Config struct {
 	APIKey       string
 	DefaultModel string
+	Debug        bool
 }
 
 type Provider struct {
@@ -183,6 +185,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
+	if p.cfg.Debug {
+		diag.LogText(true, "anthropic.chat.request", string(data))
+	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
 	if err != nil {
@@ -201,6 +206,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
+	}
+	if p.cfg.Debug {
+		diag.LogText(true, "anthropic.chat.response", string(respData))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respData)))

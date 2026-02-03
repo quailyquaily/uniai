@@ -12,17 +12,20 @@ import (
 	"github.com/openai/openai-go/v3/azure"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/diag"
 )
 
 type Config struct {
 	APIKey     string
 	Endpoint   string
 	Deployment string
+	Debug      bool
 }
 
 type Provider struct {
 	client     openai.Client
 	deployment string
+	debug      bool
 }
 
 const azureAPIVersion = "2024-08-01-preview"
@@ -41,6 +44,7 @@ func New(cfg Config) (*Provider, error) {
 	return &Provider{
 		client:     client,
 		deployment: cfg.Deployment,
+		debug:      cfg.Debug,
 	}, nil
 }
 
@@ -92,10 +96,20 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	applyAzureOptions(&params, req.Options.Azure, req.Options.OpenAI)
+	if p.debug {
+		diag.LogJSON(true, "azure.chat.request", params)
+	}
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, err
+	}
+	if p.debug {
+		if raw := resp.RawJSON(); raw != "" {
+			diag.LogText(true, "azure.chat.response", raw)
+		} else {
+			diag.LogJSON(true, "azure.chat.response", resp)
+		}
 	}
 
 	text := ""
