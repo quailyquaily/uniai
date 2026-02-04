@@ -7,11 +7,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/lyricat/goutils/structs"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 const (
@@ -79,13 +79,13 @@ func CreateEmbeddings(ctx context.Context, token, base string, inputs []string, 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}

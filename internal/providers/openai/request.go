@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
+
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 const (
@@ -24,13 +25,13 @@ func doRequest(ctx context.Context, token, base, method, path string, data []byt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}

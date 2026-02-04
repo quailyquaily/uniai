@@ -5,10 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/lyricat/goutils/structs"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 type EmbeddingInput struct {
@@ -68,13 +68,13 @@ func CreateEmbeddings(ctx context.Context, token, base, model string, inputs []E
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}

@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 type Config struct {
@@ -136,13 +136,13 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest, debugFn fu
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-SUSANOO-KEY", p.cfg.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -192,13 +192,13 @@ func (p *Provider) fetchResult(ctx context.Context, traceID string, debugFn func
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-SUSANOO-KEY", p.cfg.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
