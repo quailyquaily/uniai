@@ -19,6 +19,7 @@ type Config struct {
 	APIKey     string
 	Endpoint   string
 	Deployment string
+	APIVersion string
 	Debug      bool
 }
 
@@ -37,8 +38,12 @@ func New(cfg Config) (*Provider, error) {
 	if cfg.Deployment == "" {
 		return nil, fmt.Errorf("azure openai deployment is required")
 	}
+	apiVersion := cfg.APIVersion
+	if apiVersion == "" {
+		apiVersion = azureAPIVersion
+	}
 	client := openai.NewClient(
-		azure.WithEndpoint(cfg.Endpoint, azureAPIVersion),
+		azure.WithEndpoint(cfg.Endpoint, apiVersion),
 		azure.WithAPIKey(cfg.APIKey),
 	)
 	return &Provider{

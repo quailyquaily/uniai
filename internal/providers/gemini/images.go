@@ -281,13 +281,14 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:predict?key=%s", geminiInput.Model, token)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:predict", geminiInput.Model)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -394,9 +395,9 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 		return nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", model, token)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model)
 	if strings.HasPrefix(model, "imagen-") {
-		url = fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateImage?key=%s", model, token)
+		url = fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateImage", model)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
@@ -404,6 +405,7 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", token)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

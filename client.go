@@ -118,10 +118,14 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		if apiKey == "" {
 			apiKey = c.cfg.OpenAIAPIKey
 		}
+		geminiModel := c.cfg.GeminiModel
+		if geminiModel == "" {
+			geminiModel = c.cfg.OpenAIModel
+		}
 		p, err := openai.New(openai.Config{
 			APIKey:       apiKey,
 			BaseURL:      base,
-			DefaultModel: c.cfg.OpenAIModel,
+			DefaultModel: geminiModel,
 			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
@@ -134,6 +138,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:     c.cfg.AzureOpenAIAPIKey,
 			Endpoint:   c.cfg.AzureOpenAIEndpoint,
 			Deployment: c.cfg.AzureOpenAIModel,
+			APIVersion: c.cfg.AzureOpenAIAPIVersion,
 			Debug:      c.cfg.Debug,
 		})
 		if err != nil {
