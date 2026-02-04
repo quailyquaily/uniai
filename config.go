@@ -39,6 +39,7 @@ type Config struct {
 	JinaAPIBase   string
 	GeminiAPIKey  string
 	GeminiAPIBase string
+	GeminiModel   string
 }
 
 const (

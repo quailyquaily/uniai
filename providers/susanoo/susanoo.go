@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/quailyquaily/uniai/chat"
@@ -176,7 +177,7 @@ func (p *Provider) pollResult(ctx context.Context, traceID string, debugFn func(
 }
 
 func (p *Provider) fetchResult(ctx context.Context, traceID string, debugFn func(string, string)) (*taskResultResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tasks/result?trace_id=%s", p.cfg.APIBase, traceID), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tasks/result?trace_id=%s", p.cfg.APIBase, url.QueryEscape(traceID)), nil)
 	if err != nil {
 		return nil, err
 	}
