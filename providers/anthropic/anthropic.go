@@ -5,13 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 type Config struct {
@@ -196,13 +196,13 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := http.DefaultClient.Do(httpReq)
+	resp, err := httputil.DefaultClient.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := io.ReadAll(resp.Body)
+	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return nil, err
 	}
