@@ -13,6 +13,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/toolschema"
 )
 
 type Config struct {
@@ -195,6 +196,7 @@ func toToolParams(tools []chat.Tool) ([]openai.ChatCompletionToolUnionParam, err
 			if err := json.Unmarshal(tool.Function.ParametersJSONSchema, &params); err != nil {
 				return nil, err
 			}
+			toolschema.Normalize(params)
 			fn.Parameters = shared.FunctionParameters(params)
 		}
 		out = append(out, openai.ChatCompletionFunctionTool(fn))

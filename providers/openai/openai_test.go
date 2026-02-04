@@ -91,3 +91,35 @@ func TestMaxCompletionTokensHeuristic(t *testing.T) {
 		t.Fatalf("expected max_completion_tokens for o1 models")
 	}
 }
+
+func TestToolSchemaAddsArrayItems(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Tools: []chat.Tool{
+			chat.FunctionTool("url_fetch", "desc", []byte(`{"type":"object","properties":{"body":{"type":["string","object","array","number","boolean","null"]}}}`)),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(params.Tools) != 1 || params.Tools[0].OfFunction == nil {
+		t.Fatalf("expected function tool parameters")
+	}
+	schema := params.Tools[0].OfFunction.Function.Parameters
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected properties map in schema")
+	}
+	body, ok := props["body"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected body schema map")
+	}
+	if _, ok := body["items"]; !ok {
+		t.Fatalf("expected items to be added for array type")
+	}
+}
