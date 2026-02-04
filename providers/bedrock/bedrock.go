@@ -243,14 +243,16 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 	}
 
 	totalTokens := inputTokens + outputTokens
-	_ = onStream(chat.StreamEvent{
+	if err := onStream(chat.StreamEvent{
 		Done: true,
 		Usage: &chat.Usage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
 			TotalTokens:  totalTokens,
 		},
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	result := &chat.Result{
 		Text:  strings.Join(textParts, ""),

@@ -29,27 +29,25 @@ func ChatStream(
 
 		delta := chunk.Choices[0].Delta.Content
 
-		var toolDelta *chat.ToolCallDelta
-		if len(chunk.Choices[0].Delta.ToolCalls) > 0 {
-			tc := chunk.Choices[0].Delta.ToolCalls[0]
-			toolDelta = &chat.ToolCallDelta{
-				Index:     int(tc.Index),
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				ArgsChunk: tc.Function.Arguments,
+		if delta != "" {
+			if err := onStream(chat.StreamEvent{Delta: delta}); err != nil {
+				stream.Close()
+				return nil, err
 			}
 		}
 
-		if delta == "" && toolDelta == nil {
-			continue
-		}
-
-		if err := onStream(chat.StreamEvent{
-			Delta:         delta,
-			ToolCallDelta: toolDelta,
-		}); err != nil {
-			stream.Close()
-			return nil, err
+		for _, tc := range chunk.Choices[0].Delta.ToolCalls {
+			if err := onStream(chat.StreamEvent{
+				ToolCallDelta: &chat.ToolCallDelta{
+					Index:     int(tc.Index),
+					ID:        tc.ID,
+					Name:      tc.Function.Name,
+					ArgsChunk: tc.Function.Arguments,
+				},
+			}); err != nil {
+				stream.Close()
+				return nil, err
+			}
 		}
 	}
 
@@ -59,14 +57,16 @@ func ChatStream(
 
 	completion := acc.ChatCompletion
 
-	_ = onStream(chat.StreamEvent{
+	if err := onStream(chat.StreamEvent{
 		Done: true,
 		Usage: &chat.Usage{
 			InputTokens:  int(completion.Usage.PromptTokens),
 			OutputTokens: int(completion.Usage.CompletionTokens),
 			TotalTokens:  int(completion.Usage.TotalTokens),
 		},
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	return accumulatedToResult(&completion), nil
 }

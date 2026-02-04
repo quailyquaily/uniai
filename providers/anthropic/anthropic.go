@@ -418,6 +418,7 @@ type sseMessageDelta struct {
 
 func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
 
 	var (
 		model        string
@@ -537,14 +538,16 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 	flushToolCall()
 
 	totalTokens := inputTokens + outputTokens
-	_ = onStream(chat.StreamEvent{
+	if err := onStream(chat.StreamEvent{
 		Done: true,
 		Usage: &chat.Usage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,
 			TotalTokens:  totalTokens,
 		},
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	return &chat.Result{
 		Text:      strings.Join(textParts, ""),
