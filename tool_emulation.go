@@ -101,6 +101,7 @@ func buildToolDecisionRequest(req *chat.Request) (*chat.Request, error) {
 	out.Tools = nil
 	out.ToolChoice = nil
 	out.Options.ToolsEmulationMode = chat.ToolsEmulationOff
+	out.Options.OnStream = nil // decision output is JSON; must not be streamed
 	out.Messages = filterNonSystemMessages(out.Messages)
 	out.Messages = append([]chat.Message{
 		{Role: chat.RoleSystem, Content: prompt},
@@ -604,6 +605,7 @@ func cloneChatRequest(req *chat.Request) *chat.Request {
 	out.Options.Bedrock = cloneJSONMap(req.Options.Bedrock)
 	out.Options.Susanoo = cloneJSONMap(req.Options.Susanoo)
 	out.Options.ToolsEmulationMode = req.Options.ToolsEmulationMode
+	out.Options.OnStream = req.Options.OnStream
 	out.Options.DebugFn = req.Options.DebugFn
 	return &out
 }

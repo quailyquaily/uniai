@@ -23,6 +23,9 @@ type (
 	ToolCallFunction   = chat.ToolCallFunction
 	DebugFn            = chat.DebugFn
 	ToolsEmulationMode = chat.ToolsEmulationMode
+	OnStreamFunc       = chat.OnStreamFunc
+	StreamEvent        = chat.StreamEvent
+	ToolCallDelta      = chat.ToolCallDelta
 )
 
 const (
@@ -54,7 +57,8 @@ func WithUser(user string) ChatOption                { return chat.WithUser(user
 func WithToolsEmulationMode(mode ToolsEmulationMode) ChatOption {
 	return chat.WithToolsEmulationMode(mode)
 }
-func WithDebugFn(fn DebugFn) ChatOption { return chat.WithDebugFn(fn) }
+func WithOnStream(fn OnStreamFunc) ChatOption { return chat.WithOnStream(fn) }
+func WithDebugFn(fn DebugFn) ChatOption       { return chat.WithDebugFn(fn) }
 func WithOpenAIOptions(opts structs.JSONMap) ChatOption {
 	return chat.WithOpenAIOptions(opts)
 }

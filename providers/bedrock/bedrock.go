@@ -117,6 +117,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	diag.LogText(p.debug, debugFn, "bedrock.chat.request", string(body))
 
+	if req.Options.OnStream != nil {
+		return p.chatStream(ctx, body, req.Options.OnStream, req.Tools)
+	}
+
 	resp, err := p.client.InvokeModelWithContext(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(p.modelArn),
 		Body:        body,
@@ -151,6 +155,115 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		Raw: out,
 	}
 	if len(req.Tools) > 0 {
+		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
+	}
+	return result, nil
+}
+
+// bedrockStreamEvent represents a single event from the Bedrock streaming response.
+// Each PayloadPart.Bytes contains a JSON object with a "type" field.
+type bedrockStreamEvent struct {
+	Type         string `json:"type"`
+	Index        int    `json:"index,omitempty"`
+	ContentBlock *struct {
+		Type string `json:"type"`
+	} `json:"content_block,omitempty"`
+	Delta *struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	} `json:"delta,omitempty"`
+	Message *struct {
+		Model string `json:"model,omitempty"`
+		Usage *struct {
+			InputTokens int `json:"input_tokens"`
+		} `json:"usage,omitempty"`
+	} `json:"message,omitempty"`
+	Usage *struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage,omitempty"`
+}
+
+func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.OnStreamFunc, tools []chat.Tool) (*chat.Result, error) {
+	resp, err := p.client.InvokeModelWithResponseStreamWithContext(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
+		ModelId:     aws.String(p.modelArn),
+		Body:        body,
+		Accept:      aws.String("application/json"),
+		ContentType: aws.String("application/json"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	stream := resp.GetStream()
+	defer stream.Close()
+
+	var (
+		textParts    []string
+		model        string
+		inputTokens  int
+		outputTokens int
+	)
+
+	for event := range stream.Events() {
+		chunk, ok := event.(*bedrockruntime.PayloadPart)
+		if !ok || len(chunk.Bytes) == 0 {
+			continue
+		}
+
+		var ev bedrockStreamEvent
+		if err := json.Unmarshal(chunk.Bytes, &ev); err != nil {
+			continue
+		}
+
+		switch ev.Type {
+		case "message_start":
+			if ev.Message != nil {
+				model = ev.Message.Model
+				if ev.Message.Usage != nil {
+					inputTokens = ev.Message.Usage.InputTokens
+				}
+			}
+		case "content_block_delta":
+			if ev.Delta != nil && ev.Delta.Type == "text_delta" && ev.Delta.Text != "" {
+				textParts = append(textParts, ev.Delta.Text)
+				if err := onStream(chat.StreamEvent{
+					Delta: ev.Delta.Text,
+				}); err != nil {
+					return nil, err
+				}
+			}
+		case "message_delta":
+			if ev.Usage != nil {
+				outputTokens = ev.Usage.OutputTokens
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+
+	totalTokens := inputTokens + outputTokens
+	if err := onStream(chat.StreamEvent{
+		Done: true,
+		Usage: &chat.Usage{
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  totalTokens,
+		},
+	}); err != nil {
+		return nil, err
+	}
+
+	result := &chat.Result{
+		Text:  strings.Join(textParts, ""),
+		Model: model,
+		Usage: chat.Usage{
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  totalTokens,
+		},
+	}
+	if len(tools) > 0 {
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
 	}
 	return result, nil

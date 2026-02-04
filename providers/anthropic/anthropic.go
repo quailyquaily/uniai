@@ -1,10 +1,12 @@
 package anthropic
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -56,6 +58,7 @@ type anthropicRequest struct {
 	Metadata      *anthropicMetadata   `json:"metadata,omitempty"`
 	Tools         []anthropicTool      `json:"tools,omitempty"`
 	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
+	Stream        bool                 `json:"stream,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -182,6 +185,11 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		}
 	}
 	applyAnthropicOptions(&body, req.Options.Anthropic)
+
+	if req.Options.OnStream != nil {
+		body.Stream = true
+	}
+
 	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
@@ -201,6 +209,17 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 	defer resp.Body.Close()
+
+	if req.Options.OnStream != nil {
+		if resp.StatusCode != http.StatusOK {
+			respData, err := httputil.ReadBody(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respData)))
+		}
+		return p.chatStream(resp.Body, req.Options.OnStream)
+	}
 
 	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
@@ -358,6 +377,186 @@ func fromAnthropicToolUse(part anthropicContentPart) (chat.ToolCall, error) {
 		Function: chat.ToolCallFunction{
 			Name:      part.Name,
 			Arguments: args,
+		},
+	}, nil
+}
+
+// SSE event data types for streaming.
+
+type sseMessageStart struct {
+	Message struct {
+		Model string `json:"model"`
+		Usage struct {
+			InputTokens int `json:"input_tokens"`
+		} `json:"usage"`
+	} `json:"message"`
+}
+
+type sseContentBlockStart struct {
+	Index        int `json:"index"`
+	ContentBlock struct {
+		Type string `json:"type"`
+		ID   string `json:"id,omitempty"`
+		Name string `json:"name,omitempty"`
+	} `json:"content_block"`
+}
+
+type sseContentBlockDelta struct {
+	Index int `json:"index"`
+	Delta struct {
+		Type         string `json:"type"`
+		Text         string `json:"text,omitempty"`
+		PartialJSON  string `json:"partial_json,omitempty"`
+	} `json:"delta"`
+}
+
+type sseMessageDelta struct {
+	Usage struct {
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat.Result, error) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
+
+	var (
+		model        string
+		inputTokens  int
+		outputTokens int
+		textParts    []string
+		toolCalls    []chat.ToolCall
+
+		// per-tool-call accumulator
+		currentToolIndex int    = -1
+		currentToolID    string
+		currentToolName  string
+		currentToolArgs  strings.Builder
+	)
+
+	flushToolCall := func() {
+		if currentToolIndex >= 0 && currentToolName != "" {
+			toolCalls = append(toolCalls, chat.ToolCall{
+				ID:   currentToolID,
+				Type: "function",
+				Function: chat.ToolCallFunction{
+					Name:      currentToolName,
+					Arguments: currentToolArgs.String(),
+				},
+			})
+		}
+		currentToolIndex = -1
+		currentToolID = ""
+		currentToolName = ""
+		currentToolArgs.Reset()
+	}
+
+	var eventType string
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+
+		switch eventType {
+		case "message_start":
+			var ev sseMessageStart
+			if err := json.Unmarshal([]byte(data), &ev); err == nil {
+				model = ev.Message.Model
+				inputTokens = ev.Message.Usage.InputTokens
+			}
+
+		case "content_block_start":
+			var ev sseContentBlockStart
+			if err := json.Unmarshal([]byte(data), &ev); err == nil {
+				if ev.ContentBlock.Type == "tool_use" {
+					flushToolCall()
+					currentToolIndex = ev.Index
+					currentToolID = ev.ContentBlock.ID
+					currentToolName = ev.ContentBlock.Name
+					if err := onStream(chat.StreamEvent{
+						ToolCallDelta: &chat.ToolCallDelta{
+							Index: ev.Index,
+							ID:    ev.ContentBlock.ID,
+							Name:  ev.ContentBlock.Name,
+						},
+					}); err != nil {
+						return nil, err
+					}
+				}
+			}
+
+		case "content_block_delta":
+			var ev sseContentBlockDelta
+			if err := json.Unmarshal([]byte(data), &ev); err == nil {
+				switch ev.Delta.Type {
+				case "text_delta":
+					textParts = append(textParts, ev.Delta.Text)
+					if err := onStream(chat.StreamEvent{
+						Delta: ev.Delta.Text,
+					}); err != nil {
+						return nil, err
+					}
+				case "input_json_delta":
+					currentToolArgs.WriteString(ev.Delta.PartialJSON)
+					if err := onStream(chat.StreamEvent{
+						ToolCallDelta: &chat.ToolCallDelta{
+							Index:     currentToolIndex,
+							ArgsChunk: ev.Delta.PartialJSON,
+						},
+					}); err != nil {
+						return nil, err
+					}
+				}
+			}
+
+		case "content_block_stop":
+			flushToolCall()
+
+		case "message_delta":
+			var ev sseMessageDelta
+			if err := json.Unmarshal([]byte(data), &ev); err == nil {
+				outputTokens = ev.Usage.OutputTokens
+			}
+
+		case "message_stop":
+			// handled after the loop
+		}
+		eventType = ""
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	flushToolCall()
+
+	totalTokens := inputTokens + outputTokens
+	if err := onStream(chat.StreamEvent{
+		Done: true,
+		Usage: &chat.Usage{
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  totalTokens,
+		},
+	}); err != nil {
+		return nil, err
+	}
+
+	return &chat.Result{
+		Text:      strings.Join(textParts, ""),
+		Model:     model,
+		ToolCalls: toolCalls,
+		Usage: chat.Usage{
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			TotalTokens:  totalTokens,
 		},
 	}, nil
 }

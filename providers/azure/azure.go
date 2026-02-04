@@ -101,6 +101,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	applyAzureOptions(&params, req.Options.Azure, req.Options.OpenAI)
 	diag.LogJSON(p.debug, debugFn, "azure.chat.request", params)
 
+	if req.Options.OnStream != nil {
+		return oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream)
+	}
+
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
 		return nil, err

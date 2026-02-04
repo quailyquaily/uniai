@@ -5,6 +5,7 @@
 ## Features
 
 - Chat routing with OpenAI-compatible, Azure OpenAI, Anthropic, AWS Bedrock, and Susanoo providers.
+- Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
 - Tool calling with emulation, to support models which do not natively support tool calling (see [`docs/tool_emulation.md`](docs/tool_emulation.md)).
@@ -114,6 +115,43 @@ resp, err := client.Chat(ctx,
 
 See [`docs/tool_emulation.md`](docs/tool_emulation.md) for other emulation options and detailed behaviors.
 
+### Streaming
+
+Pass `WithOnStream` to receive tokens incrementally. The `Chat()` signature stays the same — it still returns the complete `Result` after the stream ends.
+
+```go
+resp, err := client.Chat(ctx,
+    uniai.WithModel("gpt-5.2"),
+    uniai.WithMessages(uniai.User("Tell me a story.")),
+    uniai.WithOnStream(func(ev uniai.StreamEvent) error {
+        if ev.Done {
+            // stream finished; ev.Usage contains token counts
+            return nil
+        }
+        if ev.Delta != "" {
+            fmt.Print(ev.Delta) // incremental text
+        }
+        if ev.ToolCallDelta != nil {
+            // incremental tool call (index, id, name, args chunk)
+        }
+        return nil // return non-nil error to cancel the stream
+    }),
+)
+// resp.Text contains the full accumulated text
+```
+
+`StreamEvent` fields:
+
+| Field | Description |
+|---|---|
+| `Delta` | Incremental text content |
+| `ToolCallDelta` | Incremental tool call update (`Index`, `ID`, `Name`, `ArgsChunk`) |
+| `Usage` | Token usage, populated on the final event |
+| `Done` | `true` for the last event |
+
+Supported providers: OpenAI, Azure, Anthropic, Bedrock. Susanoo ignores streaming and falls back to blocking.
+
+When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
 
 ## Embeddings
 

@@ -80,6 +80,7 @@ type Options struct {
 	Bedrock            structs.JSONMap    `json:"bedrock_options,omitempty"`
 	Susanoo            structs.JSONMap    `json:"susanoo_options,omitempty"`
 	ToolsEmulationMode ToolsEmulationMode `json:"tools_emulation_mode,omitempty"`
+	OnStream           OnStreamFunc       `json:"-"`
 	DebugFn            DebugFn            `json:"-"`
 }
 
@@ -106,6 +107,26 @@ type Result struct {
 	Usage     Usage      `json:"usage,omitempty"`
 	Raw       any        `json:"raw,omitempty"`
 	Warnings  []string   `json:"warnings,omitempty"`
+}
+
+// OnStreamFunc is called for each streaming event.
+// Returning a non-nil error cancels the stream.
+type OnStreamFunc func(event StreamEvent) error
+
+// StreamEvent represents a single streaming event from an LLM provider.
+type StreamEvent struct {
+	Delta         string
+	ToolCallDelta *ToolCallDelta
+	Usage         *Usage
+	Done          bool
+}
+
+// ToolCallDelta represents an incremental update to a tool call during streaming.
+type ToolCallDelta struct {
+	Index     int
+	ID        string
+	Name      string
+	ArgsChunk string
 }
 
 type Option func(*Request)
@@ -177,6 +198,10 @@ func WithUser(user string) Option {
 
 func WithToolsEmulationMode(mode ToolsEmulationMode) Option {
 	return func(r *Request) { r.Options.ToolsEmulationMode = mode }
+}
+
+func WithOnStream(fn OnStreamFunc) Option {
+	return func(r *Request) { r.Options.OnStream = fn }
 }
 
 func WithDebugFn(fn DebugFn) Option {
