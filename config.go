@@ -12,9 +12,10 @@ type Config struct {
 	OpenAIModel   string
 
 	// Azure OpenAI
-	AzureOpenAIAPIKey   string
-	AzureOpenAIEndpoint string
-	AzureOpenAIModel    string
+	AzureOpenAIAPIKey      string
+	AzureOpenAIEndpoint    string
+	AzureOpenAIModel       string
+	AzureOpenAIAPIVersion  string
 
 	// Anthropic
 	AnthropicAPIKey string
@@ -39,6 +40,7 @@ type Config struct {
 	JinaAPIBase   string
 	GeminiAPIKey  string
 	GeminiAPIBase string
+	GeminiModel   string
 }
 
 const (
