@@ -194,7 +194,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
-	httpReq.Header.Set("anthropic-version", "2024-10-22")
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := httputil.DefaultClient.Do(httpReq)
 	if err != nil {

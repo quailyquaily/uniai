@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
-	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 type Config struct {
@@ -136,13 +135,13 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest, debugFn fu
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-SUSANOO-KEY", p.cfg.APIKey)
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	respData, err := httputil.ReadBody(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
@@ -157,16 +156,15 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest, debugFn fu
 	return out.Data.TraceID, nil
 }
 
-const (
-	pollInterval   = 3 * time.Second
-	maxPollRetries = 100
-)
-
 func (p *Provider) pollResult(ctx context.Context, traceID string, debugFn func(string, string)) (*taskResultResponse, error) {
-	for attempt := 0; attempt < maxPollRetries; attempt++ {
+	for {
 		result, err := p.fetchResult(ctx, traceID, debugFn)
 		if err != nil {
 			return nil, err
+		}
+		if result.Data.Status == 1 || result.Data.Status == 2 {
+			time.Sleep(3 * time.Second)
+			continue
 		}
 		if result.Data.Status == 3 {
 			return result, nil
@@ -174,31 +172,24 @@ func (p *Provider) pollResult(ctx context.Context, traceID string, debugFn func(
 		if result.Data.Status == 4 {
 			return nil, errors.New("susanoo task failed")
 		}
-		// Status 1 (pending), 2 (running), or unknown: wait and retry.
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("susanoo poll cancelled: %w", ctx.Err())
-		case <-time.After(pollInterval):
-		}
 	}
-	return nil, fmt.Errorf("susanoo poll exceeded max retries (%d)", maxPollRetries)
 }
 
 func (p *Provider) fetchResult(ctx context.Context, traceID string, debugFn func(string, string)) (*taskResultResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tasks/result?trace_id=%s", p.cfg.APIBase, url.QueryEscape(traceID)), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/tasks/result?trace_id=%s", p.cfg.APIBase, traceID), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-SUSANOO-KEY", p.cfg.APIKey)
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	respData, err := httputil.ReadBody(resp.Body)
+	respData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
