@@ -12,10 +12,10 @@ type Config struct {
 	OpenAIModel   string
 
 	// Azure OpenAI
-	AzureOpenAIAPIKey      string
-	AzureOpenAIEndpoint    string
-	AzureOpenAIModel       string
-	AzureOpenAIAPIVersion  string
+	AzureOpenAIAPIKey     string
+	AzureOpenAIEndpoint   string
+	AzureOpenAIModel      string
+	AzureOpenAIAPIVersion string
 
 	// Anthropic
 	AnthropicAPIKey string
