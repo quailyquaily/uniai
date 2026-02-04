@@ -11,17 +11,18 @@ import (
 
 // Chat re-exports
 type (
-	ChatOption       = chat.Option
-	ChatRequest      = chat.Request
-	ChatResult       = chat.Result
-	ChatOptions      = chat.Options
-	Message          = chat.Message
-	Tool             = chat.Tool
-	ToolFunction     = chat.ToolFunction
-	ToolChoice       = chat.ToolChoice
-	ToolCall         = chat.ToolCall
-	ToolCallFunction = chat.ToolCallFunction
-	DebugFn          = chat.DebugFn
+	ChatOption         = chat.Option
+	ChatRequest        = chat.Request
+	ChatResult         = chat.Result
+	ChatOptions        = chat.Options
+	Message            = chat.Message
+	Tool               = chat.Tool
+	ToolFunction       = chat.ToolFunction
+	ToolChoice         = chat.ToolChoice
+	ToolCall           = chat.ToolCall
+	ToolCallFunction   = chat.ToolCallFunction
+	DebugFn            = chat.DebugFn
+	ToolsEmulationMode = chat.ToolsEmulationMode
 )
 
 const (
@@ -29,6 +30,12 @@ const (
 	RoleUser      = chat.RoleUser
 	RoleAssistant = chat.RoleAssistant
 	RoleTool      = chat.RoleTool
+)
+
+const (
+	ToolsEmulationOff      = chat.ToolsEmulationOff
+	ToolsEmulationFallback = chat.ToolsEmulationFallback
+	ToolsEmulationForce    = chat.ToolsEmulationForce
 )
 
 func WithModel(model string) ChatOption              { return chat.WithModel(model) }
@@ -44,8 +51,10 @@ func WithStopWords(stops ...string) ChatOption       { return chat.WithStopWords
 func WithPresencePenalty(v float64) ChatOption       { return chat.WithPresencePenalty(v) }
 func WithFrequencyPenalty(v float64) ChatOption      { return chat.WithFrequencyPenalty(v) }
 func WithUser(user string) ChatOption                { return chat.WithUser(user) }
-func WithToolsEmulation(enabled bool) ChatOption     { return chat.WithToolsEmulation(enabled) }
-func WithDebugFn(fn DebugFn) ChatOption              { return chat.WithDebugFn(fn) }
+func WithToolsEmulationMode(mode ToolsEmulationMode) ChatOption {
+	return chat.WithToolsEmulationMode(mode)
+}
+func WithDebugFn(fn DebugFn) ChatOption { return chat.WithDebugFn(fn) }
 func WithOpenAIOptions(opts structs.JSONMap) ChatOption {
 	return chat.WithOpenAIOptions(opts)
 }

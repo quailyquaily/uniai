@@ -67,6 +67,13 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if providerName == "" {
 		providerName = "openai"
 	}
+	mode := req.Options.ToolsEmulationMode
+	if mode == "" {
+		mode = chat.ToolsEmulationOff
+	}
+	if len(req.Tools) > 0 && mode == chat.ToolsEmulationForce {
+		return c.chatWithToolEmulation(ctx, providerName, req)
+	}
 	resp, err := c.chatOnce(ctx, providerName, req)
 	if err != nil {
 		return nil, err
@@ -75,6 +82,9 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 		return resp, nil
 	}
 	if len(resp.ToolCalls) > 0 {
+		return resp, nil
+	}
+	if mode == chat.ToolsEmulationOff {
 		return resp, nil
 	}
 	return c.chatWithToolEmulation(ctx, providerName, req)

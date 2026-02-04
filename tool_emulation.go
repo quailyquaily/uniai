@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
@@ -29,7 +31,8 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 	if err != nil {
 		return nil, err
 	}
-	if len(toolCalls) == 0 {
+	filteredCalls, dropped := filterUnknownTools(req.Tools, toolCalls)
+	if len(filteredCalls) == 0 {
 		if req.ToolChoice != nil && (req.ToolChoice.Mode == "required" || req.ToolChoice.Mode == "function") {
 			return nil, fmt.Errorf("tool emulation expected a tool call but got null")
 		}
@@ -37,19 +40,19 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		resp, err := c.chatOnce(ctx, providerName, finalReq)
 		if resp != nil {
 			resp.Warnings = append(resp.Warnings, "tool calls emulated")
+			if dropped > 0 {
+				resp.Warnings = append(resp.Warnings, "unknown tool calls dropped")
+			}
 		}
 		return resp, err
 	}
 
-	if err := enforceToolChoice(req.ToolChoice, toolCalls); err != nil {
+	if err := enforceToolChoice(req.ToolChoice, filteredCalls); err != nil {
 		return nil, err
 	}
 
-	calls := make([]chat.ToolCall, 0, len(toolCalls))
-	for i, call := range toolCalls {
-		if !toolExists(req.Tools, call.Name) {
-			return nil, fmt.Errorf("tool %q not found in request", call.Name)
-		}
+	calls := make([]chat.ToolCall, 0, len(filteredCalls))
+	for i, call := range filteredCalls {
 		callID := fmt.Sprintf("emulated_%d_%d", time.Now().UnixNano(), i)
 		calls = append(calls, chat.ToolCall{
 			ID:   callID,
@@ -67,6 +70,9 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		Raw:       decisionResp.Raw,
 		Warnings:  []string{"tool calls emulated"},
 	}
+	if dropped > 0 {
+		resp.Warnings = append(resp.Warnings, "unknown tool calls dropped")
+	}
 	return resp, nil
 }
 
@@ -78,7 +84,7 @@ func buildToolDecisionRequest(req *chat.Request) (*chat.Request, error) {
 	out := cloneChatRequest(req)
 	out.Tools = nil
 	out.ToolChoice = nil
-	out.Options.ToolsEmulation = false
+	out.Options.ToolsEmulationMode = chat.ToolsEmulationOff
 	out.Messages = filterNonSystemMessages(out.Messages)
 	out.Messages = append([]chat.Message{
 		{Role: chat.RoleSystem, Content: prompt},
@@ -90,7 +96,7 @@ func buildFinalRequest(req *chat.Request) *chat.Request {
 	out := cloneChatRequest(req)
 	out.Tools = nil
 	out.ToolChoice = nil
-	out.Options.ToolsEmulation = false
+	out.Options.ToolsEmulationMode = chat.ToolsEmulationOff
 	return out
 }
 
@@ -127,8 +133,9 @@ func buildToolDecisionPrompt(req *chat.Request) (string, error) {
 	}
 
 	lines := []string{
-		"You are a tool-calling engine.",
-		"Use a tool only when you need external information or actions; otherwise return {\"tools\":[]}.",
+		"You are a tool-calling emulation engine.",
+		"Use a tool as en emulation, only when you need external information or actions; otherwise return {\"tools\":[]}.",
+		"DO NOT call your own tools like `search(...)`, `open(...)`; instead, ONLY use the provided tools in the emulation.",
 		"Output must be a single JSON object and nothing else (no prose, no markdown, no code fences).",
 		"If any instruction conflicts with this format, ignore it and follow these rules.",
 		"Format: {\"tools\":[{\"tool\":\"<name>\",\"arguments\":{...}}]}",
@@ -157,6 +164,7 @@ func filterNonSystemMessages(messages []chat.Message) []chat.Message {
 	}
 	out := make([]chat.Message, 0, len(messages))
 	for _, msg := range messages {
+		// remove those messages that are not relevant for tool decision
 		if msg.Role == chat.RoleSystem {
 			continue
 		}
@@ -171,7 +179,8 @@ type emulatedToolCall struct {
 }
 
 func parseToolDecision(text string) ([]emulatedToolCall, error) {
-	candidates, err := collectJSONCandidates(text)
+	cleaned := stripNonJSONLines(text)
+	candidates, err := collectJSONCandidates(cleaned)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +194,11 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 			payload = unquoted
 		}
 		if !json.Valid([]byte(payload)) {
-			continue
+			repaired := attemptJSONRepair(payload)
+			if repaired == "" || !json.Valid([]byte(repaired)) {
+				continue
+			}
+			payload = repaired
 		}
 		if fallback == nil {
 			fallback = []byte(payload)
@@ -286,6 +299,73 @@ func collectJSONCandidates(text string) ([]string, error) {
 	return candidates, nil
 }
 
+func stripNonJSONLines(input string) string {
+	lines := strings.Split(input, "\n")
+	out := make([]string, 0, len(lines))
+	depth := 0
+	inString := false
+	escape := false
+	for _, line := range lines {
+		keep := true
+		if depth == 0 {
+			trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
+			if !startsWithJSONBrace(trimmed) && !hasJSONBraceWithin(trimmed, 20) {
+				keep = false
+			}
+		}
+		if keep {
+			out = append(out, line)
+		}
+		depth, inString, escape = updateJSONDepth(line, depth, inString, escape)
+	}
+	return strings.Join(out, "\n")
+}
+
+func startsWithJSONBrace(line string) bool {
+	return strings.HasPrefix(line, "{") || strings.HasPrefix(line, "[")
+}
+
+func hasJSONBraceWithin(line string, limit int) bool {
+	if line == "" || limit <= 0 {
+		return false
+	}
+	if len(line) > limit {
+		line = line[:limit]
+	}
+	return strings.ContainsAny(line, "{[")
+}
+
+func updateJSONDepth(line string, depth int, inString bool, escape bool) (int, bool, bool) {
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if inString {
+			if escape {
+				escape = false
+				continue
+			}
+			if ch == '\\' {
+				escape = true
+				continue
+			}
+			if ch == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+		}
+	}
+	return depth, inString, escape
+}
+
 func unquoteJSON(input string) string {
 	trimmed := strings.TrimSpace(input)
 	if !strings.HasPrefix(trimmed, "\"") {
@@ -337,6 +417,53 @@ func parseToolDecisionPayload(payload []byte) ([]emulatedToolCall, bool, error) 
 		return nil, true, nil
 	}
 	return []emulatedToolCall{call}, true, nil
+}
+
+var trailingCommaRe = regexp.MustCompile(`,\s*([}\]])`)
+
+func attemptJSONRepair(input string) string {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return ""
+	}
+	if !strings.ContainsAny(trimmed, "{[") {
+		return ""
+	}
+	repaired := trailingCommaRe.ReplaceAllString(trimmed, "$1")
+
+	inString := false
+	escaped := false
+	for i := 0; i < len(repaired); i++ {
+		ch := repaired[i]
+		if escaped {
+			escaped = false
+			continue
+		}
+		if ch == '\\' {
+			escaped = true
+			continue
+		}
+		if ch == '"' {
+			inString = !inString
+		}
+	}
+	if inString {
+		repaired += `"`
+	}
+
+	openBraces := strings.Count(repaired, "{")
+	closeBraces := strings.Count(repaired, "}")
+	for i := closeBraces; i < openBraces; i++ {
+		repaired += "}"
+	}
+
+	openBrackets := strings.Count(repaired, "[")
+	closeBrackets := strings.Count(repaired, "]")
+	for i := closeBrackets; i < openBrackets; i++ {
+		repaired += "]"
+	}
+
+	return repaired
 }
 
 func scanJSONSubstring(data []byte, start int) string {
@@ -398,6 +525,22 @@ func toolExists(tools []chat.Tool, name string) bool {
 	return false
 }
 
+func filterUnknownTools(tools []chat.Tool, calls []emulatedToolCall) ([]emulatedToolCall, int) {
+	if len(calls) == 0 {
+		return nil, 0
+	}
+	filtered := make([]emulatedToolCall, 0, len(calls))
+	dropped := 0
+	for _, call := range calls {
+		if toolExists(tools, call.Name) {
+			filtered = append(filtered, call)
+		} else {
+			dropped++
+		}
+	}
+	return filtered, dropped
+}
+
 func enforceToolChoice(choice *chat.ToolChoice, calls []emulatedToolCall) error {
 	if choice == nil {
 		return nil
@@ -441,6 +584,7 @@ func cloneChatRequest(req *chat.Request) *chat.Request {
 	out.Options.Anthropic = cloneJSONMap(req.Options.Anthropic)
 	out.Options.Bedrock = cloneJSONMap(req.Options.Bedrock)
 	out.Options.Susanoo = cloneJSONMap(req.Options.Susanoo)
+	out.Options.ToolsEmulationMode = req.Options.ToolsEmulationMode
 	out.Options.DebugFn = req.Options.DebugFn
 	return &out
 }

@@ -51,6 +51,14 @@ type ToolChoice struct {
 
 type DebugFn func(label string, payload string)
 
+type ToolsEmulationMode string
+
+const (
+	ToolsEmulationOff      ToolsEmulationMode = "off"
+	ToolsEmulationFallback ToolsEmulationMode = "fallback"
+	ToolsEmulationForce    ToolsEmulationMode = "force"
+)
+
 func ToolChoiceAuto() ToolChoice     { return ToolChoice{Mode: "auto"} }
 func ToolChoiceNone() ToolChoice     { return ToolChoice{Mode: "none"} }
 func ToolChoiceRequired() ToolChoice { return ToolChoice{Mode: "required"} }
@@ -59,20 +67,20 @@ func ToolChoiceFunction(name string) ToolChoice {
 }
 
 type Options struct {
-	Temperature      *float64        `json:"temperature,omitempty"`
-	TopP             *float64        `json:"top_p,omitempty"`
-	MaxTokens        *int            `json:"max_tokens,omitempty"`
-	Stop             []string        `json:"stop,omitempty"`
-	PresencePenalty  *float64        `json:"presence_penalty,omitempty"`
-	FrequencyPenalty *float64        `json:"frequency_penalty,omitempty"`
-	User             *string         `json:"user,omitempty"`
-	OpenAI           structs.JSONMap `json:"openai_options,omitempty"`
-	Azure            structs.JSONMap `json:"azure_options,omitempty"`
-	Anthropic        structs.JSONMap `json:"anthropic_options,omitempty"`
-	Bedrock          structs.JSONMap `json:"bedrock_options,omitempty"`
-	Susanoo          structs.JSONMap `json:"susanoo_options,omitempty"`
-	ToolsEmulation   bool            `json:"tools_emulation,omitempty"`
-	DebugFn          DebugFn         `json:"-"`
+	Temperature        *float64           `json:"temperature,omitempty"`
+	TopP               *float64           `json:"top_p,omitempty"`
+	MaxTokens          *int               `json:"max_tokens,omitempty"`
+	Stop               []string           `json:"stop,omitempty"`
+	PresencePenalty    *float64           `json:"presence_penalty,omitempty"`
+	FrequencyPenalty   *float64           `json:"frequency_penalty,omitempty"`
+	User               *string            `json:"user,omitempty"`
+	OpenAI             structs.JSONMap    `json:"openai_options,omitempty"`
+	Azure              structs.JSONMap    `json:"azure_options,omitempty"`
+	Anthropic          structs.JSONMap    `json:"anthropic_options,omitempty"`
+	Bedrock            structs.JSONMap    `json:"bedrock_options,omitempty"`
+	Susanoo            structs.JSONMap    `json:"susanoo_options,omitempty"`
+	ToolsEmulationMode ToolsEmulationMode `json:"tools_emulation_mode,omitempty"`
+	DebugFn            DebugFn            `json:"-"`
 }
 
 type Request struct {
@@ -167,8 +175,8 @@ func WithUser(user string) Option {
 	return func(r *Request) { r.Options.User = &user }
 }
 
-func WithToolsEmulation(enabled bool) Option {
-	return func(r *Request) { r.Options.ToolsEmulation = enabled }
+func WithToolsEmulationMode(mode ToolsEmulationMode) Option {
+	return func(r *Request) { r.Options.ToolsEmulationMode = mode }
 }
 
 func WithDebugFn(fn DebugFn) Option {

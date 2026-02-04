@@ -87,7 +87,7 @@ func TestChatToolCalling(t *testing.T) {
 					FunctionTool("get_weather", "Get current weather", toolSchema),
 				}),
 				WithToolChoice(ToolChoiceFunction("get_weather")),
-				WithToolsEmulation(true),
+				WithToolsEmulationMode(ToolsEmulationFallback),
 				WithTemperature(0),
 			)
 

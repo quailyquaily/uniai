@@ -7,7 +7,7 @@
 - Chat routing with OpenAI-compatible, Azure OpenAI, Anthropic, AWS Bedrock, and Susanoo providers.
 - Embedding, image, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
-- Tool calling with emulation fallback (see [`docs/tool_emulation.md`](docs/tool_emulation.md)).
+- Tool calling with emulation, to support models which do not natively support tool calling (see [`docs/tool_emulation.md`](docs/tool_emulation.md)).
 
 ## Install
 
@@ -108,15 +108,12 @@ resp, err := client.Chat(ctx,
         }`)),
     }),
     uniai.WithToolChoice(uniai.ToolChoiceAuto()),
-    uniai.WithToolsEmulation(true),
+    uniai.WithToolsEmulationMode(uniai.ToolsEmulationForce),
 )
 ```
 
-Behavior:
+See [`docs/tool_emulation.md`](docs/tool_emulation.md) for other emulation options and detailed behaviors.
 
-- The client always sends `tools` and `tool_choice` to the upstream provider first.
-- If the upstream response contains `tool_calls`, they are returned as-is.
-- If there are tools but no `tool_calls`, the uniai will try to choose a tool and generate a tool call based on the response text.
 
 ## Embeddings
 
