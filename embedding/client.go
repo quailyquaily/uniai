@@ -48,7 +48,7 @@ func (c *Client) Create(ctx context.Context, opts ...Option) (*Result, error) {
 	case "openai":
 		respData, err = openai.CreateEmbeddings(ctx, c.cfg.OpenAIAPIKey, c.cfg.OpenAIAPIBase, req.Model, toTextInputs(req.Input), req.Options.OpenAI)
 	case "gemini":
-		respData, err = gemini.CreateEmbeddings(ctx, c.cfg.GeminiAPIKey, c.cfg.GeminiAPIBase, toTextInputs(req.Input), req.Options.Gemini)
+		respData, err = gemini.CreateEmbeddings(ctx, c.cfg.GeminiAPIKey, c.cfg.GeminiAPIBase, req.Model, toTextInputs(req.Input), req.Options.Gemini)
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}

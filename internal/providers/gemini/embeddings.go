@@ -3,8 +3,11 @@ package gemini
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
@@ -13,27 +16,24 @@ import (
 )
 
 const (
-	geminiAPIBase = "https://generativelanguage.googleapis.com"
+	geminiAPIBase               = "https://generativelanguage.googleapis.com"
+	defaultGeminiEmbeddingModel = "gemini-embedding-001"
 )
 
+type embeddingData struct {
+	Object    string `json:"object"`
+	Embedding string `json:"embedding"`
+	Index     int    `json:"index"`
+}
+
 type createEmbeddingsOutput struct {
-	Model  string `json:"model"`
-	Object string `json:"object"`
-	Data   []struct {
-		Object    string `json:"object"`
-		Embedding string `json:"embedding"`
-		Index     int    `json:"index"`
-	} `json:"data"`
-	Usage struct {
+	Model  string          `json:"model"`
+	Object string          `json:"object"`
+	Data   []embeddingData `json:"data"`
+	Usage  struct {
 		PromptTokens int `json:"prompt_tokens"`
 		TotalTokens  int `json:"total_tokens"`
 	} `json:"usage"`
-}
-
-type geminiCreateEmbeddingsInput struct {
-	Model   string        `json:"model"`
-	Content geminiContent `json:"content"`
-	geminiEmbeddingConfig
 }
 
 type geminiContent struct {
@@ -49,35 +49,68 @@ type geminiEmbeddingConfig struct {
 	OutputDimensionality int    `json:"output_dimensionality,omitempty"`
 }
 
-type geminiCreateEmbeddingsOutput struct {
-	Embedding geminiEmbedding `json:"embedding"`
+type geminiBatchRequest struct {
+	Requests []geminiBatchEmbedRequest `json:"requests"`
+}
+
+type geminiBatchEmbedRequest struct {
+	Model   string        `json:"model"`
+	Content geminiContent `json:"content"`
+	geminiEmbeddingConfig
+}
+
+type geminiBatchResponse struct {
+	Embeddings []geminiEmbedding `json:"embeddings"`
 }
 
 type geminiEmbedding struct {
 	Values []float64 `json:"values"`
 }
 
-func CreateEmbeddings(ctx context.Context, token, base string, inputs []string, options structs.JSONMap) ([]byte, error) {
-	payload := &geminiCreateEmbeddingsInput{}
-	loadGeminiEmbeddingsInput(payload, inputs, options)
+func CreateEmbeddings(ctx context.Context, token, base, model string, inputs []string, options structs.JSONMap) ([]byte, error) {
+	if model == "" {
+		model = defaultGeminiEmbeddingModel
+	}
+	fullModel := model
+	if !strings.HasPrefix(model, "models/") {
+		fullModel = "models/" + model
+	}
 
+	taskType := options.GetString("task_type")
+	dimensions := int(options.GetInt64("output_dimensionality"))
+
+	requests := make([]geminiBatchEmbedRequest, 0, len(inputs))
+	for _, text := range inputs {
+		req := geminiBatchEmbedRequest{
+			Model:   fullModel,
+			Content: geminiContent{Parts: []geminiPart{{Text: text}}},
+		}
+		if taskType != "" {
+			req.TaskType = taskType
+		}
+		if dimensions > 0 {
+			req.OutputDimensionality = dimensions
+		}
+		requests = append(requests, req)
+	}
+
+	payload := geminiBatchRequest{Requests: requests}
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
 
 	base = normalizeGeminiBase(base)
-	url := fmt.Sprintf("%s/v1beta/models/gemini-embedding-001:embedContent", base)
+	url := fmt.Sprintf("%s/v1beta/%s:batchEmbedContents", base, fullModel)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-goog-api-key", token)
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", token)
-
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(httpReq)
 	if err != nil {
 		return nil, err
 	}
@@ -92,19 +125,22 @@ func CreateEmbeddings(ctx context.Context, token, base string, inputs []string, 
 		return nil, fmt.Errorf("gemini API request failed with status %d: %s", resp.StatusCode, string(respData))
 	}
 
-	geminiOutput := &geminiCreateEmbeddingsOutput{}
-	if err := json.Unmarshal(respData, geminiOutput); err != nil {
+	var batchResp geminiBatchResponse
+	if err := json.Unmarshal(respData, &batchResp); err != nil {
 		return nil, err
 	}
 
 	output := &createEmbeddingsOutput{
-		Model:  "models/gemini-embedding-001",
+		Model:  fullModel,
 		Object: "list",
-		Data: make([]struct {
-			Object    string `json:"object"`
-			Embedding string `json:"embedding"`
-			Index     int    `json:"index"`
-		}, len(geminiOutput.Embedding.Values)),
+		Data:   make([]embeddingData, 0, len(batchResp.Embeddings)),
+	}
+	for i, emb := range batchResp.Embeddings {
+		output.Data = append(output.Data, embeddingData{
+			Object:    "embedding",
+			Embedding: encodeFloat64sToBase64(emb.Values),
+			Index:     i,
+		})
 	}
 
 	return json.Marshal(output)
@@ -126,20 +162,10 @@ func normalizeGeminiBase(base string) string {
 	return trimmed
 }
 
-func loadGeminiEmbeddingsInput(dst *geminiCreateEmbeddingsInput, inputs []string, options structs.JSONMap) {
-	for _, item := range inputs {
-		dst.Content.Parts = append(dst.Content.Parts, geminiPart{Text: item})
+func encodeFloat64sToBase64(vals []float64) string {
+	buf := make([]byte, len(vals)*4)
+	for i, v := range vals {
+		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(float32(v)))
 	}
-
-	taskType := options.GetString("task_type")
-	if taskType != "" {
-		dst.TaskType = taskType
-	}
-
-	dimensions := int(options.GetInt64("output_dimensionality"))
-	if dimensions > 0 {
-		dst.OutputDimensionality = dimensions
-	}
-
-	dst.Model = "models/gemini-embedding-001"
+	return base64.StdEncoding.EncodeToString(buf)
 }
