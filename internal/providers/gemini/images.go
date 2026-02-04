@@ -8,11 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/quailyquaily/uniai/internal/httputil"
 
 	"github.com/lyricat/goutils/structs"
 )
@@ -289,14 +290,14 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := httputil.ReadBody(resp.Body)
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -405,14 +406,14 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := httputil.ReadBody(resp.Body)
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -466,13 +467,13 @@ func geminiDownloadImage(ctx context.Context, uri string) (string, string, error
 		return "", "", err
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httputil.DefaultClient.Do(req)
 	if err != nil {
 		return "", "", err
 	}
 	defer resp.Body.Close()
 
-	data, err := io.ReadAll(resp.Body)
+	data, err := httputil.ReadBody(resp.Body)
 	if err != nil {
 		return "", "", err
 	}
