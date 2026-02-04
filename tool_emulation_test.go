@@ -63,7 +63,7 @@ func TestBuildToolDecisionPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "get_weather") {
 		t.Fatalf("prompt missing tool name")
 	}
-	if !strings.Contains(prompt, "MUST call at least one tool") {
+	if !strings.Contains(prompt, "MUST return at least one tool") {
 		t.Fatalf("prompt missing required tool instruction")
 	}
 }

@@ -133,10 +133,13 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	diag.LogText(p.debug, debugFn, "bedrock.chat.response", string(resp.Body))
 
-	text := ""
-	if len(out.Content) > 0 {
-		text = out.Content[0].Text
+	var textParts []string
+	for _, c := range out.Content {
+		if c.Type == "text" && c.Text != "" {
+			textParts = append(textParts, c.Text)
+		}
 	}
+	text := strings.Join(textParts, "")
 
 	result := &chat.Result{
 		Text: text,
