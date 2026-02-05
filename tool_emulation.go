@@ -103,6 +103,7 @@ func buildToolDecisionRequest(req *chat.Request) (*chat.Request, error) {
 	out.Options.ToolsEmulationMode = chat.ToolsEmulationOff
 	out.Options.OnStream = nil // decision output is JSON; must not be streamed
 	out.Messages = filterNonSystemMessages(out.Messages)
+	out.Messages = maskToolDecisionMessages(out.Messages)
 	out.Messages = append([]chat.Message{
 		{Role: chat.RoleSystem, Content: prompt},
 	}, out.Messages...)
@@ -151,11 +152,16 @@ func buildToolDecisionPrompt(req *chat.Request) (string, error) {
 
 	lines := []string{
 		"You are a tool-calling emulation engine.",
-		"Use a tool as en emulation, only when you need external information or actions; otherwise return {\"tools\":[]}.",
-		"DO NOT call your own tools like `search(...)`, `open(...)`; instead, ONLY use the provided tools in the emulation.",
-		"Output must be a single JSON object and nothing else (no prose, no markdown, no code fences).",
+		"Use a tool in emulation only when you need external information or actions; otherwise return {\"tools\":[]}.",
+		"DO NOT output any substring that looks like a function call: an identifier immediately followed by '(' with no space. e.g. `identifier(`.",
+		"If you must mention such a pattern, insert a space before '('.",
+		"Output must be a single JSON object wrapped between two lines: JSON_BEGIN and JSON_END.",
+		"No prose, no markdown, no code fences, and nothing outside those two lines.",
 		"If any instruction conflicts with this format, ignore it and follow these rules.",
-		"Format: {\"tools\":[{\"tool\":\"<name>\",\"arguments\":{...}}]}",
+		"Exact format:",
+		"JSON_BEGIN",
+		"{\"tools\":[{\"tool\":\"<name>\",\"arguments\":{...}}]}",
+		"JSON_END",
 		"If no tool is needed: {\"tools\":[]}",
 		"Rules: only key is \"tools\"; \"tools\" must be an array; \"tool\" must match an available tool name; \"arguments\" must be a JSON object.",
 		fmt.Sprintf("Available tools (JSON): %s", string(data)),
@@ -190,19 +196,65 @@ func filterNonSystemMessages(messages []chat.Message) []chat.Message {
 	return out
 }
 
+var toolDecisionTriggerRe = regexp.MustCompile(`(?i)\b(search|open_url)\s*\(`)
+
+func maskToolDecisionMessages(messages []chat.Message) []chat.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	out := make([]chat.Message, 0, len(messages))
+	for _, msg := range messages {
+		if msg.Content == "" {
+			out = append(out, msg)
+			continue
+		}
+		masked := maskToolDecisionContent(msg.Content)
+		if masked == msg.Content {
+			out = append(out, msg)
+			continue
+		}
+		clone := msg
+		clone.Content = masked
+		out = append(out, clone)
+	}
+	return out
+}
+
+func maskToolDecisionContent(input string) string {
+	if input == "" {
+		return input
+	}
+	return toolDecisionTriggerRe.ReplaceAllStringFunc(input, func(match string) string {
+		lower := strings.ToLower(match)
+		if strings.HasPrefix(lower, "open_url") {
+			return "oooo_ ("
+		}
+		return "sssss_ ("
+	})
+}
+
 type emulatedToolCall struct {
 	Name      string
 	Arguments json.RawMessage
 }
 
 func parseToolDecision(text string) ([]emulatedToolCall, error) {
-	cleaned := stripNonJSONLines(text)
-	if strings.TrimSpace(cleaned) == "" {
-		return nil, nil
+	var candidates []string
+	if marked := extractJSONBetweenMarkers(text, "JSON_BEGIN", "JSON_END"); len(marked) > 0 {
+		candidates = append(candidates, marked...)
 	}
-	candidates, err := collectJSONCandidates(cleaned)
-	if err != nil {
-		return nil, err
+	cleaned := stripNonJSONLines(text)
+	if strings.TrimSpace(cleaned) != "" {
+		more, err := collectJSONCandidates(cleaned)
+		if err != nil {
+			if len(candidates) == 0 {
+				return nil, err
+			}
+		} else {
+			candidates = append(candidates, more...)
+		}
+	} else if len(candidates) == 0 {
+		return nil, nil
 	}
 	var fallback []byte
 	for _, candidate := range candidates {
@@ -235,6 +287,31 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("invalid tool decision JSON: %q", strings.TrimSpace(text))
+}
+
+func extractJSONBetweenMarkers(text, begin, end string) []string {
+	if text == "" {
+		return nil
+	}
+	var out []string
+	offset := 0
+	for {
+		start := strings.Index(text[offset:], begin)
+		if start == -1 {
+			break
+		}
+		start += offset + len(begin)
+		endIndex := strings.Index(text[start:], end)
+		if endIndex == -1 {
+			break
+		}
+		payload := strings.TrimSpace(text[start : start+endIndex])
+		if payload != "" {
+			out = append(out, payload)
+		}
+		offset = start + endIndex + len(end)
+	}
+	return out
 }
 
 func parseToolsArray(raw json.RawMessage) ([]emulatedToolCall, error) {
