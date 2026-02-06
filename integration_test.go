@@ -2,9 +2,11 @@ package uniai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -185,6 +187,33 @@ func TestOtherFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("audio", func(t *testing.T) {
+		cfg, provider, model, audioData, ok, err := pickAudioConfig()
+		if err != nil {
+			t.Fatalf("audio config failed: %v", err)
+		}
+		if !ok {
+			t.Skip("no audio provider env configured")
+		}
+
+		client := New(cfg)
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		resp, err := client.Audio(ctx,
+			Audio(model, audioData),
+			WithAudioProvider(provider),
+		)
+		if err != nil {
+			t.Fatalf("audio failed: %v", err)
+		}
+		fmt.Printf("\n\n%s - Audio Text: %s\n\n", provider, resp.Text)
+		if resp == nil || strings.TrimSpace(resp.Text) == "" {
+			t.Fatalf("expected audio transcription text, got: %#v", resp)
+		}
+
+	})
+
 	t.Run("rerank", func(t *testing.T) {
 		cfg, ok := pickJinaConfig()
 		if !ok {
@@ -349,6 +378,23 @@ func pickChatConfigs() []chatConfig {
 		}
 	}
 
+	if accountID := env("TEST_CLOUDFLARE_ACCOUNT_ID"); accountID != "" {
+		token := env("TEST_CLOUDFLARE_API_TOKEN")
+		model := env("TEST_CLOUDFLARE_TEXT_MODEL")
+		if token != "" && model != "" {
+			out = append(out, chatConfig{
+				provider: "cloudflare",
+				model:    model,
+				cfg: Config{
+					Provider:            "cloudflare",
+					CloudflareAccountID: accountID,
+					CloudflareAPIToken:  token,
+					CloudflareAPIBase:   env("TEST_CLOUDFLARE_API_BASE"),
+				},
+			})
+		}
+	}
+
 	return out
 }
 
@@ -406,6 +452,26 @@ func pickImageConfig() (Config, string, string, bool) {
 	return Config{}, "", "", false
 }
 
+func pickAudioConfig() (Config, string, string, string, bool, error) {
+	accountID := env("TEST_CLOUDFLARE_ACCOUNT_ID")
+	token := env("TEST_CLOUDFLARE_API_TOKEN")
+	model := env("TEST_CLOUDFLARE_AUDIO_MODEL")
+	audioPath := env("TEST_CLOUDFLARE_AUDIO_FILEPATH")
+	if accountID == "" || token == "" || model == "" || audioPath == "" {
+		return Config{}, "", "", "", false, nil
+	}
+	data, err := os.ReadFile(audioPath)
+	if err != nil {
+		return Config{}, "", "", "", false, fmt.Errorf("read audio file: %w", err)
+	}
+	audioData := base64.StdEncoding.EncodeToString(data)
+	return Config{
+		CloudflareAccountID: accountID,
+		CloudflareAPIToken:  token,
+		CloudflareAPIBase:   env("TEST_CLOUDFLARE_API_BASE"),
+	}, "cloudflare", model, audioData, true, nil
+}
+
 func pickJinaConfig() (Config, bool) {
 	if key := env("TEST_JINA_API_KEY"); key != "" {
 		return Config{
@@ -417,6 +483,13 @@ func pickJinaConfig() (Config, bool) {
 }
 
 func parseJSONObject(text string) (map[string]any, error) {
+	var out map[string]any
+	for _, candidate := range findJSONSnippets(text) {
+		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
+			return out, nil
+		}
+	}
+
 	start := strings.Index(text, "{")
 	end := strings.LastIndex(text, "}")
 	if start == -1 || end == -1 || end < start {
@@ -424,11 +497,29 @@ func parseJSONObject(text string) (map[string]any, error) {
 	}
 
 	candidate := text[start : end+1]
-	var out map[string]any
-	if err := json.Unmarshal([]byte(candidate), &out); err != nil {
-		return nil, err
+	if err := json.Unmarshal([]byte(candidate), &out); err == nil {
+		return out, nil
 	}
-	return out, nil
+	if unescaped := tryUnescapeJSON(candidate); unescaped != "" {
+		if err := json.Unmarshal([]byte(unescaped), &out); err == nil {
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("no valid JSON object found")
+}
+
+func tryUnescapeJSON(raw string) string {
+	if !strings.Contains(raw, `\"`) && !strings.Contains(raw, `\\\"`) {
+		return ""
+	}
+	escaped := strings.ReplaceAll(raw, "\n", "\\n")
+	escaped = strings.ReplaceAll(escaped, "\t", "\\t")
+	escaped = strings.ReplaceAll(escaped, "\r", "\\r")
+	unquoted, err := strconv.Unquote("\"" + escaped + "\"")
+	if err != nil {
+		return ""
+	}
+	return unquoted
 }
 
 func env(key string) string {

@@ -79,6 +79,7 @@ type Options struct {
 	Anthropic          structs.JSONMap    `json:"anthropic_options,omitempty"`
 	Bedrock            structs.JSONMap    `json:"bedrock_options,omitempty"`
 	Susanoo            structs.JSONMap    `json:"susanoo_options,omitempty"`
+	Cloudflare         structs.JSONMap    `json:"cloudflare_options,omitempty"`
 	ToolsEmulationMode ToolsEmulationMode `json:"tools_emulation_mode,omitempty"`
 	OnStream           OnStreamFunc       `json:"-"`
 	DebugFn            DebugFn            `json:"-"`
@@ -226,6 +227,10 @@ func WithBedrockOptions(opts structs.JSONMap) Option {
 
 func WithSusanooOptions(opts structs.JSONMap) Option {
 	return func(r *Request) { r.Options.Susanoo = opts }
+}
+
+func WithCloudflareOptions(opts structs.JSONMap) Option {
+	return func(r *Request) { r.Options.Cloudflare = opts }
 }
 
 func WithTools(tools []Tool) Option {

@@ -6,18 +6,22 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/quailyquaily/uniai/internal/providers/cloudflare"
 	"github.com/quailyquaily/uniai/internal/providers/gemini"
 	"github.com/quailyquaily/uniai/internal/providers/jina"
 	"github.com/quailyquaily/uniai/internal/providers/openai"
 )
 
 type Config struct {
-	JinaAPIKey    string
-	JinaAPIBase   string
-	OpenAIAPIKey  string
-	OpenAIAPIBase string
-	GeminiAPIKey  string
-	GeminiAPIBase string
+	JinaAPIKey          string
+	JinaAPIBase         string
+	OpenAIAPIKey        string
+	OpenAIAPIBase       string
+	GeminiAPIKey        string
+	GeminiAPIBase       string
+	CloudflareAccountID string
+	CloudflareAPIToken  string
+	CloudflareAPIBase   string
 }
 
 type Client struct {
@@ -49,6 +53,8 @@ func (c *Client) Create(ctx context.Context, opts ...Option) (*Result, error) {
 		respData, err = openai.CreateEmbeddings(ctx, c.cfg.OpenAIAPIKey, c.cfg.OpenAIAPIBase, req.Model, toTextInputs(req.Input), req.Options.OpenAI)
 	case "gemini":
 		respData, err = gemini.CreateEmbeddings(ctx, c.cfg.GeminiAPIKey, c.cfg.GeminiAPIBase, req.Model, toTextInputs(req.Input), req.Options.Gemini)
+	case "cloudflare":
+		respData, err = cloudflare.CreateEmbeddings(ctx, c.cfg.CloudflareAPIToken, c.cfg.CloudflareAPIBase, c.cfg.CloudflareAccountID, req.Model, toTextInputs(req.Input), req.Options.Cloudflare)
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
@@ -69,6 +75,9 @@ func pickProviderByModel(model string) string {
 	}
 	if strings.Contains(model, "gemini") {
 		return "gemini"
+	}
+	if strings.HasPrefix(model, "@cf/") {
+		return "cloudflare"
 	}
 	return "openai"
 }

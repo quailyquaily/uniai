@@ -2,6 +2,7 @@ package uniai
 
 import (
 	"github.com/lyricat/goutils/structs"
+	"github.com/quailyquaily/uniai/audio"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/classify"
 	"github.com/quailyquaily/uniai/embedding"
@@ -74,6 +75,9 @@ func WithBedrockOptions(opts structs.JSONMap) ChatOption {
 func WithSusanooOptions(opts structs.JSONMap) ChatOption {
 	return chat.WithSusanooOptions(opts)
 }
+func WithCloudflareOptions(opts structs.JSONMap) ChatOption {
+	return chat.WithCloudflareOptions(opts)
+}
 func WithTools(tools []Tool) ChatOption           { return chat.WithTools(tools) }
 func WithToolChoice(choice ToolChoice) ChatOption { return chat.WithToolChoice(choice) }
 
@@ -119,6 +123,19 @@ func Image(model, prompt string) ImageOption          { return image.Image(model
 func WithImageProvider(provider string) ImageOption   { return image.WithProvider(provider) }
 func WithCount(count int) ImageOption                 { return image.WithCount(count) }
 func WithImageOptions(opts image.Options) ImageOption { return image.WithOptions(opts) }
+
+// Audio re-exports
+type (
+	AudioOption  = audio.Option
+	AudioRequest = audio.Request
+	AudioResult  = audio.Result
+	AudioSegment = audio.Segment
+)
+
+func Audio(model, audioBase64 string) AudioOption     { return audio.Audio(model, audioBase64) }
+func WithAudioProvider(provider string) AudioOption   { return audio.WithProvider(provider) }
+func WithAudio(audioBase64 string) AudioOption        { return audio.WithAudio(audioBase64) }
+func WithAudioOptions(opts audio.Options) AudioOption { return audio.WithOptions(opts) }
 
 // Rerank re-exports
 type (

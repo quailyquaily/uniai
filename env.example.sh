@@ -42,6 +42,15 @@ export TEST_BEDROCK_AWS_REGION="us-east-1"
 export TEST_BEDROCK_MODEL="claude-3-5-sonnet"
 export TEST_BEDROCK_MODEL_ARN="arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0"
 
+# Cloudflare Workers AI
+export TEST_CLOUDFLARE_ACCOUNT_ID=""
+export TEST_CLOUDFLARE_API_TOKEN=""
+export TEST_CLOUDFLARE_TEXT_MODEL="@cf/openai/gpt-oss-120b"
+export TEST_CLOUDFLARE_EMBEDDING_MODEL=""
+export TEST_CLOUDFLARE_IMAGE_MODEL=""
+export TEST_CLOUDFLARE_AUDIO_MODEL=""
+export TEST_CLOUDFLARE_AUDIO_FILEPATH=""
+
 # Jina (embeddings/classify/rerank)
 export TEST_JINA_API_KEY=""
 export TEST_JINA_API_BASE=""

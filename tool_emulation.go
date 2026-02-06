@@ -171,6 +171,7 @@ func buildToolDecisionPrompt(req *chat.Request) (string, error) {
 		case "none":
 			lines = append(lines, "Tool choice: none. You MUST return {\"tools\":[]}.")
 		case "required":
+			lines = append(lines, "Tool choice: required. You MUST call at least one tool.")
 			lines = append(lines, "Tool choice: required. You MUST return at least one tool in tools[].")
 		case "function":
 			if req.ToolChoice.FunctionName != "" {
@@ -257,6 +258,7 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 		return nil, nil
 	}
 	var fallback []byte
+	var decisionErr error
 	for _, candidate := range candidates {
 		payload := strings.TrimSpace(candidate)
 		if payload == "" {
@@ -277,11 +279,17 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 		}
 		calls, ok, err := parseToolDecisionPayload([]byte(payload))
 		if err != nil {
+			if ok {
+				decisionErr = err
+			}
 			continue
 		}
 		if ok {
 			return calls, nil
 		}
+	}
+	if decisionErr != nil {
+		return nil, decisionErr
 	}
 	if fallback != nil {
 		return nil, nil

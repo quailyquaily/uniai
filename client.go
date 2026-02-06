@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/quailyquaily/uniai/audio"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/classify"
 	"github.com/quailyquaily/uniai/embedding"
@@ -12,6 +13,7 @@ import (
 	"github.com/quailyquaily/uniai/providers/anthropic"
 	"github.com/quailyquaily/uniai/providers/azure"
 	"github.com/quailyquaily/uniai/providers/bedrock"
+	"github.com/quailyquaily/uniai/providers/cloudflare"
 	"github.com/quailyquaily/uniai/providers/openai"
 	"github.com/quailyquaily/uniai/providers/susanoo"
 	"github.com/quailyquaily/uniai/rerank"
@@ -24,6 +26,7 @@ type Client struct {
 	imageClient     *image.Client
 	rerankClient    *rerank.Client
 	classifyClient  *classify.Client
+	audioClient     *audio.Client
 }
 
 func New(cfg Config) *Client {
@@ -31,17 +34,23 @@ func New(cfg Config) *Client {
 	return &Client{
 		cfg: cfg,
 		embeddingClient: embedding.New(embedding.Config{
-			JinaAPIKey:    cfg.JinaAPIKey,
-			JinaAPIBase:   cfg.JinaAPIBase,
-			OpenAIAPIKey:  cfg.OpenAIAPIKey,
-			OpenAIAPIBase: cfg.OpenAIAPIBase,
-			GeminiAPIKey:  cfg.GeminiAPIKey,
-			GeminiAPIBase: cfg.GeminiAPIBase,
+			JinaAPIKey:          cfg.JinaAPIKey,
+			JinaAPIBase:         cfg.JinaAPIBase,
+			OpenAIAPIKey:        cfg.OpenAIAPIKey,
+			OpenAIAPIBase:       cfg.OpenAIAPIBase,
+			GeminiAPIKey:        cfg.GeminiAPIKey,
+			GeminiAPIBase:       cfg.GeminiAPIBase,
+			CloudflareAccountID: cfg.CloudflareAccountID,
+			CloudflareAPIToken:  cfg.CloudflareAPIToken,
+			CloudflareAPIBase:   cfg.CloudflareAPIBase,
 		}),
 		imageClient: image.New(image.Config{
-			OpenAIAPIKey:  cfg.OpenAIAPIKey,
-			OpenAIAPIBase: cfg.OpenAIAPIBase,
-			GeminiAPIKey:  cfg.GeminiAPIKey,
+			OpenAIAPIKey:        cfg.OpenAIAPIKey,
+			OpenAIAPIBase:       cfg.OpenAIAPIBase,
+			GeminiAPIKey:        cfg.GeminiAPIKey,
+			CloudflareAccountID: cfg.CloudflareAccountID,
+			CloudflareAPIToken:  cfg.CloudflareAPIToken,
+			CloudflareAPIBase:   cfg.CloudflareAPIBase,
 		}),
 		rerankClient: rerank.New(rerank.Config{
 			JinaAPIKey:  cfg.JinaAPIKey,
@@ -50,6 +59,11 @@ func New(cfg Config) *Client {
 		classifyClient: classify.New(classify.Config{
 			JinaAPIKey:  cfg.JinaAPIKey,
 			JinaAPIBase: cfg.JinaAPIBase,
+		}),
+		audioClient: audio.New(audio.Config{
+			CloudflareAccountID: cfg.CloudflareAccountID,
+			CloudflareAPIToken:  cfg.CloudflareAPIToken,
+			CloudflareAPIBase:   cfg.CloudflareAPIBase,
 		}),
 	}
 }
@@ -182,6 +196,18 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		})
 		return p.Chat(ctx, req)
 
+	case "cloudflare":
+		p, err := cloudflare.New(cloudflare.Config{
+			AccountID: c.cfg.CloudflareAccountID,
+			APIToken:  c.cfg.CloudflareAPIToken,
+			APIBase:   c.cfg.CloudflareAPIBase,
+			Debug:     c.cfg.Debug,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p.Chat(ctx, req)
+
 	default:
 		return nil, fmt.Errorf("provider %s not supported", providerName)
 	}
@@ -199,6 +225,13 @@ func (c *Client) Image(ctx context.Context, opts ...image.Option) (*image.Result
 		return nil, fmt.Errorf("image client not configured")
 	}
 	return c.imageClient.Create(ctx, opts...)
+}
+
+func (c *Client) Audio(ctx context.Context, opts ...audio.Option) (*audio.Result, error) {
+	if c.audioClient == nil {
+		return nil, fmt.Errorf("audio client not configured")
+	}
+	return c.audioClient.Create(ctx, opts...)
 }
 
 func (c *Client) Rerank(ctx context.Context, opts ...rerank.Option) (*rerank.Result, error) {

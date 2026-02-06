@@ -31,6 +31,11 @@ type Config struct {
 	SusanooAPIBase string
 	SusanooAPIKey  string
 
+	// Cloudflare Workers AI
+	CloudflareAccountID string
+	CloudflareAPIToken  string
+	CloudflareAPIBase   string
+
 	// Embeddings / Images / Rerank / Classify
 	OpenAIEmbeddingModel      string
 	AzureOpenAIEmbeddingModel string
@@ -44,9 +49,10 @@ type Config struct {
 }
 
 const (
-	DefaultOpenAIAPIBase = "https://api.openai.com/v1"
-	DefaultJinaAPIBase   = "https://api.jina.ai"
-	DefaultGeminiAPIBase = "https://generativelanguage.googleapis.com"
+	DefaultOpenAIAPIBase     = "https://api.openai.com/v1"
+	DefaultJinaAPIBase       = "https://api.jina.ai"
+	DefaultGeminiAPIBase     = "https://generativelanguage.googleapis.com"
+	DefaultCloudflareAPIBase = "https://api.cloudflare.com/client/v4"
 )
 
 func (cfg Config) withDefaults() Config {
@@ -58,6 +64,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.GeminiAPIBase == "" {
 		cfg.GeminiAPIBase = DefaultGeminiAPIBase
+	}
+	if cfg.CloudflareAPIBase == "" {
+		cfg.CloudflareAPIBase = DefaultCloudflareAPIBase
 	}
 	return cfg
 }

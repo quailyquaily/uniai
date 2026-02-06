@@ -3,8 +3,9 @@ package image
 import "github.com/lyricat/goutils/structs"
 
 type Options struct {
-	OpenAI structs.JSONMap `json:"openai_options,omitempty"`
-	Gemini structs.JSONMap `json:"gemini_options,omitempty"`
+	OpenAI     structs.JSONMap `json:"openai_options,omitempty"`
+	Gemini     structs.JSONMap `json:"gemini_options,omitempty"`
+	Cloudflare structs.JSONMap `json:"cloudflare_options,omitempty"`
 }
 
 type Request struct {

@@ -1,4 +1,4 @@
-package image
+package audio
 
 import (
 	"context"
@@ -7,14 +7,9 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/uniai/internal/providers/cloudflare"
-	"github.com/quailyquaily/uniai/internal/providers/gemini"
-	"github.com/quailyquaily/uniai/internal/providers/openai"
 )
 
 type Config struct {
-	OpenAIAPIKey        string
-	OpenAIAPIBase       string
-	GeminiAPIKey        string
 	CloudflareAccountID string
 	CloudflareAPIToken  string
 	CloudflareAPIBase   string
@@ -43,12 +38,8 @@ func (c *Client) Create(ctx context.Context, opts ...Option) (*Result, error) {
 		err      error
 	)
 	switch provider {
-	case "openai", "openai_custom":
-		respData, err = openai.CreateImages(ctx, c.cfg.OpenAIAPIKey, c.cfg.OpenAIAPIBase, req.Model, req.Prompt, req.Count, req.Options.OpenAI)
-	case "gemini":
-		respData, err = gemini.CreateImages(ctx, c.cfg.GeminiAPIKey, req.Model, req.Prompt, req.Count, req.Options.Gemini)
 	case "cloudflare":
-		respData, err = cloudflare.CreateImages(ctx, c.cfg.CloudflareAPIToken, c.cfg.CloudflareAPIBase, c.cfg.CloudflareAccountID, req.Model, req.Prompt, req.Count, req.Options.Cloudflare)
+		respData, err = cloudflare.Transcribe(ctx, c.cfg.CloudflareAPIToken, c.cfg.CloudflareAPIBase, c.cfg.CloudflareAccountID, req.Model, req.Audio, req.Options.Cloudflare)
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
@@ -64,14 +55,8 @@ func (c *Client) Create(ctx context.Context, opts ...Option) (*Result, error) {
 }
 
 func pickProviderByModel(model string) string {
-	if strings.HasPrefix(model, "gemini-") || strings.HasPrefix(model, "imagen-") {
-		return "gemini"
-	}
-	if strings.Contains(model, "gpt-") {
-		return "openai"
-	}
 	if strings.HasPrefix(model, "@cf/") {
 		return "cloudflare"
 	}
-	return "openai"
+	return "cloudflare"
 }

@@ -8,9 +8,10 @@ type Input struct {
 }
 
 type Options struct {
-	Jina   structs.JSONMap `json:"jina_options,omitempty"`
-	OpenAI structs.JSONMap `json:"openai_options,omitempty"`
-	Gemini structs.JSONMap `json:"gemini_options,omitempty"`
+	Jina       structs.JSONMap `json:"jina_options,omitempty"`
+	OpenAI     structs.JSONMap `json:"openai_options,omitempty"`
+	Gemini     structs.JSONMap `json:"gemini_options,omitempty"`
+	Cloudflare structs.JSONMap `json:"cloudflare_options,omitempty"`
 }
 
 type Request struct {
