@@ -287,6 +287,25 @@ resp, err := client.Chat(ctx,
 )
 ```
 
+## Testcase
+
+Run tests from the module root that contains `go.mod`.
+
+```bash
+# all tests
+GOCACHE=/tmp/go-build go test ./...
+
+# only integration tests (chat + other features)
+GOCACHE=/tmp/go-build go test ./... -run TestChatEchoJSON
+GOCACHE=/tmp/go-build go test ./... -run TestOtherFeatures
+```
+
+Integration tests are enabled by env vars. Common ones:
+
+- Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`
+- Cloudflare chat/audio: `TEST_CLOUDFLARE_ACCOUNT_ID`, `TEST_CLOUDFLARE_API_TOKEN`, `TEST_CLOUDFLARE_TEXT_MODEL`, `TEST_CLOUDFLARE_AUDIO_MODEL`, `TEST_CLOUDFLARE_AUDIO_FILEPATH`, `TEST_CLOUDFLARE_API_BASE`
+- Embedding/image/rerank/classify: see `env.example.sh`
+
 ## Development
 
 Run from the module root that contains `go.mod`:
