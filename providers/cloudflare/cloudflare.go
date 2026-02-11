@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	cf "github.com/quailyquaily/uniai/internal/providers/cloudflare"
+	"github.com/quailyquaily/uniai/internal/toolschema"
 )
 
 type Config struct {
@@ -43,20 +44,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("cloudflare provider does not support streaming yet")
 	}
 
-	payload := structs.NewJSONMap()
-	payload.Merge(req.Options.Cloudflare)
-	if payload.GetBool("stream") {
-		return nil, fmt.Errorf("cloudflare streaming is not supported; remove stream option")
+	payload, err := buildPayload(req, model)
+	if err != nil {
+		return nil, err
 	}
-
-	if !hasAnyKey(&payload, "messages", "prompt", "input") {
-		if isGptOssModel(model) {
-			payload["input"] = toResponsesInput(req.Messages)
-		} else {
-			payload["messages"] = toScopedMessages(req.Messages)
-		}
-	}
-	applyCommonOptions(&payload, req.Options)
 
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
@@ -71,6 +62,44 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogText(p.cfg.Debug, debugFn, "cloudflare.chat.response", string(resultRaw))
 
 	return toChatResult(resultRaw, model), nil
+}
+
+func buildPayload(req *chat.Request, model string) (structs.JSONMap, error) {
+	payload := structs.NewJSONMap()
+	payload.Merge(req.Options.Cloudflare)
+	if payload.GetBool("stream") {
+		return nil, fmt.Errorf("cloudflare streaming is not supported; remove stream option")
+	}
+
+	responsesCompatible := isGptOssModel(model)
+	if !hasAnyKey(&payload, "messages", "prompt", "input") {
+		if responsesCompatible {
+			payload["input"] = toResponsesInput(req.Messages)
+		} else {
+			payload["messages"] = toScopedMessages(req.Messages)
+		}
+	}
+	if len(req.Tools) > 0 && !payload.HasKey("tools") {
+		tools, err := toCloudflareTools(req.Tools, responsesCompatible)
+		if err != nil {
+			return nil, err
+		}
+		if len(tools) > 0 {
+			payload["tools"] = tools
+		}
+	}
+	if req.ToolChoice != nil && !payload.HasKey("tool_choice") {
+		choice, err := toCloudflareToolChoice(req.ToolChoice, responsesCompatible)
+		if err != nil {
+			return nil, err
+		}
+		if choice != nil {
+			payload["tool_choice"] = choice
+		}
+	}
+
+	applyCommonOptions(&payload, req.Options)
+	return payload, nil
 }
 
 func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
@@ -97,29 +126,154 @@ func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
 func toScopedMessages(msgs []chat.Message) []map[string]any {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
-		if m.Content == "" {
+		content := toMessageContent(m)
+		if content == "" {
 			continue
 		}
 		out = append(out, map[string]any{
 			"role":    m.Role,
-			"content": m.Content,
+			"content": content,
 		})
 	}
 	return out
 }
 
 func toResponsesInput(msgs []chat.Message) []map[string]any {
-	out := make([]map[string]any, 0, len(msgs))
-	for _, m := range msgs {
-		if m.Content == "" {
+	return toScopedMessages(msgs)
+}
+
+func toMessageContent(msg chat.Message) string {
+	toolCallsText := toolCallsAsContent(msg.ToolCalls)
+	switch {
+	case msg.Content == "":
+		return toolCallsText
+	case toolCallsText == "":
+		return msg.Content
+	default:
+		return msg.Content + "\n" + toolCallsText
+	}
+}
+
+func toolCallsAsContent(calls []chat.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	items := make([]map[string]any, 0, len(calls))
+	for _, call := range calls {
+		item, ok := toTraditionalToolCallObject(call)
+		if !ok {
 			continue
 		}
-		out = append(out, map[string]any{
-			"role":    m.Role,
-			"content": m.Content,
-		})
+		items = append(items, item)
 	}
-	return out
+	if len(items) == 0 {
+		return ""
+	}
+	var payload any = items
+	if len(items) == 1 {
+		payload = items[0]
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func toTraditionalToolCallObject(call chat.ToolCall) (map[string]any, bool) {
+	name := strings.TrimSpace(call.Function.Name)
+	if name == "" {
+		return nil, false
+	}
+	out := map[string]any{
+		"name":      name,
+		"arguments": parseFunctionArguments(call.Function.Arguments),
+	}
+	if id := strings.TrimSpace(call.ID); id != "" {
+		out["id"] = id
+	}
+	return out, true
+}
+
+func parseFunctionArguments(raw string) any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]any{}
+	}
+	var args any
+	if err := json.Unmarshal([]byte(raw), &args); err == nil {
+		return args
+	}
+	return raw
+}
+
+func toCloudflareTools(tools []chat.Tool, responsesCompatible bool) ([]map[string]any, error) {
+	out := make([]map[string]any, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Type != "function" {
+			continue
+		}
+		name := strings.TrimSpace(tool.Function.Name)
+		if name == "" {
+			continue
+		}
+		params := map[string]any{"type": "object"}
+		if len(tool.Function.ParametersJSONSchema) > 0 {
+			if err := json.Unmarshal(tool.Function.ParametersJSONSchema, &params); err != nil {
+				return nil, err
+			}
+			toolschema.Normalize(params)
+		}
+		if responsesCompatible {
+			item := map[string]any{
+				"type":       "function",
+				"name":       name,
+				"parameters": params,
+			}
+			if desc := strings.TrimSpace(tool.Function.Description); desc != "" {
+				item["description"] = desc
+			}
+			if tool.Function.Strict != nil {
+				item["strict"] = *tool.Function.Strict
+			}
+			out = append(out, item)
+			continue
+		}
+		item := map[string]any{
+			"name":       name,
+			"parameters": params,
+		}
+		if desc := strings.TrimSpace(tool.Function.Description); desc != "" {
+			item["description"] = desc
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func toCloudflareToolChoice(choice *chat.ToolChoice, responsesCompatible bool) (any, error) {
+	if choice == nil || !responsesCompatible {
+		return nil, nil
+	}
+	switch strings.TrimSpace(choice.Mode) {
+	case "", "auto":
+		return "auto", nil
+	case "none":
+		return "none", nil
+	case "required":
+		return "required", nil
+	case "function":
+		name := strings.TrimSpace(choice.FunctionName)
+		if name == "" {
+			return nil, fmt.Errorf("tool_choice function_name is required when mode=function")
+		}
+		return map[string]any{
+			"type": "function",
+			"name": name,
+		}, nil
+	default:
+		return nil, nil
+	}
 }
 
 func toChatResult(resultRaw []byte, fallbackModel string) *chat.Result {
@@ -217,6 +371,11 @@ func extractToolCalls(m map[string]any) []chat.ToolCall {
 			return calls
 		}
 	}
+	if output, ok := m["output"].([]any); ok {
+		if calls := parseToolCalls(output); len(calls) > 0 {
+			return calls
+		}
+	}
 	if choices, ok := m["choices"].([]any); ok {
 		for _, choice := range choices {
 			choiceMap, ok := choice.(map[string]any)
@@ -244,20 +403,99 @@ func parseToolCalls(raw any) []chat.ToolCall {
 		if !ok {
 			continue
 		}
-		fn, _ := call["function"].(map[string]any)
-		out = append(out, chat.ToolCall{
-			ID:   extractString(call, "id"),
-			Type: extractString(call, "type"),
-			Function: chat.ToolCallFunction{
-				Name:      extractString(fn, "name"),
-				Arguments: extractString(fn, "arguments"),
-			},
-		})
+		parsed, ok := parseToolCall(call)
+		if !ok {
+			continue
+		}
+		out = append(out, parsed)
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func parseToolCall(call map[string]any) (chat.ToolCall, bool) {
+	fn, _ := call["function"].(map[string]any)
+	name := strings.TrimSpace(extractString(fn, "name"))
+	if name == "" {
+		name = strings.TrimSpace(extractString(call, "name"))
+	}
+	if name == "" {
+		return chat.ToolCall{}, false
+	}
+	callType, ok := normalizeToolCallType(extractString(call, "type"))
+	if !ok {
+		return chat.ToolCall{}, false
+	}
+	var rawArgs any
+	hasArgs := false
+	if fn != nil {
+		if raw, ok := fn["arguments"]; ok {
+			rawArgs = raw
+			hasArgs = true
+		}
+	}
+	if !hasArgs {
+		if raw, ok := call["arguments"]; ok {
+			rawArgs = raw
+			hasArgs = true
+		} else if raw, ok := call["input"]; ok {
+			rawArgs = raw
+			hasArgs = true
+		}
+	}
+	arguments := toArgumentsString(rawArgs)
+	return chat.ToolCall{
+		ID:   firstNonEmptyString(extractString(call, "id"), extractString(call, "call_id")),
+		Type: callType,
+		Function: chat.ToolCallFunction{
+			Name:      name,
+			Arguments: arguments,
+		},
+	}, true
+}
+
+func normalizeToolCallType(value string) (string, bool) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "", "function", "function_call", "tool_call":
+		return "function", true
+	default:
+		return "", false
+	}
+}
+
+func toArgumentsString(raw any) string {
+	switch v := raw.(type) {
+	case nil:
+		return "{}"
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return "{}"
+		}
+		return v
+	case []byte:
+		if len(v) == 0 {
+			return "{}"
+		}
+		return string(v)
+	default:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return "{}"
+		}
+		return string(data)
+	}
+}
+
+func firstNonEmptyString(vals ...string) string {
+	for _, val := range vals {
+		if strings.TrimSpace(val) != "" {
+			return val
+		}
+	}
+	return ""
 }
 
 func extractUsage(m map[string]any) *chat.Usage {
