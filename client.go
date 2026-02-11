@@ -3,7 +3,6 @@ package uniai
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/quailyquaily/uniai/audio"
 	"github.com/quailyquaily/uniai/chat"
@@ -14,6 +13,7 @@ import (
 	"github.com/quailyquaily/uniai/providers/azure"
 	"github.com/quailyquaily/uniai/providers/bedrock"
 	"github.com/quailyquaily/uniai/providers/cloudflare"
+	"github.com/quailyquaily/uniai/providers/gemini"
 	"github.com/quailyquaily/uniai/providers/openai"
 	"github.com/quailyquaily/uniai/providers/susanoo"
 	"github.com/quailyquaily/uniai/rerank"
@@ -129,15 +129,6 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		return p.Chat(ctx, req)
 
 	case "gemini":
-		base := strings.TrimRight(c.cfg.GeminiAPIBase, "/")
-		if base == "" {
-			base = DefaultGeminiAPIBase
-		}
-		if strings.HasSuffix(base, "/v1beta") {
-			base += "/openai"
-		} else if !strings.Contains(base, "/openai") {
-			base += "/v1beta/openai"
-		}
 		apiKey := c.cfg.GeminiAPIKey
 		if apiKey == "" {
 			apiKey = c.cfg.OpenAIAPIKey
@@ -146,9 +137,9 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		if geminiModel == "" {
 			geminiModel = c.cfg.OpenAIModel
 		}
-		p, err := openai.New(openai.Config{
+		p, err := gemini.New(gemini.Config{
 			APIKey:       apiKey,
-			BaseURL:      base,
+			BaseURL:      c.cfg.GeminiAPIBase,
 			DefaultModel: geminiModel,
 			Debug:        c.cfg.Debug,
 		})

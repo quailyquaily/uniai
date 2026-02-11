@@ -10,7 +10,7 @@ export TEST_OPENAI_CUSTOM_API_KEY=""
 export TEST_OPENAI_CUSTOM_API_BASE=""
 export TEST_OPENAI_CUSTOM_MODEL="gpt-5.2"
 
-# Gemini (OpenAI-compatible in this repo)
+# Gemini (native Gemini API for chat + embedding/image endpoints in this repo)
 export TEST_GEMINI_API_KEY=""
 export TEST_GEMINI_MODEL="gemini-2.5-pro"
 export TEST_GEMINI_API_BASE=""

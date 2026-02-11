@@ -22,9 +22,10 @@ type Message struct {
 }
 
 type ToolCall struct {
-	ID       string           `json:"id,omitempty"`
-	Type     string           `json:"type,omitempty"`
-	Function ToolCallFunction `json:"function,omitempty"`
+	ID               string           `json:"id,omitempty"`
+	Type             string           `json:"type,omitempty"`
+	Function         ToolCallFunction `json:"function,omitempty"`
+	ThoughtSignature string           `json:"thought_signature,omitempty"`
 }
 
 type ToolCallFunction struct {

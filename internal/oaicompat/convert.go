@@ -1,5 +1,5 @@
 // Package oaicompat provides shared conversion helpers for providers
-// that use the OpenAI-compatible API (openai, azure, gemini via openai).
+// that use the OpenAI-compatible API (openai, azure).
 package oaicompat
 
 import (
