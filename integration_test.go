@@ -327,6 +327,21 @@ func pickChatConfigs() []chatConfig {
 		}
 	}
 
+	if key := env("TEST_GROQ_API_KEY"); key != "" {
+		model := env("TEST_GROQ_MODEL")
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "groq",
+				model:    model,
+				cfg: Config{
+					Provider:     "groq",
+					OpenAIAPIKey: key,
+					OpenAIModel:  model,
+				},
+			})
+		}
+	}
+
 	if key := env("TEST_AZURE_API_KEY"); key != "" {
 		endpoint := env("TEST_AZURE_ENDPOINT")
 		model := env("TEST_AZURE_MODEL")

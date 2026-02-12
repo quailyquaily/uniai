@@ -26,6 +26,10 @@ export TEST_DEEPSEEK_API_KEY=""
 export TEST_DEEPSEEK_MODEL="deepseek-chat"
 export TEST_DEEPSEEK_API_BASE=""
 
+# Groq (OpenAI-compatible)
+export TEST_GROQ_API_KEY=""
+export TEST_GROQ_MODEL="llama-3.3-70b-versatile"
+
 # Azure OpenAI
 export TEST_AZURE_API_KEY=""
 export TEST_AZURE_ENDPOINT=""

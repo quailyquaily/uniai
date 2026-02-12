@@ -3,6 +3,7 @@ package uniai
 const (
 	deepseekAPIBase = "https://api.deepseek.com"
 	xaiAPIBase      = "https://api.x.ai/v1"
+	groqAPIBase     = "https://api.groq.com/openai/v1"
 )
 
 // ClientConfigView is a non-sensitive view of runtime client config.
@@ -35,6 +36,9 @@ func (c *Client) GetConfig() ClientConfigView {
 	case "xai":
 		out.Model = c.cfg.OpenAIModel
 		out.APIBase = xaiAPIBase
+	case "groq":
+		out.Model = c.cfg.OpenAIModel
+		out.APIBase = groqAPIBase
 	case "gemini":
 		out.Model = c.cfg.GeminiModel
 		if out.Model == "" {

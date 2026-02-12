@@ -287,7 +287,7 @@ func annotateAPIErrorMessage(msg, provider, apiBase string) string {
 	if strings.Contains(lower, "content-type 'text/html") || strings.Contains(lower, "not 'application/json'") {
 		base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
 		switch provider {
-		case "openai", "openai_custom", "deepseek", "xai":
+		case "openai", "openai_custom", "deepseek", "xai", "groq":
 			if base == "" {
 				return msg + "; hint: got HTML instead of JSON, check provider endpoint or proxy settings"
 			}

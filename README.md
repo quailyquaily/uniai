@@ -4,7 +4,7 @@
 
 ## Features
 
-- Chat routing with OpenAI-compatible, Azure OpenAI, Anthropic, AWS Bedrock, Susanoo, and Cloudflare Workers AI providers.
+- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Azure OpenAI, Anthropic, AWS Bedrock, Susanoo, and Cloudflare Workers AI.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
@@ -67,6 +67,7 @@ Supported provider names:
 - `openai_custom` (uses `Config.OpenAIAPIBase`)
 - `deepseek` (OpenAI-compatible)
 - `xai` (OpenAI-compatible)
+- `groq` (OpenAI-compatible)
 - `gemini` (native Gemini API)
 - `azure`
 - `anthropic`
@@ -211,7 +212,7 @@ resp, err := client.Chat(ctx,
 | `Usage` | Token usage, populated on the final event |
 | `Done` | `true` for the last event |
 
-Supported providers: OpenAI, Azure, Anthropic, Bedrock. Susanoo and Cloudflare ignore streaming and fall back to blocking.
+Supported providers: OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Susanoo and Cloudflare ignore streaming and fall back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
 
@@ -363,7 +364,7 @@ GOCACHE=/tmp/go-build go test ./... -run TestOtherFeatures
 
 Integration tests are enabled by env vars. Common ones:
 
-- Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`
+- Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`, `TEST_GROQ_API_KEY`, `TEST_GROQ_MODEL`
 - Cloudflare chat/audio: `TEST_CLOUDFLARE_ACCOUNT_ID`, `TEST_CLOUDFLARE_API_TOKEN`, `TEST_CLOUDFLARE_TEXT_MODEL`, `TEST_CLOUDFLARE_AUDIO_MODEL`, `TEST_CLOUDFLARE_AUDIO_FILEPATH`, `TEST_CLOUDFLARE_API_BASE`
 - Embedding/image/rerank/classify: see `env.example.sh`
 
