@@ -37,6 +37,12 @@ tests:
     cloudflare_api_token_ref: CF_API_TOKEN
     model: "@cf/openai/gpt-oss-20b"
 
+  - name: "groq_gpt_oss_20b"
+    provider: openai
+    api_base: "https://api.groq.com/openai/v1"
+    api_key_ref: GROQ_API_KEY
+    model: "openai/gpt-oss-20b"
+
   - name: "gemini_2.5_flash_lite"
     provider: gemini
     api_base: ""
