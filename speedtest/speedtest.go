@@ -284,7 +284,7 @@ func runToolCallingAttempt(
 		uniai.WithTemperature(temperature),
 		uniai.WithMessages(
 			uniai.System("You are a tool-calling assistant. You must choose exactly one tool from the provided tools based on the user request. Do not answer directly when a tool is appropriate."),
-			uniai.User("从 tokyo station 到 shinjuku station 怎么走"),
+			uniai.User("how to get from tokyo station to shinjuku station?"),
 		),
 		uniai.WithTools(tools),
 		uniai.WithToolChoice(uniai.ToolChoiceAuto()),

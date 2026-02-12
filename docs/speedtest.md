@@ -81,8 +81,10 @@ func main() {
 
 ## Method Semantics
 
-- `echo`: asks the model to return the input exactly, then compares byte-for-byte.
-- `toolcalling`: injects 3 mock tools (`get_weather`, `get_direction`, `send_message`) and checks whether `get_direction` is called.
+- `echo`: a strict "Linux `echo`-like" baseline for LLM output stability.
+  The model is instructed to output exactly the user text (`EchoText`) with no extra characters.
+  Match rule is exact equality of returned text vs input text.
+- `toolcalling`: injects 3 mock tools (`get_weather`, `get_direction`, `send_message`) and checks whether the model chooses `get_direction` for the route query ("How do I get from Tokyo Station to Shinjuku Station?").
 
 ## Event Callback
 

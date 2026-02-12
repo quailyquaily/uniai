@@ -16,13 +16,13 @@ import (
 const (
 	defaultConfigPath = "config.yaml"
 	defaultCSVPath    = "speedtest_results.csv"
-	defaultMethod     = "echo"
-	defaultEchoText   = "speedtest-echo-20260211"
-	defaultTimeout    = 90 * time.Second
-	echoRuns          = 3
+	defaultMethod     = string(speedtest.DefaultMethod)
+	defaultEchoText   = speedtest.DefaultEchoText
+	defaultTimeout    = speedtest.DefaultTimeout
+	echoRuns          = speedtest.DefaultAttempts
 
-	methodEcho        = "echo"
-	methodToolCalling = "toolcalling"
+	methodEcho        = string(speedtest.MethodEcho)
+	methodToolCalling = string(speedtest.MethodToolCalling)
 )
 
 func main() {
