@@ -1,5 +1,5 @@
 attempts: 3
-echo_text: speedtest-echo-20260211
+echo_text: "speedtest-echo-20260211"
 timeout_seconds: 90
 temperature: 0
 
