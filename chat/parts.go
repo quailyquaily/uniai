@@ -69,3 +69,39 @@ func MessageText(msg Message) (string, error) {
 	}
 	return b.String(), nil
 }
+
+func NormalizeTextOnlyMessage(msg Message) (Message, error) {
+	text, err := MessageText(msg)
+	if err != nil {
+		return Message{}, err
+	}
+	out := msg
+	out.Content = text
+	out.Parts = nil
+	return out, nil
+}
+
+func NormalizeTextOnlyMessages(messages []Message) ([]Message, error) {
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	out := make([]Message, 0, len(messages))
+	for i, msg := range messages {
+		normalized, err := NormalizeTextOnlyMessage(msg)
+		if err != nil {
+			return nil, fmt.Errorf("message[%d]: %w", i, err)
+		}
+		out = append(out, normalized)
+	}
+	return out, nil
+}
+
+func EnsureResultParts(result *Result) {
+	if result == nil {
+		return
+	}
+	if len(result.Parts) > 0 || result.Text == "" {
+		return
+	}
+	result.Parts = []Part{TextPart(result.Text)}
+}

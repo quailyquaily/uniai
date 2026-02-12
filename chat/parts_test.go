@@ -43,3 +43,24 @@ func TestMessageTextRejectsNonTextPart(t *testing.T) {
 		t.Fatalf("expected non-text error")
 	}
 }
+
+func TestBuildRequestRejectsNonTextPartForAssistantRole(t *testing.T) {
+	_, err := BuildRequest(
+		WithMessages(AssistantParts(ImageURLPart("https://example.com/a.png"))),
+	)
+	if err == nil {
+		t.Fatalf("expected role constraint error")
+	}
+}
+
+func TestNormalizeTextOnlyMessages(t *testing.T) {
+	msgs, err := NormalizeTextOnlyMessages([]Message{
+		UserParts(TextPart("hello")),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(msgs) != 1 || msgs[0].Content != "hello" || len(msgs[0].Parts) != 0 {
+		t.Fatalf("unexpected normalized messages: %#v", msgs)
+	}
+}

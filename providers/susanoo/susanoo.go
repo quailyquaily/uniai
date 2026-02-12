@@ -62,16 +62,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		model = "<unspecified>"
 	}
 
-	messages := make([]chat.Message, 0, len(req.Messages))
-	for _, msg := range req.Messages {
-		text, err := chat.MessageText(msg)
-		if err != nil {
-			return nil, fmt.Errorf("susanoo provider model %q: role %q: %w", model, msg.Role, err)
-		}
-		clone := msg
-		clone.Content = text
-		clone.Parts = nil
-		messages = append(messages, clone)
+	messages, err := chat.NormalizeTextOnlyMessages(req.Messages)
+	if err != nil {
+		return nil, fmt.Errorf("susanoo provider model %q: %w", model, err)
 	}
 
 	params := map[string]any{}

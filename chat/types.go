@@ -160,8 +160,17 @@ func BuildRequest(opts ...Option) (*Request, error) {
 		return nil, fmt.Errorf("messages are required")
 	}
 	for i := range req.Messages {
-		if err := ValidateMessageParts(req.Messages[i]); err != nil {
+		msg := req.Messages[i]
+		if err := ValidateMessageParts(msg); err != nil {
 			return nil, fmt.Errorf("message[%d]: %w", i, err)
+		}
+		for _, part := range msg.Parts {
+			if part.Type == PartTypeText {
+				continue
+			}
+			if msg.Role != RoleUser {
+				return nil, fmt.Errorf("message[%d]: role %q supports only %q part type", i, msg.Role, PartTypeText)
+			}
 		}
 	}
 	return req, nil

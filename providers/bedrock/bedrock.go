@@ -70,13 +70,15 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("bedrock model arn is required")
 	}
 
+	normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
+	if err != nil {
+		return nil, fmt.Errorf("bedrock provider model %q: %w", p.modelArn, err)
+	}
+
 	systemParts := make([]string, 0, 1)
-	messages := make([]bedrockMessage, 0, len(req.Messages))
-	for _, m := range req.Messages {
-		text, err := chat.MessageText(m)
-		if err != nil {
-			return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
-		}
+	messages := make([]bedrockMessage, 0, len(normalizedMessages))
+	for _, m := range normalizedMessages {
+		text := m.Content
 		switch m.Role {
 		case chat.RoleSystem:
 			if text != "" {

@@ -86,12 +86,15 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 		mode = chat.ToolsEmulationOff
 	}
 	if len(req.Tools) > 0 && mode == chat.ToolsEmulationForce {
-		return c.chatWithToolEmulation(ctx, providerName, req)
+		resp, err := c.chatWithToolEmulation(ctx, providerName, req)
+		chat.EnsureResultParts(resp)
+		return resp, err
 	}
 	resp, err := c.chatOnce(ctx, providerName, req)
 	if err != nil {
 		return nil, err
 	}
+	chat.EnsureResultParts(resp)
 	if len(req.Tools) == 0 {
 		return resp, nil
 	}
@@ -101,7 +104,9 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if mode == chat.ToolsEmulationOff {
 		return resp, nil
 	}
-	return c.chatWithToolEmulation(ctx, providerName, req)
+	resp, err = c.chatWithToolEmulation(ctx, providerName, req)
+	chat.EnsureResultParts(resp)
+	return resp, err
 }
 
 func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Request) (*chat.Result, error) {

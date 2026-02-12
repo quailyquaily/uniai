@@ -73,14 +73,18 @@ func buildPayload(req *chat.Request, model string) (structs.JSONMap, error) {
 
 	responsesCompatible := isGptOssModel(model)
 	if !hasAnyKey(&payload, "messages", "prompt", "input") {
+		normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
+		if err != nil {
+			return nil, err
+		}
 		if responsesCompatible {
-			input, err := toResponsesInput(req.Messages)
+			input, err := toResponsesInput(normalizedMessages)
 			if err != nil {
 				return nil, err
 			}
 			payload["input"] = input
 		} else {
-			messages, err := toScopedMessages(req.Messages)
+			messages, err := toScopedMessages(normalizedMessages)
 			if err != nil {
 				return nil, err
 			}
@@ -134,10 +138,7 @@ func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
 func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
-		text, err := chat.MessageText(m)
-		if err != nil {
-			return nil, fmt.Errorf("role %q: %w", m.Role, err)
-		}
+		text := m.Content
 		switch m.Role {
 		case chat.RoleSystem, chat.RoleUser:
 			if strings.TrimSpace(text) == "" {
@@ -200,10 +201,7 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 func toResponsesInput(msgs []chat.Message) ([]any, error) {
 	out := make([]any, 0, len(msgs))
 	for _, m := range msgs {
-		text, err := chat.MessageText(m)
-		if err != nil {
-			return nil, fmt.Errorf("role %q: %w", m.Role, err)
-		}
+		text := m.Content
 		switch m.Role {
 		case chat.RoleSystem, chat.RoleUser:
 			if strings.TrimSpace(text) == "" {
