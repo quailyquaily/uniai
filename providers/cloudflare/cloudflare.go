@@ -74,9 +74,17 @@ func buildPayload(req *chat.Request, model string) (structs.JSONMap, error) {
 	responsesCompatible := isGptOssModel(model)
 	if !hasAnyKey(&payload, "messages", "prompt", "input") {
 		if responsesCompatible {
-			payload["input"] = toResponsesInput(req.Messages)
+			input, err := toResponsesInput(req.Messages)
+			if err != nil {
+				return nil, err
+			}
+			payload["input"] = input
 		} else {
-			payload["messages"] = toScopedMessages(req.Messages)
+			messages, err := toScopedMessages(req.Messages)
+			if err != nil {
+				return nil, err
+			}
+			payload["messages"] = messages
 		}
 	}
 	if len(req.Tools) > 0 && !payload.HasKey("tools") {
@@ -123,86 +131,207 @@ func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
 	}
 }
 
-func toScopedMessages(msgs []chat.Message) []map[string]any {
+func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
-		content := toMessageContent(m)
-		if content == "" {
+		switch m.Role {
+		case chat.RoleSystem, chat.RoleUser:
+			if strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			msg := map[string]any{
+				"role":    m.Role,
+				"content": m.Content,
+			}
+			if name := strings.TrimSpace(m.Name); name != "" {
+				msg["name"] = name
+			}
+			out = append(out, msg)
+		case chat.RoleAssistant:
+			msg := map[string]any{
+				"role": chat.RoleAssistant,
+			}
+			if strings.TrimSpace(m.Content) != "" {
+				msg["content"] = m.Content
+			}
+			if name := strings.TrimSpace(m.Name); name != "" {
+				msg["name"] = name
+			}
+			if len(m.ToolCalls) > 0 {
+				calls, err := toChatCompletionToolCalls(m.ToolCalls)
+				if err != nil {
+					return nil, err
+				}
+				if len(calls) > 0 {
+					msg["tool_calls"] = calls
+				}
+			}
+			if len(msg) == 1 {
+				continue
+			}
+			out = append(out, msg)
+		case chat.RoleTool:
+			if strings.TrimSpace(m.ToolCallID) == "" {
+				return nil, fmt.Errorf("tool_call_id is required for tool messages")
+			}
+			msg := map[string]any{
+				"role":         chat.RoleTool,
+				"tool_call_id": m.ToolCallID,
+				"content":      m.Content,
+			}
+			out = append(out, msg)
+		default:
+			if strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			out = append(out, map[string]any{
+				"role":    m.Role,
+				"content": m.Content,
+			})
+		}
+	}
+	return out, nil
+}
+
+func toResponsesInput(msgs []chat.Message) ([]any, error) {
+	out := make([]any, 0, len(msgs))
+	for _, m := range msgs {
+		switch m.Role {
+		case chat.RoleSystem, chat.RoleUser:
+			if strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			msg := map[string]any{
+				"role":    m.Role,
+				"content": m.Content,
+			}
+			if name := strings.TrimSpace(m.Name); name != "" {
+				msg["name"] = name
+			}
+			out = append(out, msg)
+		case chat.RoleAssistant:
+			if strings.TrimSpace(m.Content) != "" {
+				msg := map[string]any{
+					"role":    chat.RoleAssistant,
+					"content": m.Content,
+				}
+				if name := strings.TrimSpace(m.Name); name != "" {
+					msg["name"] = name
+				}
+				out = append(out, msg)
+			}
+			if len(m.ToolCalls) > 0 {
+				calls, err := toResponsesFunctionCalls(m.ToolCalls)
+				if err != nil {
+					return nil, err
+				}
+				for _, call := range calls {
+					out = append(out, call)
+				}
+			}
+		case chat.RoleTool:
+			if strings.TrimSpace(m.ToolCallID) == "" {
+				return nil, fmt.Errorf("tool_call_id is required for tool messages")
+			}
+			out = append(out, map[string]any{
+				"type":    "function_call_output",
+				"call_id": m.ToolCallID,
+				"output":  m.Content,
+			})
+		default:
+			if strings.TrimSpace(m.Content) == "" {
+				continue
+			}
+			out = append(out, map[string]any{
+				"role":    m.Role,
+				"content": m.Content,
+			})
+		}
+	}
+	return out, nil
+}
+
+func toChatCompletionToolCalls(calls []chat.ToolCall) ([]map[string]any, error) {
+	out := make([]map[string]any, 0, len(calls))
+	for i, call := range calls {
+		item, err := toChatCompletionToolCall(call, i)
+		if err != nil {
+			return nil, err
+		}
+		if item == nil {
 			continue
 		}
-		out = append(out, map[string]any{
-			"role":    m.Role,
-			"content": content,
-		})
+		out = append(out, item)
 	}
-	return out
+	return out, nil
 }
 
-func toResponsesInput(msgs []chat.Message) []map[string]any {
-	return toScopedMessages(msgs)
-}
-
-func toMessageContent(msg chat.Message) string {
-	toolCallsText := toolCallsAsContent(msg.ToolCalls)
-	switch {
-	case msg.Content == "":
-		return toolCallsText
-	case toolCallsText == "":
-		return msg.Content
-	default:
-		return msg.Content + "\n" + toolCallsText
-	}
-}
-
-func toolCallsAsContent(calls []chat.ToolCall) string {
-	if len(calls) == 0 {
-		return ""
-	}
-	items := make([]map[string]any, 0, len(calls))
-	for _, call := range calls {
-		item, ok := toTraditionalToolCallObject(call)
-		if !ok {
-			continue
-		}
-		items = append(items, item)
-	}
-	if len(items) == 0 {
-		return ""
-	}
-	var payload any = items
-	if len(items) == 1 {
-		payload = items[0]
-	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func toTraditionalToolCallObject(call chat.ToolCall) (map[string]any, bool) {
+func toChatCompletionToolCall(call chat.ToolCall, idx int) (map[string]any, error) {
 	name := strings.TrimSpace(call.Function.Name)
 	if name == "" {
-		return nil, false
+		return nil, fmt.Errorf("assistant tool call name is required")
 	}
-	out := map[string]any{
-		"name":      name,
-		"arguments": parseFunctionArguments(call.Function.Arguments),
+	callType, ok := normalizeToolCallType(call.Type)
+	if !ok {
+		return nil, fmt.Errorf("unsupported assistant tool call type %q", call.Type)
 	}
-	if id := strings.TrimSpace(call.ID); id != "" {
-		out["id"] = id
+	callID := strings.TrimSpace(call.ID)
+	if callID == "" {
+		callID = fmt.Sprintf("call_%d", idx+1)
 	}
-	return out, true
+	return map[string]any{
+		"id":   callID,
+		"type": callType,
+		"function": map[string]any{
+			"name":      name,
+			"arguments": normalizeToolCallArguments(call.Function.Arguments),
+		},
+	}, nil
 }
 
-func parseFunctionArguments(raw string) any {
+func toResponsesFunctionCalls(calls []chat.ToolCall) ([]map[string]any, error) {
+	out := make([]map[string]any, 0, len(calls))
+	for i, call := range calls {
+		item, err := toResponsesFunctionCall(call, i)
+		if err != nil {
+			return nil, err
+		}
+		if item == nil {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
+func toResponsesFunctionCall(call chat.ToolCall, idx int) (map[string]any, error) {
+	name := strings.TrimSpace(call.Function.Name)
+	if name == "" {
+		return nil, fmt.Errorf("assistant tool call name is required")
+	}
+	callType, ok := normalizeToolCallType(call.Type)
+	if !ok {
+		return nil, fmt.Errorf("unsupported assistant tool call type %q", call.Type)
+	}
+	if callType != "function" {
+		return nil, fmt.Errorf("unsupported responses tool call type %q", callType)
+	}
+	callID := strings.TrimSpace(call.ID)
+	if callID == "" {
+		callID = fmt.Sprintf("call_%d", idx+1)
+	}
+	return map[string]any{
+		"type":      "function_call",
+		"name":      name,
+		"arguments": normalizeToolCallArguments(call.Function.Arguments),
+		"call_id":   callID,
+	}, nil
+}
+
+func normalizeToolCallArguments(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return map[string]any{}
-	}
-	var args any
-	if err := json.Unmarshal([]byte(raw), &args); err == nil {
-		return args
+		return "{}"
 	}
 	return raw
 }
@@ -252,7 +381,7 @@ func toCloudflareTools(tools []chat.Tool, responsesCompatible bool) ([]map[strin
 }
 
 func toCloudflareToolChoice(choice *chat.ToolChoice, responsesCompatible bool) (any, error) {
-	if choice == nil || !responsesCompatible {
+	if choice == nil {
 		return nil, nil
 	}
 	switch strings.TrimSpace(choice.Mode) {
@@ -266,6 +395,14 @@ func toCloudflareToolChoice(choice *chat.ToolChoice, responsesCompatible bool) (
 		name := strings.TrimSpace(choice.FunctionName)
 		if name == "" {
 			return nil, fmt.Errorf("tool_choice function_name is required when mode=function")
+		}
+		if !responsesCompatible {
+			return map[string]any{
+				"type": "function",
+				"function": map[string]any{
+					"name": name,
+				},
+			}, nil
 		}
 		return map[string]any{
 			"type": "function",

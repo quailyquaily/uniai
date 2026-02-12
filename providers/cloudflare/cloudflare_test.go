@@ -106,8 +106,8 @@ func TestBuildPayloadMapsTraditionalToolsAndToolMessages(t *testing.T) {
 	if _, ok := payload["messages"]; !ok {
 		t.Fatalf("expected messages to be set for non gpt-oss")
 	}
-	if _, ok := payload["tool_choice"]; ok {
-		t.Fatalf("did not expect tool_choice mapping for non gpt-oss")
+	if payload["tool_choice"] != "required" {
+		t.Fatalf("expected required tool_choice for non gpt-oss, got %#v", payload["tool_choice"])
 	}
 
 	tools, ok := payload["tools"].([]map[string]any)
@@ -125,16 +125,77 @@ func TestBuildPayloadMapsTraditionalToolsAndToolMessages(t *testing.T) {
 	if !ok || len(messages) != 3 {
 		t.Fatalf("expected 3 mapped messages, got %#v", payload["messages"])
 	}
-	assistantContent, ok := messages[1]["content"].(string)
-	if !ok || assistantContent == "" {
-		t.Fatalf("expected assistant tool-call content string, got %#v", messages[1]["content"])
+
+	assistantCalls, ok := messages[1]["tool_calls"].([]map[string]any)
+	if !ok || len(assistantCalls) != 1 {
+		t.Fatalf("expected one assistant tool_call, got %#v", messages[1]["tool_calls"])
 	}
-	var assistantTool map[string]any
-	if err := json.Unmarshal([]byte(assistantContent), &assistantTool); err != nil {
-		t.Fatalf("assistant tool-call content must be JSON: %v", err)
+	call := assistantCalls[0]
+	if call["id"] != "call_1" || call["type"] != "function" {
+		t.Fatalf("unexpected assistant tool_call metadata: %#v", call)
 	}
-	if assistantTool["name"] != "get_weather" {
-		t.Fatalf("unexpected assistant tool-call content: %#v", assistantTool)
+	fn, ok := call["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function payload in assistant tool_call")
+	}
+	if fn["name"] != "get_weather" {
+		t.Fatalf("unexpected assistant tool-call function: %#v", fn)
+	}
+
+	if messages[2]["role"] != chat.RoleTool {
+		t.Fatalf("expected role=tool on third message, got %#v", messages[2]["role"])
+	}
+	if messages[2]["tool_call_id"] != "call_1" {
+		t.Fatalf("expected tool_call_id=call_1, got %#v", messages[2]["tool_call_id"])
+	}
+}
+
+func TestBuildPayloadMapsResponsesInputToolRoundtrip(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.User("weather?"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "get_weather",
+							Arguments: `{"city":"Tokyo"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", `{"temperature_c":18}`),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+
+	input, ok := payload["input"].([]any)
+	if !ok || len(input) != 3 {
+		t.Fatalf("expected 3 responses input items, got %#v", payload["input"])
+	}
+
+	toolCall, ok := input[1].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responses function_call item")
+	}
+	if toolCall["type"] != "function_call" || toolCall["name"] != "get_weather" || toolCall["call_id"] != "call_1" {
+		t.Fatalf("unexpected responses function_call item: %#v", toolCall)
+	}
+
+	toolOutput, ok := input[2].(map[string]any)
+	if !ok {
+		t.Fatalf("expected responses function_call_output item")
+	}
+	if toolOutput["type"] != "function_call_output" || toolOutput["call_id"] != "call_1" {
+		t.Fatalf("unexpected responses function_call_output item: %#v", toolOutput)
 	}
 }
 
