@@ -123,3 +123,57 @@ func TestToolSchemaAddsArrayItems(t *testing.T) {
 		t.Fatalf("expected items to be added for array type")
 	}
 }
+
+func TestBuildRequestMapsUserImageBase64Part(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.2",
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageBase64Part("image/jpeg", "QUJD"),
+			),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(params.Messages) != 1 || params.Messages[0].OfUser == nil {
+		t.Fatalf("expected one user message")
+	}
+	parts := params.Messages[0].OfUser.Content.OfArrayOfContentParts
+	if len(parts) != 2 {
+		t.Fatalf("expected two user content parts, got %d", len(parts))
+	}
+	if parts[0].OfText == nil || parts[0].OfText.Text != "describe this" {
+		t.Fatalf("expected first part as text, got %#v", parts[0])
+	}
+	if parts[1].OfImageURL == nil {
+		t.Fatalf("expected second part as image_url, got %#v", parts[1])
+	}
+	if got := parts[1].OfImageURL.ImageURL.URL; got != "data:image/jpeg;base64,QUJD" {
+		t.Fatalf("unexpected image url payload: %q", got)
+	}
+}
+
+func TestToResultAddsTextPart(t *testing.T) {
+	resp := &openai.ChatCompletion{
+		Model: "gpt-5.2",
+		Choices: []openai.ChatCompletionChoice{
+			{
+				Message: openai.ChatCompletionMessage{
+					Content: "hello",
+				},
+			},
+		},
+	}
+
+	out := toResult(resp)
+	if len(out.Parts) != 1 {
+		t.Fatalf("expected one text part, got %d", len(out.Parts))
+	}
+	if out.Parts[0].Type != chat.PartTypeText || out.Parts[0].Text != "hello" {
+		t.Fatalf("unexpected parts: %#v", out.Parts)
+	}
+}

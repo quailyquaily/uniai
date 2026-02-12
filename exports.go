@@ -17,6 +17,7 @@ type (
 	ChatResult         = chat.Result
 	ChatOptions        = chat.Options
 	Message            = chat.Message
+	Part               = chat.Part
 	Tool               = chat.Tool
 	ToolFunction       = chat.ToolFunction
 	ToolChoice         = chat.ToolChoice
@@ -34,6 +35,12 @@ const (
 	RoleUser      = chat.RoleUser
 	RoleAssistant = chat.RoleAssistant
 	RoleTool      = chat.RoleTool
+)
+
+const (
+	PartTypeText        = chat.PartTypeText
+	PartTypeImageURL    = chat.PartTypeImageURL
+	PartTypeImageBase64 = chat.PartTypeImageBase64
 )
 
 const (
@@ -85,6 +92,14 @@ func System(text string) Message                    { return chat.System(text) }
 func User(text string) Message                      { return chat.User(text) }
 func Assistant(text string) Message                 { return chat.Assistant(text) }
 func ToolResult(toolCallID, content string) Message { return chat.ToolResult(toolCallID, content) }
+func SystemParts(parts ...Part) Message             { return chat.SystemParts(parts...) }
+func UserParts(parts ...Part) Message               { return chat.UserParts(parts...) }
+func AssistantParts(parts ...Part) Message          { return chat.AssistantParts(parts...) }
+func TextPart(text string) Part                     { return chat.TextPart(text) }
+func ImageURLPart(url string) Part                  { return chat.ImageURLPart(url) }
+func ImageBase64Part(mimeType, dataBase64 string) Part {
+	return chat.ImageBase64Part(mimeType, dataBase64)
+}
 
 func ToolChoiceAuto() ToolChoice                { return chat.ToolChoiceAuto() }
 func ToolChoiceNone() ToolChoice                { return chat.ToolChoiceNone() }

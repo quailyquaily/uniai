@@ -241,3 +241,36 @@ func TestParseToolCallsSupportsTraditionalAndResponsesShapes(t *testing.T) {
 		t.Fatalf("unexpected output call: %#v", outCalls[0])
 	}
 }
+
+func TestBuildPayloadAcceptsTextParts(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/meta/llama-4-scout",
+		Messages: []chat.Message{
+			chat.UserParts(chat.TextPart("hello from parts")),
+		},
+	}
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one message, got %#v", payload["messages"])
+	}
+	if messages[0]["content"] != "hello from parts" {
+		t.Fatalf("unexpected content: %#v", messages[0]["content"])
+	}
+}
+
+func TestBuildPayloadRejectsImagePartInV1(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/meta/llama-4-scout",
+		Messages: []chat.Message{
+			chat.UserParts(chat.ImageURLPart("https://example.com/a.png")),
+		},
+	}
+	_, err := buildPayload(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected unsupported part error")
+	}
+}

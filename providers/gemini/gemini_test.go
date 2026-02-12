@@ -99,6 +99,57 @@ func TestBuildRequestMapsToolsAndThoughtSignature(t *testing.T) {
 	}
 }
 
+func TestBuildRequestMapsUserImageBase64Part(t *testing.T) {
+	req := &chat.Request{
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageBase64Part("image/png", "QUJD"),
+			),
+		},
+	}
+
+	out, err := buildRequest(req)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if len(out.Contents) != 1 {
+		t.Fatalf("expected one content entry, got %d", len(out.Contents))
+	}
+	if out.Contents[0].Role != "user" {
+		t.Fatalf("expected user role, got %q", out.Contents[0].Role)
+	}
+	if len(out.Contents[0].Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(out.Contents[0].Parts))
+	}
+	if out.Contents[0].Parts[0].Text != "describe this" {
+		t.Fatalf("unexpected text part: %#v", out.Contents[0].Parts[0])
+	}
+	if out.Contents[0].Parts[1].InlineData == nil {
+		t.Fatalf("expected inlineData part")
+	}
+	if out.Contents[0].Parts[1].InlineData.MimeType != "image/png" || out.Contents[0].Parts[1].InlineData.Data != "QUJD" {
+		t.Fatalf("unexpected inlineData payload: %#v", out.Contents[0].Parts[1].InlineData)
+	}
+}
+
+func TestBuildRequestRejectsUserImageURLPart(t *testing.T) {
+	req := &chat.Request{
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.ImageURLPart("https://example.com/a.png"),
+			),
+		},
+	}
+	_, err := buildRequest(req)
+	if err == nil {
+		t.Fatalf("expected unsupported image_url error")
+	}
+	if !strings.Contains(err.Error(), "unsupported part type") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestToChatResultParsesFunctionCallAndSignature(t *testing.T) {
 	in := &geminiResponse{
 		Model: "gemini-2.5-pro",

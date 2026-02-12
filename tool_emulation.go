@@ -678,7 +678,15 @@ func cloneChatRequest(req *chat.Request) *chat.Request {
 		return nil
 	}
 	out := *req
-	out.Messages = append([]chat.Message{}, req.Messages...)
+	out.Messages = make([]chat.Message, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		clone := msg
+		clone.Parts = chat.CloneParts(msg.Parts)
+		if len(msg.ToolCalls) > 0 {
+			clone.ToolCalls = append([]chat.ToolCall{}, msg.ToolCalls...)
+		}
+		out.Messages = append(out.Messages, clone)
+	}
 	out.Tools = append([]chat.Tool{}, req.Tools...)
 	if req.ToolChoice != nil {
 		choice := *req.ToolChoice

@@ -76,7 +76,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 
 	messages, err := oaicompat.ToMessages(req.Messages)
 	if err != nil {
-		return openai.ChatCompletionNewParams{}, err
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider model %q: %w", model, err)
 	}
 
 	params := openai.ChatCompletionNewParams{
@@ -135,6 +135,7 @@ func toResult(resp *openai.ChatCompletion) *chat.Result {
 		return &chat.Result{Warnings: []string{"openai response is nil"}}
 	}
 	text := ""
+	parts := make([]chat.Part, 0, 1)
 	var toolCalls []chat.ToolCall
 	for _, choice := range resp.Choices {
 		text += choice.Message.Content
@@ -142,9 +143,13 @@ func toResult(resp *openai.ChatCompletion) *chat.Result {
 			toolCalls = oaicompat.ToToolCalls(choice.Message.ToolCalls)
 		}
 	}
+	if text != "" {
+		parts = append(parts, chat.TextPart(text))
+	}
 
 	return &chat.Result{
 		Text:      text,
+		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
 		Usage: chat.Usage{

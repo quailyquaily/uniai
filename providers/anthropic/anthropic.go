@@ -103,24 +103,28 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	systemParts := make([]string, 0, 1)
 	messages := make([]anthropicMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		text, err := chat.MessageText(m)
+		if err != nil {
+			return nil, fmt.Errorf("anthropic provider model %q: role %q: %w", model, m.Role, err)
+		}
 		switch m.Role {
 		case chat.RoleSystem:
-			if m.Content != "" {
-				systemParts = append(systemParts, m.Content)
+			if text != "" {
+				systemParts = append(systemParts, text)
 			}
 			continue
 		case chat.RoleUser:
 			msg := anthropicMessage{Role: "user"}
-			if m.Content != "" {
-				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: m.Content})
+			if text != "" {
+				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
 			}
 			if len(msg.Content) > 0 {
 				messages = append(messages, msg)
 			}
 		case chat.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
-			if m.Content != "" {
-				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: m.Content})
+			if text != "" {
+				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
 			}
 			if len(m.ToolCalls) > 0 {
 				toolParts, err := toAnthropicToolUses(m.ToolCalls)
@@ -141,7 +145,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 				Content: []anthropicContentPart{{
 					Type:      "tool_result",
 					ToolUseID: m.ToolCallID,
-					Content:   m.Content,
+					Content:   text,
 				}},
 			})
 		default:
@@ -256,6 +260,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	result := &chat.Result{
 		Text:      text,
 		Model:     out.Model,
+		Parts:     []chat.Part{},
 		ToolCalls: toolCalls,
 		Usage: chat.Usage{
 			InputTokens:  out.Usage.InputTokens,
@@ -263,6 +268,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			TotalTokens:  out.Usage.InputTokens + out.Usage.OutputTokens,
 		},
 		Raw: out,
+	}
+	if text != "" {
+		result.Parts = append(result.Parts, chat.TextPart(text))
 	}
 
 	return result, nil
@@ -404,9 +412,9 @@ type sseContentBlockStart struct {
 type sseContentBlockDelta struct {
 	Index int `json:"index"`
 	Delta struct {
-		Type         string `json:"type"`
-		Text         string `json:"text,omitempty"`
-		PartialJSON  string `json:"partial_json,omitempty"`
+		Type        string `json:"type"`
+		Text        string `json:"text,omitempty"`
+		PartialJSON string `json:"partial_json,omitempty"`
 	} `json:"delta"`
 }
 
@@ -428,7 +436,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 		toolCalls    []chat.ToolCall
 
 		// per-tool-call accumulator
-		currentToolIndex int    = -1
+		currentToolIndex int = -1
 		currentToolID    string
 		currentToolName  string
 		currentToolArgs  strings.Builder
@@ -550,8 +558,15 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 	}
 
 	return &chat.Result{
-		Text:      strings.Join(textParts, ""),
-		Model:     model,
+		Text:  strings.Join(textParts, ""),
+		Model: model,
+		Parts: func() []chat.Part {
+			text := strings.Join(textParts, "")
+			if text == "" {
+				return nil
+			}
+			return []chat.Part{chat.TextPart(text)}
+		}(),
 		ToolCalls: toolCalls,
 		Usage: chat.Usage{
 			InputTokens:  inputTokens,

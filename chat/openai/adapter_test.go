@@ -57,3 +57,39 @@ func TestToChatOptions(t *testing.T) {
 		t.Fatalf("tools mismatch")
 	}
 }
+
+func TestToChatOptionsWithUserImageParts(t *testing.T) {
+	req := openai.ChatCompletionNewParams{
+		Model: openai.ChatModel("gpt-5.2"),
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
+				openai.TextContentPart("describe"),
+				openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+					URL: "https://example.com/a.png",
+				}),
+			}),
+		},
+	}
+
+	opts, err := toChatOptions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	chatReq, err := chat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if len(chatReq.Messages) != 1 {
+		t.Fatalf("expected one message, got %d", len(chatReq.Messages))
+	}
+	msg := chatReq.Messages[0]
+	if len(msg.Parts) != 2 {
+		t.Fatalf("expected 2 parts, got %d", len(msg.Parts))
+	}
+	if msg.Parts[0].Type != chat.PartTypeText || msg.Parts[0].Text != "describe" {
+		t.Fatalf("unexpected first part: %#v", msg.Parts[0])
+	}
+	if msg.Parts[1].Type != chat.PartTypeImageURL || msg.Parts[1].URL != "https://example.com/a.png" {
+		t.Fatalf("unexpected second part: %#v", msg.Parts[1])
+	}
+}

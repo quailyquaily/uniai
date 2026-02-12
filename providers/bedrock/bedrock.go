@@ -73,19 +73,23 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	systemParts := make([]string, 0, 1)
 	messages := make([]bedrockMessage, 0, len(req.Messages))
 	for _, m := range req.Messages {
+		text, err := chat.MessageText(m)
+		if err != nil {
+			return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
+		}
 		switch m.Role {
 		case chat.RoleSystem:
-			if m.Content != "" {
-				systemParts = append(systemParts, m.Content)
+			if text != "" {
+				systemParts = append(systemParts, text)
 			}
 		case chat.RoleUser, chat.RoleAssistant:
-			if m.Content == "" {
+			if text == "" {
 				continue
 			}
 			messages = append(messages, bedrockMessage{
 				Role: m.Role,
 				Content: []bedrockMsgContent{
-					{Type: "text", Text: m.Content},
+					{Type: "text", Text: text},
 				},
 			})
 		default:
@@ -147,6 +151,12 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	result := &chat.Result{
 		Text: text,
+		Parts: func() []chat.Part {
+			if text == "" {
+				return nil
+			}
+			return []chat.Part{chat.TextPart(text)}
+		}(),
 		Usage: chat.Usage{
 			InputTokens:  out.Usage.InputTokens,
 			OutputTokens: out.Usage.OutputTokens,
@@ -257,6 +267,13 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 	result := &chat.Result{
 		Text:  strings.Join(textParts, ""),
 		Model: model,
+		Parts: func() []chat.Part {
+			text := strings.Join(textParts, "")
+			if text == "" {
+				return nil
+			}
+			return []chat.Part{chat.TextPart(text)}
+		}(),
 		Usage: chat.Usage{
 			InputTokens:  inputTokens,
 			OutputTokens: outputTokens,

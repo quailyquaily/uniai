@@ -13,9 +13,24 @@ const (
 	RoleTool      = "tool"
 )
 
+const (
+	PartTypeText        = "text"
+	PartTypeImageURL    = "image_url"
+	PartTypeImageBase64 = "image_base64"
+)
+
+type Part struct {
+	Type       string `json:"type"`
+	Text       string `json:"text,omitempty"`
+	URL        string `json:"url,omitempty"`
+	DataBase64 string `json:"data_base64,omitempty"`
+	MIMEType   string `json:"mime_type,omitempty"`
+}
+
 type Message struct {
 	Role       string     `json:"role"`
 	Content    string     `json:"content,omitempty"`
+	Parts      []Part     `json:"parts,omitempty"`
 	Name       string     `json:"name,omitempty"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
@@ -103,6 +118,7 @@ type Usage struct {
 
 type Result struct {
 	Text      string     `json:"text,omitempty"`
+	Parts     []Part     `json:"parts,omitempty"`
 	Model     string     `json:"model,omitempty"`
 	Messages  []Message  `json:"messages,omitempty"`
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
@@ -142,6 +158,11 @@ func BuildRequest(opts ...Option) (*Request, error) {
 	}
 	if len(req.Messages) == 0 {
 		return nil, fmt.Errorf("messages are required")
+	}
+	for i := range req.Messages {
+		if err := ValidateMessageParts(req.Messages[i]); err != nil {
+			return nil, fmt.Errorf("message[%d]: %w", i, err)
+		}
 	}
 	return req, nil
 }
@@ -250,12 +271,36 @@ func User(text string) Message {
 	return Message{Role: RoleUser, Content: text}
 }
 
+func UserParts(parts ...Part) Message {
+	return Message{Role: RoleUser, Parts: CloneParts(parts)}
+}
+
 func Assistant(text string) Message {
 	return Message{Role: RoleAssistant, Content: text}
 }
 
+func AssistantParts(parts ...Part) Message {
+	return Message{Role: RoleAssistant, Parts: CloneParts(parts)}
+}
+
+func SystemParts(parts ...Part) Message {
+	return Message{Role: RoleSystem, Parts: CloneParts(parts)}
+}
+
 func ToolResult(toolCallID, content string) Message {
 	return Message{Role: RoleTool, Content: content, ToolCallID: toolCallID}
+}
+
+func TextPart(text string) Part {
+	return Part{Type: PartTypeText, Text: text}
+}
+
+func ImageURLPart(url string) Part {
+	return Part{Type: PartTypeImageURL, URL: url}
+}
+
+func ImageBase64Part(mimeType, dataBase64 string) Part {
+	return Part{Type: PartTypeImageBase64, MIMEType: mimeType, DataBase64: dataBase64}
 }
 
 func FunctionTool(name, description string, paramsJSON []byte) Tool {

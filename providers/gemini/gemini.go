@@ -52,9 +52,15 @@ type geminiContent struct {
 
 type geminiPart struct {
 	Text             string                  `json:"text,omitempty"`
+	InlineData       *geminiInlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
 	ThoughtSignature string                  `json:"thoughtSignature,omitempty"`
+}
+
+type geminiInlineData struct {
+	MimeType string `json:"mimeType,omitempty"`
+	Data     string `json:"data,omitempty"`
 }
 
 type geminiFunctionCall struct {
@@ -136,7 +142,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	payload, err := buildRequest(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("gemini provider model %q: %w", model, err)
 	}
 
 	reqBody, err := json.Marshal(payload)
@@ -197,18 +203,57 @@ func buildRequest(req *chat.Request) (*geminiRequest, error) {
 	for _, msg := range req.Messages {
 		switch msg.Role {
 		case chat.RoleSystem:
-			if strings.TrimSpace(msg.Content) != "" {
-				systemParts = append(systemParts, geminiPart{Text: msg.Content})
+			for _, part := range chat.NormalizeMessageParts(msg) {
+				if err := chat.ValidatePart(part); err != nil {
+					return nil, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
+				if part.Type != chat.PartTypeText {
+					return nil, fmt.Errorf("role %q: unsupported part type %q", msg.Role, part.Type)
+				}
+				if strings.TrimSpace(part.Text) != "" {
+					systemParts = append(systemParts, geminiPart{Text: part.Text})
+				}
 			}
 		case chat.RoleUser:
-			if strings.TrimSpace(msg.Content) == "" {
-				continue
+			for _, part := range chat.NormalizeMessageParts(msg) {
+				if err := chat.ValidatePart(part); err != nil {
+					return nil, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
+				switch part.Type {
+				case chat.PartTypeText:
+					if strings.TrimSpace(part.Text) == "" {
+						continue
+					}
+					appendContent(&contents, "user", geminiPart{Text: part.Text})
+				case chat.PartTypeImageBase64:
+					mimeType := strings.TrimSpace(part.MIMEType)
+					if mimeType == "" {
+						mimeType = "image/png"
+					}
+					appendContent(&contents, "user", geminiPart{
+						InlineData: &geminiInlineData{
+							MimeType: mimeType,
+							Data:     strings.TrimSpace(part.DataBase64),
+						},
+					})
+				case chat.PartTypeImageURL:
+					return nil, fmt.Errorf("role %q: unsupported part type %q", msg.Role, part.Type)
+				default:
+					return nil, fmt.Errorf("role %q: unsupported part type %q", msg.Role, part.Type)
+				}
 			}
-			appendContent(&contents, "user", geminiPart{Text: msg.Content})
 		case chat.RoleAssistant:
-			parts := make([]geminiPart, 0, 1+len(msg.ToolCalls))
-			if strings.TrimSpace(msg.Content) != "" {
-				parts = append(parts, geminiPart{Text: msg.Content})
+			assistantParts := make([]geminiPart, 0, 1+len(msg.ToolCalls))
+			for _, part := range chat.NormalizeMessageParts(msg) {
+				if err := chat.ValidatePart(part); err != nil {
+					return nil, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
+				if part.Type != chat.PartTypeText {
+					return nil, fmt.Errorf("role %q: unsupported part type %q", msg.Role, part.Type)
+				}
+				if strings.TrimSpace(part.Text) != "" {
+					assistantParts = append(assistantParts, geminiPart{Text: part.Text})
+				}
 			}
 			for _, call := range msg.ToolCalls {
 				if call.Type != "" && call.Type != "function" {
@@ -244,14 +289,18 @@ func buildRequest(req *chat.Request) (*geminiRequest, error) {
 				if normalizedCallID != "" {
 					callNameByID[normalizedCallID] = call.Function.Name
 				}
-				parts = append(parts, part)
+				assistantParts = append(assistantParts, part)
 			}
-			for _, part := range parts {
+			for _, part := range assistantParts {
 				appendContent(&contents, "model", part)
 			}
 		case chat.RoleTool:
 			if msg.ToolCallID == "" {
 				return nil, fmt.Errorf("tool_call_id is required for tool messages")
+			}
+			contentText, err := chat.MessageText(msg)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", msg.Role, err)
 			}
 			name := callNameByID[msg.ToolCallID]
 			if name == "" {
@@ -260,7 +309,7 @@ func buildRequest(req *chat.Request) (*geminiRequest, error) {
 			appendContent(&contents, "user", geminiPart{
 				FunctionResponse: &geminiFunctionResponse{
 					Name:     name,
-					Response: parseFunctionResponse(msg.Content),
+					Response: parseFunctionResponse(contentText),
 				},
 			})
 		default:
@@ -600,10 +649,12 @@ func toChatResult(in *geminiResponse, fallbackModel string) (*chat.Result, error
 
 	parts := in.Candidates[0].Content.Parts
 	text := make([]string, 0, len(parts))
+	outParts := make([]chat.Part, 0, len(parts))
 	calls := make([]chat.ToolCall, 0)
 	for i, part := range parts {
 		if strings.TrimSpace(part.Text) != "" {
 			text = append(text, part.Text)
+			outParts = append(outParts, chat.TextPart(part.Text))
 		}
 		if part.FunctionCall != nil {
 			args, err := json.Marshal(part.FunctionCall.Args)
@@ -626,6 +677,7 @@ func toChatResult(in *geminiResponse, fallbackModel string) (*chat.Result, error
 		}
 	}
 	result.Text = strings.Join(text, "")
+	result.Parts = outParts
 	result.ToolCalls = calls
 	return result, nil
 }

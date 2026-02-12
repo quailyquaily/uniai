@@ -76,6 +76,7 @@ func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
 		return &chat.Result{Warnings: []string{"response is nil"}}
 	}
 	text := ""
+	parts := make([]chat.Part, 0, 1)
 	var toolCalls []chat.ToolCall
 	for _, choice := range resp.Choices {
 		text += choice.Message.Content
@@ -83,8 +84,12 @@ func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
 			toolCalls = ToToolCalls(choice.Message.ToolCalls)
 		}
 	}
+	if text != "" {
+		parts = append(parts, chat.TextPart(text))
+	}
 	return &chat.Result{
 		Text:      text,
+		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
 		Usage: chat.Usage{

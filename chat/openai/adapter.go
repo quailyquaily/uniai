@@ -114,11 +114,15 @@ func toChatMessage(m openai.ChatCompletionMessageParamUnion) (chat.Message, erro
 		}
 		return chat.Message{Role: chat.RoleSystem, Content: content, Name: m.OfSystem.Name.Or("")}, nil
 	case m.OfUser != nil:
-		content, err := readTextFromUser(m.OfUser.Content)
+		content, parts, err := readUserContent(m.OfUser.Content)
 		if err != nil {
 			return chat.Message{}, err
 		}
-		return chat.Message{Role: chat.RoleUser, Content: content, Name: m.OfUser.Name.Or("")}, nil
+		msg := chat.Message{Role: chat.RoleUser, Content: content, Name: m.OfUser.Name.Or("")}
+		if len(parts) > 0 {
+			msg.Parts = parts
+		}
+		return msg, nil
 	case m.OfAssistant != nil:
 		content, err := readTextFromAssistant(m.OfAssistant.Content)
 		if err != nil {
@@ -182,26 +186,33 @@ func readTextFromDeveloper(content openai.ChatCompletionDeveloperMessageParamCon
 	return strings.Join(parts, "\n"), nil
 }
 
-func readTextFromUser(content openai.ChatCompletionUserMessageParamContentUnion) (string, error) {
+func readUserContent(content openai.ChatCompletionUserMessageParamContentUnion) (string, []chat.Part, error) {
 	if content.OfString.Valid() {
-		return content.OfString.Value, nil
+		return content.OfString.Value, nil, nil
 	}
 	if len(content.OfArrayOfContentParts) == 0 {
-		return "", nil
+		return "", nil, nil
 	}
+	outParts := make([]chat.Part, 0, len(content.OfArrayOfContentParts))
 	parts := make([]string, 0, len(content.OfArrayOfContentParts))
 	for _, part := range content.OfArrayOfContentParts {
 		if part.OfText != nil {
 			text := strings.TrimSpace(part.OfText.Text)
 			if text != "" {
 				parts = append(parts, text)
+				outParts = append(outParts, chat.TextPart(text))
+			}
+		} else if part.OfImageURL != nil {
+			url := strings.TrimSpace(part.OfImageURL.ImageURL.URL)
+			if url != "" {
+				outParts = append(outParts, chat.ImageURLPart(url))
 			}
 		}
 	}
-	if len(parts) == 0 {
-		return "", fmt.Errorf("unsupported user content parts")
+	if len(outParts) == 0 {
+		return "", nil, fmt.Errorf("unsupported user content parts")
 	}
-	return strings.Join(parts, "\n"), nil
+	return strings.Join(parts, "\n"), outParts, nil
 }
 
 func readTextFromAssistant(content openai.ChatCompletionAssistantMessageParamContentUnion) (string, error) {

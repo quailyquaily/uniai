@@ -46,7 +46,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	payload, err := buildPayload(req, model)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cloudflare provider model %q: %w", model, err)
 	}
 
 	reqBody, err := json.Marshal(payload)
@@ -134,14 +134,18 @@ func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
 func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
+		text, err := chat.MessageText(m)
+		if err != nil {
+			return nil, fmt.Errorf("role %q: %w", m.Role, err)
+		}
 		switch m.Role {
 		case chat.RoleSystem, chat.RoleUser:
-			if strings.TrimSpace(m.Content) == "" {
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			msg := map[string]any{
 				"role":    m.Role,
-				"content": m.Content,
+				"content": text,
 			}
 			if name := strings.TrimSpace(m.Name); name != "" {
 				msg["name"] = name
@@ -151,8 +155,8 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 			msg := map[string]any{
 				"role": chat.RoleAssistant,
 			}
-			if strings.TrimSpace(m.Content) != "" {
-				msg["content"] = m.Content
+			if strings.TrimSpace(text) != "" {
+				msg["content"] = text
 			}
 			if name := strings.TrimSpace(m.Name); name != "" {
 				msg["name"] = name
@@ -177,16 +181,16 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 			msg := map[string]any{
 				"role":         chat.RoleTool,
 				"tool_call_id": m.ToolCallID,
-				"content":      m.Content,
+				"content":      text,
 			}
 			out = append(out, msg)
 		default:
-			if strings.TrimSpace(m.Content) == "" {
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			out = append(out, map[string]any{
 				"role":    m.Role,
-				"content": m.Content,
+				"content": text,
 			})
 		}
 	}
@@ -196,24 +200,28 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 func toResponsesInput(msgs []chat.Message) ([]any, error) {
 	out := make([]any, 0, len(msgs))
 	for _, m := range msgs {
+		text, err := chat.MessageText(m)
+		if err != nil {
+			return nil, fmt.Errorf("role %q: %w", m.Role, err)
+		}
 		switch m.Role {
 		case chat.RoleSystem, chat.RoleUser:
-			if strings.TrimSpace(m.Content) == "" {
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			msg := map[string]any{
 				"role":    m.Role,
-				"content": m.Content,
+				"content": text,
 			}
 			if name := strings.TrimSpace(m.Name); name != "" {
 				msg["name"] = name
 			}
 			out = append(out, msg)
 		case chat.RoleAssistant:
-			if strings.TrimSpace(m.Content) != "" {
+			if strings.TrimSpace(text) != "" {
 				msg := map[string]any{
 					"role":    chat.RoleAssistant,
-					"content": m.Content,
+					"content": text,
 				}
 				if name := strings.TrimSpace(m.Name); name != "" {
 					msg["name"] = name
@@ -236,15 +244,15 @@ func toResponsesInput(msgs []chat.Message) ([]any, error) {
 			out = append(out, map[string]any{
 				"type":    "function_call_output",
 				"call_id": m.ToolCallID,
-				"output":  m.Content,
+				"output":  text,
 			})
 		default:
-			if strings.TrimSpace(m.Content) == "" {
+			if strings.TrimSpace(text) == "" {
 				continue
 			}
 			out = append(out, map[string]any{
 				"role":    m.Role,
-				"content": m.Content,
+				"content": text,
 			})
 		}
 	}
@@ -429,6 +437,9 @@ func toChatResult(resultRaw []byte, fallbackModel string) *chat.Result {
 	}
 	if result.Model == "" {
 		result.Model = fallbackModel
+	}
+	if result.Text != "" {
+		result.Parts = []chat.Part{chat.TextPart(result.Text)}
 	}
 	return result
 }

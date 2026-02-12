@@ -57,6 +57,22 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if p.cfg.APIBase == "" || p.cfg.APIKey == "" {
 		return nil, fmt.Errorf("susanoo api base and api key are required")
 	}
+	model := req.Model
+	if model == "" {
+		model = "<unspecified>"
+	}
+
+	messages := make([]chat.Message, 0, len(req.Messages))
+	for _, msg := range req.Messages {
+		text, err := chat.MessageText(msg)
+		if err != nil {
+			return nil, fmt.Errorf("susanoo provider model %q: role %q: %w", model, msg.Role, err)
+		}
+		clone := msg
+		clone.Content = text
+		clone.Parts = nil
+		messages = append(messages, clone)
+	}
 
 	params := map[string]any{}
 	if req.Model != "" {
@@ -91,7 +107,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	traceID, err := p.createTask(ctx, &taskRequest{
-		Messages: req.Messages,
+		Messages: messages,
 		Params:   params,
 	}, debugFn)
 	if err != nil {
@@ -113,6 +129,12 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	return &chat.Result{
 		Text: text,
+		Parts: func() []chat.Part {
+			if text == "" {
+				return nil
+			}
+			return []chat.Part{chat.TextPart(text)}
+		}(),
 		Usage: chat.Usage{
 			InputTokens:  result.Data.Usage.InputTokens,
 			OutputTokens: result.Data.Usage.OutputTokens,

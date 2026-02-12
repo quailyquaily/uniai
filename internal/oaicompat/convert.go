@@ -21,25 +21,35 @@ func ToMessages(input []chat.Message) ([]openai.ChatCompletionMessageParamUnion,
 	for _, m := range input {
 		switch m.Role {
 		case chat.RoleSystem:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			msg := openai.ChatCompletionSystemMessageParam{
-				Content: openai.ChatCompletionSystemMessageParamContentUnion{OfString: openai.String(m.Content)},
+				Content: openai.ChatCompletionSystemMessageParamContentUnion{OfString: openai.String(text)},
 			}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
 			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfSystem: &msg})
 		case chat.RoleUser:
-			msg := openai.ChatCompletionUserMessageParam{
-				Content: openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String(m.Content)},
+			content, err := toUserContent(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
 			}
+			msg := openai.ChatCompletionUserMessageParam{Content: content}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
 			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfUser: &msg})
 		case chat.RoleAssistant:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			msg := openai.ChatCompletionAssistantMessageParam{}
-			if m.Content != "" {
-				msg.Content = openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(m.Content)}
+			if text != "" {
+				msg.Content = openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(text)}
 			}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
@@ -52,12 +62,64 @@ func ToMessages(input []chat.Message) ([]openai.ChatCompletionMessageParamUnion,
 			if m.ToolCallID == "" {
 				return nil, fmt.Errorf("tool_call_id is required for tool messages")
 			}
-			out = append(out, openai.ToolMessage(m.Content, m.ToolCallID))
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			out = append(out, openai.ToolMessage(text, m.ToolCallID))
 		default:
-			out = append(out, openai.UserMessage(m.Content))
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			out = append(out, openai.UserMessage(text))
 		}
 	}
 	return out, nil
+}
+
+func toUserContent(m chat.Message) (openai.ChatCompletionUserMessageParamContentUnion, error) {
+	parts := chat.NormalizeMessageParts(m)
+	if len(parts) == 0 {
+		return openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String("")}, nil
+	}
+	if len(parts) == 1 && parts[0].Type == chat.PartTypeText {
+		return openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String(parts[0].Text)}, nil
+	}
+	out := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts))
+	for i, part := range parts {
+		item, err := toUserPart(part)
+		if err != nil {
+			return openai.ChatCompletionUserMessageParamContentUnion{}, fmt.Errorf("part[%d]: %w", i, err)
+		}
+		out = append(out, item)
+	}
+	return openai.ChatCompletionUserMessageParamContentUnion{OfArrayOfContentParts: out}, nil
+}
+
+func toUserPart(part chat.Part) (openai.ChatCompletionContentPartUnionParam, error) {
+	if err := chat.ValidatePart(part); err != nil {
+		return openai.ChatCompletionContentPartUnionParam{}, err
+	}
+	switch part.Type {
+	case chat.PartTypeText:
+		return openai.TextContentPart(part.Text), nil
+	case chat.PartTypeImageURL:
+		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL: strings.TrimSpace(part.URL),
+		}), nil
+	case chat.PartTypeImageBase64:
+		mimeType := strings.TrimSpace(part.MIMEType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		dataURL := fmt.Sprintf("data:%s;base64,%s", mimeType, strings.TrimSpace(part.DataBase64))
+		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+			URL: dataURL,
+		}), nil
+	default:
+		return openai.ChatCompletionContentPartUnionParam{}, fmt.Errorf("unsupported part type %q", part.Type)
+	}
 }
 
 // ToToolParams converts chat.Tool slice to OpenAI SDK tool params.

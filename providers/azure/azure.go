@@ -54,7 +54,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	debugFn := req.Options.DebugFn
 	messages, err := oaicompat.ToMessages(req.Messages)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("azure provider model %q: %w", p.deployment, err)
 	}
 
 	params := openai.ChatCompletionNewParams{
@@ -116,6 +116,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	text := ""
+	parts := make([]chat.Part, 0, 1)
 	var toolCalls []chat.ToolCall
 	for _, choice := range resp.Choices {
 		text += choice.Message.Content
@@ -123,9 +124,13 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			toolCalls = oaicompat.ToToolCalls(choice.Message.ToolCalls)
 		}
 	}
+	if text != "" {
+		parts = append(parts, chat.TextPart(text))
+	}
 
 	return &chat.Result{
 		Text:      text,
+		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
 		Usage: chat.Usage{
