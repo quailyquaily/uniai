@@ -15,7 +15,6 @@ import (
 
 const (
 	defaultConfigPath = "config.yaml"
-	defaultCSVPath    = "speedtest_results.csv"
 	defaultMethod     = string(speedtest.DefaultMethod)
 	defaultEchoText   = speedtest.DefaultEchoText
 	defaultTimeout    = speedtest.DefaultTimeout
@@ -37,7 +36,7 @@ func run(args []string) error {
 	fs.SetOutput(os.Stderr)
 
 	configPath := fs.String("config", defaultConfigPath, "path to config yaml")
-	csvPath := fs.String("csv", defaultCSVPath, "output csv file path (deprecated, use --output)")
+	csvPath := fs.String("csv", "", "output csv file path (deprecated, use --output)")
 	outputPath := fs.String("output", "", "output csv file path")
 	method := fs.String("method", defaultMethod, "test method: echo|toolcalling")
 
@@ -81,20 +80,21 @@ func run(args []string) error {
 		results = append(results, runOne(cfg, t, selectedMethod, true))
 	}
 
-	finalOutput := strings.TrimSpace(*csvPath)
-	if strings.TrimSpace(*outputPath) != "" {
-		finalOutput = strings.TrimSpace(*outputPath)
+	finalOutput := strings.TrimSpace(*outputPath)
+	if finalOutput == "" {
+		finalOutput = strings.TrimSpace(*csvPath)
 	}
+	if finalOutput != "" {
+		if err := writeCSV(finalOutput, results); err != nil {
+			return err
+		}
 
-	if err := writeCSV(finalOutput, results); err != nil {
-		return err
+		absCSV := finalOutput
+		if v, err := filepath.Abs(finalOutput); err == nil {
+			absCSV = v
+		}
+		fmt.Printf("\nCSV written: %s\n", absCSV)
 	}
-
-	absCSV := finalOutput
-	if v, err := filepath.Abs(finalOutput); err == nil {
-		absCSV = v
-	}
-	fmt.Printf("\nCSV written: %s\n", absCSV)
 
 	return nil
 }

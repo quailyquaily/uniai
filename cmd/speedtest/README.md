@@ -42,7 +42,7 @@ go run ./cmd/speedtest --config cmd/speedtest/config.example.yaml --output ./out
 ## CLI Flags
 
 - `--config`: path to YAML config file. Default: `config.yaml`
-- `--output`: output CSV path. Default: `speedtest_results.csv`
+- `--output`: output CSV path. Default: empty (do not write CSV)
 - `--csv`: deprecated alias of `--output`
 - `--method`: `echo` or `toolcalling`. Default: `echo`
 
@@ -156,7 +156,8 @@ For `provider: cloudflare`:
 
 ## Output
 
-The CLI prints both terminal output and CSV.
+The CLI always prints terminal output.
+CSV is written only when `--output` (or deprecated `--csv`) is provided.
 
 Terminal output includes:
 
