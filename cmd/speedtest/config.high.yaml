@@ -1,0 +1,36 @@
+attempts: 3
+echo_text: speedtest-echo-20260211
+timeout_seconds: 90
+temperature: 0
+
+tests:
+  - name: "openai_gpt_5.2"
+    provider: openai
+    api_base: ""
+    api_key_ref: OPENAI_API_KEY
+    model: "gpt-5.2"
+
+  - name: "openrouter_openai_gpt_5.2"
+    provider: openai
+    api_base: https://openrouter.ai/api/v1
+    api_key_ref: OPENROUTER_API_KEY
+    model: "openai/gpt-5.2"
+
+  - name: "openrouter_kimi_2.5"
+    provider: openai
+    api_base: https://openrouter.ai/api/v1
+    api_key_ref: OPENROUTER_API_KEY
+    model: "moonshotai/kimi-k2.5"
+
+  - name: "cloudflare_gpt_oss_120b"
+    provider: cloudflare
+    api_base: ""
+    cloudflare_account_id_ref: CF_ACCOUNT_ID
+    cloudflare_api_token_ref: CF_API_TOKEN
+    model: "@cf/openai/gpt-oss-120b"
+
+  - name: "gemini_3_pro"
+    provider: gemini
+    api_base: ""
+    api_key_ref: GEMINI_API_KEY
+    model: "gemini-3-pro-preview"

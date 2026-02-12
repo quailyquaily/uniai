@@ -4,6 +4,7 @@ import "time"
 
 type fileConfig struct {
 	Model          string       `yaml:"model"`
+	Attempts       int          `yaml:"attempts"`
 	Temperature    *float64     `yaml:"temperature"`
 	EchoText       string       `yaml:"echo_text"`
 	TimeoutSeconds int          `yaml:"timeout_seconds"`

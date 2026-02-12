@@ -26,6 +26,9 @@ func loadConfig(path string) (*fileConfig, error) {
 	if len(cfg.Tests) == 0 {
 		return nil, fmt.Errorf("config has no tests")
 	}
+	if cfg.Attempts < 0 {
+		return nil, fmt.Errorf("attempts must be >= 0")
+	}
 
 	seen := map[string]struct{}{}
 	for i, t := range cfg.Tests {
@@ -60,6 +63,22 @@ func buildClientConfig(
 	t testConfig,
 ) (cfg uniai.Config, keyRefUsed, accountIDRefUsed, tokenRefUsed, setupErr string) {
 	switch provider {
+	case "gemini":
+		keyRef := strings.TrimSpace(t.APIKeyRef)
+		if keyRef == "" {
+			return uniai.Config{}, "", "", "", "api_key_ref is required for gemini provider"
+		}
+		apiKey := strings.TrimSpace(os.Getenv(keyRef))
+		if apiKey == "" {
+			return uniai.Config{}, "", "", "", fmt.Sprintf("env %s is empty", keyRef)
+		}
+		return uniai.Config{
+			Provider:      provider,
+			GeminiAPIKey:  apiKey,
+			GeminiAPIBase: t.APIBase,
+			GeminiModel:   model,
+		}, keyRef, "", "", ""
+
 	case "cloudflare":
 		accountIDRef := strings.TrimSpace(t.CloudflareAccountIDRef)
 		if accountIDRef == "" {

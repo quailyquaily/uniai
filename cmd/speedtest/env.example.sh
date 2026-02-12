@@ -7,6 +7,7 @@
 
 export OPENAI_API_KEY=""
 export OPENROUTER_API_KEY=""
+export GEMINI_API_KEY=""
 
 # Cloudflare Workers AI
 export CLOUDFLARE_ACCOUNT_ID=""

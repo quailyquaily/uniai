@@ -1,0 +1,44 @@
+attempts: 3
+echo_text: speedtest-echo-20260211
+timeout_seconds: 90
+temperature: 0
+
+tests:
+  - name: "openai_gpt_5_nano"
+    provider: openai
+    api_base: ""
+    api_key_ref: OPENAI_API_KEY
+    model: gpt-5-nano
+    temperature: 1
+
+  - name: "openai_gpt_4o_mini"
+    provider: openai
+    api_base: ""
+    api_key_ref: OPENAI_API_KEY
+    model: gpt-4o-mini
+
+  - name: openrouter_openai_gpt_5_nano
+    provider: openai
+    api_base: https://openrouter.ai/api/v1
+    api_key_ref: OPENROUTER_API_KEY
+    model: gpt-5-nano
+    temperature: 1
+
+  - name: openrouter_openai_gpt_4o_mini
+    provider: openai
+    api_base: https://openrouter.ai/api/v1
+    api_key_ref: OPENROUTER_API_KEY
+    model: openai/gpt-4o-mini
+
+  - name: "cloudflare_gpt_oss_20b"
+    provider: cloudflare
+    api_base:
+    cloudflare_account_id_ref: CF_ACCOUNT_ID
+    cloudflare_api_token_ref: CF_API_TOKEN
+    model: "@cf/openai/gpt-oss-20b"
+
+  - name: "gemini_2.5_flash_lite"
+    provider: gemini
+    api_base: ""
+    api_key_ref: GEMINI_API_KEY
+    model: "gemini-2.5-flash-lite"

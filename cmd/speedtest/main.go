@@ -19,7 +19,7 @@ const (
 	defaultMethod     = string(speedtest.DefaultMethod)
 	defaultEchoText   = speedtest.DefaultEchoText
 	defaultTimeout    = speedtest.DefaultTimeout
-	echoRuns          = speedtest.DefaultAttempts
+	defaultAttempts   = speedtest.DefaultAttempts
 
 	methodEcho        = string(speedtest.MethodEcho)
 	methodToolCalling = string(speedtest.MethodToolCalling)
@@ -116,7 +116,7 @@ func runOne(cfg *fileConfig, t testConfig, method string, live bool) testResult 
 		APIKeyRef:              t.APIKeyRef,
 		CloudflareAccountIDRef: t.CloudflareAccountIDRef,
 		CloudflareAPITokenRef:  t.CloudflareAPITokenRef,
-		Runs:                   make([]attemptResult, 0, echoRuns),
+		Runs:                   make([]attemptResult, 0, cfgAttempts(cfg)),
 	}
 	headerPrinted := false
 	printHeaderIfNeeded := func() {
@@ -187,6 +187,7 @@ func runOne(cfg *fileConfig, t testConfig, method string, live bool) testResult 
 
 	client := uniai.New(clientCfg)
 	temp := temperature
+	attempts := cfgAttempts(cfg)
 	report, err := speedtest.Run(
 		context.Background(),
 		[]speedtest.Case{
@@ -197,7 +198,7 @@ func runOne(cfg *fileConfig, t testConfig, method string, live bool) testResult 
 		},
 		speedtest.Config{
 			Method:      toSpeedtestMethod(method),
-			Attempts:    echoRuns,
+			Attempts:    attempts,
 			Timeout:     timeout,
 			Temperature: &temp,
 			EchoText:    echoText,
@@ -245,6 +246,13 @@ func runOne(cfg *fileConfig, t testConfig, method string, live bool) testResult 
 	}
 
 	return result
+}
+
+func cfgAttempts(cfg *fileConfig) int {
+	if cfg == nil || cfg.Attempts <= 0 {
+		return defaultAttempts
+	}
+	return cfg.Attempts
 }
 
 func fromSpeedtestAttempt(a speedtest.AttemptResult, provider, apiBase string) attemptResult {

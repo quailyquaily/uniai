@@ -2,7 +2,7 @@
 
 `cmd/speedtest` is a standalone CLI for running simple latency checks against multiple LLM endpoints using `uniai`.
 
-Each test case runs **3 attempts** and reports:
+Each test case runs **N attempts** (default `3`, configurable via top-level `attempts`) and reports:
 
 - per-attempt duration
 - pass/fail status
@@ -62,6 +62,7 @@ See `cmd/speedtest/config.example.yaml`.
 Example:
 
 ```yaml
+attempts: 3
 temperature: 0
 echo_text: speedtest-echo-20260211
 timeout_seconds: 90
@@ -79,6 +80,12 @@ tests:
     api_key_ref: OPENROUTER_API_KEY
     model: openai/gpt-5.2
 
+  - name: "gemini_2.0_flash"
+    provider: gemini
+    api_base: ""
+    api_key_ref: GEMINI_API_KEY
+    model: gemini-2.0-flash
+
   - name: "cloudflare_gpt_oss_120b"
     provider: cloudflare
     api_base: ""
@@ -90,6 +97,7 @@ tests:
 ### Top-Level Fields
 
 - `model`: default model for all tests (optional)
+- `attempts`: default attempt count per test (optional, default `3`)
 - `temperature`: default temperature (optional, default `1.0`)
 - `echo_text`: default echo text (optional, default `speedtest-echo-20260211`)
 - `timeout_seconds`: default timeout in seconds (optional, default `90`)
@@ -153,7 +161,7 @@ The CLI prints both terminal output and CSV.
 Terminal output includes:
 
 - test header (provider/model/api base/key ref)
-- 3 attempt rows
+- per-attempt rows (count = `attempts`)
 - average latency
 - setup/runtime errors
 
@@ -170,7 +178,7 @@ CSV columns:
 
 `attempt` values:
 
-- `1|2|3`: regular attempts
+- `1..N`: regular attempts
 - `avg`: average row
 - `setup`: setup failure row (for example missing model or missing env var)
 
