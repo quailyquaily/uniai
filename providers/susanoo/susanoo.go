@@ -152,6 +152,7 @@ func (p *Provider) createTask(ctx context.Context, task *taskRequest, debugFn fu
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		diag.LogError(p.cfg.Debug, debugFn, "susanoo.chat.create_task.response", err)
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -200,6 +201,7 @@ func (p *Provider) fetchResult(ctx context.Context, traceID string, debugFn func
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		diag.LogError(p.cfg.Debug, debugFn, "susanoo.chat.fetch_result.response", err)
 		return nil, err
 	}
 	defer resp.Body.Close()

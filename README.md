@@ -333,6 +333,7 @@ client := uniai.New(uniai.Config{
 If you want to capture request/response payloads without logging, use `WithDebugFn`:
 
 `WithDebugFn` overrides `Config.Debug`: when set, logs are suppressed and all debug output is sent to the callback.
+On request failures, providers also forward error payloads (raw API error body when available) through the same `*.response` label.
 
 
 ```go

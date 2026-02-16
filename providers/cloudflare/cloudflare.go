@@ -57,6 +57,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	resultRaw, err := cf.RunJSON(ctx, p.cfg.APIToken, p.cfg.APIBase, p.cfg.AccountID, model, payload)
 	if err != nil {
+		diag.LogError(p.cfg.Debug, debugFn, "cloudflare.chat.response", err)
 		return nil, err
 	}
 	diag.LogText(p.cfg.Debug, debugFn, "cloudflare.chat.response", string(resultRaw))

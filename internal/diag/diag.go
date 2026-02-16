@@ -2,8 +2,10 @@ package diag
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 )
 
 func LogJSON(enabled bool, fn func(string, string), label string, value any) {
@@ -37,4 +39,23 @@ func LogText(enabled bool, fn func(string, string), label string, text string) {
 		return
 	}
 	log.Printf("%s: %s", label, text)
+}
+
+func LogError(enabled bool, fn func(string, string), label string, err error) {
+	if err == nil {
+		return
+	}
+	LogText(enabled, fn, label, extractErrorPayload(err))
+}
+
+func extractErrorPayload(err error) string {
+	var withRawJSON interface {
+		RawJSON() string
+	}
+	if errors.As(err, &withRawJSON) {
+		if raw := strings.TrimSpace(withRawJSON.RawJSON()); raw != "" {
+			return raw
+		}
+	}
+	return err.Error()
 }

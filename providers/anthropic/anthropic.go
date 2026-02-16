@@ -212,6 +212,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	resp, err := httputil.DefaultClient.Do(httpReq)
 	if err != nil {
+		diag.LogError(p.cfg.Debug, debugFn, "anthropic.chat.response", err)
 		return nil, err
 	}
 	defer resp.Body.Close()
@@ -222,9 +223,15 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			if err != nil {
 				return nil, err
 			}
+			diag.LogText(p.cfg.Debug, debugFn, "anthropic.chat.response", string(respData))
 			return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respData)))
 		}
-		return p.chatStream(resp.Body, req.Options.OnStream)
+		result, err := p.chatStream(resp.Body, req.Options.OnStream)
+		if err != nil {
+			diag.LogError(p.cfg.Debug, debugFn, "anthropic.chat.response", err)
+			return nil, err
+		}
+		return result, nil
 	}
 
 	respData, err := httputil.ReadBody(resp.Body)

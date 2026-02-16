@@ -50,11 +50,17 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogJSON(p.debug, debugFn, "openai.chat.request", params)
 
 	if req.Options.OnStream != nil {
-		return oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream)
+		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream)
+		if err != nil {
+			diag.LogError(p.debug, debugFn, "openai.chat.response", err)
+			return nil, err
+		}
+		return result, nil
 	}
 
 	resp, err := p.client.Chat.Completions.New(ctx, params)
 	if err != nil {
+		diag.LogError(p.debug, debugFn, "openai.chat.response", err)
 		return nil, err
 	}
 	if raw := resp.RawJSON(); raw != "" {

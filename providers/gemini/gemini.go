@@ -166,6 +166,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 
 	resp, err := httputil.DefaultClient.Do(httpReq)
 	if err != nil {
+		diag.LogError(p.cfg.Debug, debugFn, "gemini.chat.response", err)
 		return nil, err
 	}
 	defer resp.Body.Close()

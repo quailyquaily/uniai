@@ -124,7 +124,12 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogText(p.debug, debugFn, "bedrock.chat.request", string(body))
 
 	if req.Options.OnStream != nil {
-		return p.chatStream(ctx, body, req.Options.OnStream, req.Tools)
+		result, err := p.chatStream(ctx, body, req.Options.OnStream, req.Tools)
+		if err != nil {
+			diag.LogError(p.debug, debugFn, "bedrock.chat.response", err)
+			return nil, err
+		}
+		return result, nil
 	}
 
 	resp, err := p.client.InvokeModelWithContext(ctx, &bedrockruntime.InvokeModelInput{
@@ -134,14 +139,15 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		ContentType: aws.String("application/json"),
 	})
 	if err != nil {
+		diag.LogError(p.debug, debugFn, "bedrock.chat.response", err)
 		return nil, err
 	}
+	diag.LogText(p.debug, debugFn, "bedrock.chat.response", string(resp.Body))
 
 	var out bedrockResponse
 	if err := json.Unmarshal(resp.Body, &out); err != nil {
 		return nil, err
 	}
-	diag.LogText(p.debug, debugFn, "bedrock.chat.response", string(resp.Body))
 
 	var textParts []string
 	for _, c := range out.Content {
