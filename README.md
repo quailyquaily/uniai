@@ -212,6 +212,8 @@ resp, err := client.Chat(ctx,
 | `Usage` | Token usage, populated on the final event |
 | `Done` | `true` for the last event |
 
+Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
+
 Supported providers: OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Susanoo and Cloudflare ignore streaming and fall back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
