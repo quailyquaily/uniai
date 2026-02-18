@@ -79,9 +79,6 @@ func WithAnthropicOptions(opts structs.JSONMap) ChatOption {
 func WithBedrockOptions(opts structs.JSONMap) ChatOption {
 	return chat.WithBedrockOptions(opts)
 }
-func WithSusanooOptions(opts structs.JSONMap) ChatOption {
-	return chat.WithSusanooOptions(opts)
-}
 func WithCloudflareOptions(opts structs.JSONMap) ChatOption {
 	return chat.WithCloudflareOptions(opts)
 }

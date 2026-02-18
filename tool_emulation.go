@@ -696,7 +696,6 @@ func cloneChatRequest(req *chat.Request) *chat.Request {
 	out.Options.Azure = cloneJSONMap(req.Options.Azure)
 	out.Options.Anthropic = cloneJSONMap(req.Options.Anthropic)
 	out.Options.Bedrock = cloneJSONMap(req.Options.Bedrock)
-	out.Options.Susanoo = cloneJSONMap(req.Options.Susanoo)
 	out.Options.ToolsEmulationMode = req.Options.ToolsEmulationMode
 	out.Options.OnStream = req.Options.OnStream
 	out.Options.DebugFn = req.Options.DebugFn

@@ -4,7 +4,7 @@
 
 ## Features
 
-- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Azure OpenAI, Anthropic, AWS Bedrock, Susanoo, and Cloudflare Workers AI.
+- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
@@ -72,7 +72,6 @@ Supported provider names:
 - `azure`
 - `anthropic`
 - `bedrock`
-- `susanoo`
 - `cloudflare`
 
 ### Tool calling
@@ -214,7 +213,7 @@ resp, err := client.Chat(ctx,
 
 Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
 
-Supported providers: OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Susanoo and Cloudflare ignore streaming and fall back to blocking.
+Supported providers: OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
 
@@ -301,7 +300,6 @@ All configuration is provided via `uniai.Config`. Only the fields required for t
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
 - Anthropic: `AnthropicAPIKey`, `AnthropicModel`
 - AWS Bedrock: `AwsKey`, `AwsSecret`, `AwsRegion`, `AwsBedrockModelArn`
-- Susanoo: `SusanooAPIBase`, `SusanooAPIKey`
 - Cloudflare Workers AI: `CloudflareAccountID`, `CloudflareAPIToken`, `CloudflareAPIBase`
 - Embeddings/Rerank/Classify (Jina): `JinaAPIKey`, `JinaAPIBase`
 - Gemini: `GeminiAPIKey`, `GeminiAPIBase`

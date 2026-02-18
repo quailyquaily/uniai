@@ -150,7 +150,7 @@ Output:
 - Preserve current text behavior and normalize text blocks into `Result.Parts`.
 - Image generation/mixed output remains handled by `image` package in V1.
 
-### Anthropic / Cloudflare / Bedrock / Susanoo
+### Anthropic / Cloudflare / Bedrock
 
 - Keep current text-first behavior in V1.
 - If `Parts` contains any non-`text` type, return explicit unsupported error.

@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - Root package `uniai` (`client.go`, `config.go`, `exports.go`) wires shared configuration and entrypoints.
 - Feature packages live in `chat/`, `classify/`, `embedding/`, `image/`, and `rerank/` with their own request/response types and client helpers.
-- Provider implementations are in `providers/` (e.g., `openai/`, `azure/`, `anthropic/`, `bedrock/`, `susanoo/`).
+- Provider implementations are in `providers/` (e.g., `openai/`, `azure/`, `anthropic/`, `bedrock/`, `cloudflare/`).
 - Unit tests are `*_test.go` files (currently in `chat/` and `providers/openai/`).
 
 ## Build, Test, and Development Commands

@@ -53,9 +53,6 @@ func (c *Client) GetConfig() ClientConfigView {
 	case "bedrock":
 		out.Model = c.cfg.AwsBedrockModelArn
 		out.APIBase = c.cfg.AwsRegion
-	case "susanoo":
-		out.Model = c.cfg.OpenAIModel
-		out.APIBase = c.cfg.SusanooAPIBase
 	case "cloudflare":
 		// Cloudflare chat requires request model; callers usually set this in OpenAIModel.
 		out.Model = c.cfg.OpenAIModel

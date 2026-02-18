@@ -15,7 +15,6 @@ import (
 	"github.com/quailyquaily/uniai/providers/cloudflare"
 	"github.com/quailyquaily/uniai/providers/gemini"
 	"github.com/quailyquaily/uniai/providers/openai"
-	"github.com/quailyquaily/uniai/providers/susanoo"
 	"github.com/quailyquaily/uniai/rerank"
 )
 
@@ -183,14 +182,6 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			AwsRegion: c.cfg.AwsRegion,
 			ModelArn:  c.cfg.AwsBedrockModelArn,
 			Debug:     c.cfg.Debug,
-		})
-		return p.Chat(ctx, req)
-
-	case "susanoo":
-		p := susanoo.New(susanoo.Config{
-			APIBase: c.cfg.SusanooAPIBase,
-			APIKey:  c.cfg.SusanooAPIKey,
-			Debug:   c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
 

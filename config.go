@@ -27,10 +27,6 @@ type Config struct {
 	AwsRegion          string
 	AwsBedrockModelArn string
 
-	// Susanoo
-	SusanooAPIBase string
-	SusanooAPIKey  string
-
 	// Cloudflare Workers AI
 	CloudflareAccountID string
 	CloudflareAPIToken  string
