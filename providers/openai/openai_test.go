@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"testing"
 
 	openai "github.com/openai/openai-go/v3"
@@ -176,4 +177,159 @@ func TestToResultAddsTextPart(t *testing.T) {
 	if out.Parts[0].Type != chat.PartTypeText || out.Parts[0].Text != "hello" {
 		t.Fatalf("unexpected parts: %#v", out.Parts)
 	}
+}
+
+func TestBuildParamsGeminiAddsThoughtSignatureFallback(t *testing.T) {
+	req := &chat.Request{
+		Model: "gemini-3-flash",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sig := readThoughtSignatureFromAssistantToolCallParam(t, params.Messages[1].OfAssistant.ToolCalls[0].OfFunction)
+	if sig != "skip_thought_signature_validator" {
+		t.Fatalf("unexpected fallback signature: %q", sig)
+	}
+}
+
+func TestBuildParamsGeminiPreservesThoughtSignature(t *testing.T) {
+	req := &chat.Request{
+		Model: "gemini-3-flash",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+						ThoughtSignature: "sig_from_user",
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sig := readThoughtSignatureFromAssistantToolCallParam(t, params.Messages[1].OfAssistant.ToolCalls[0].OfFunction)
+	if sig != "sig_from_user" {
+		t.Fatalf("unexpected signature: %q", sig)
+	}
+}
+
+func TestBuildParamsGeminiEmptyThoughtSignatureFallsBack(t *testing.T) {
+	req := &chat.Request{
+		Model: "gemini-3-flash",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+						ThoughtSignature: "   ",
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sig := readThoughtSignatureFromAssistantToolCallParam(t, params.Messages[1].OfAssistant.ToolCalls[0].OfFunction)
+	if sig != "skip_thought_signature_validator" {
+		t.Fatalf("empty thought signature should fallback, got %q", sig)
+	}
+}
+
+func TestBuildParamsNonGeminiDoesNotInjectThoughtSignature(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sig := readThoughtSignatureFromAssistantToolCallParam(t, params.Messages[1].OfAssistant.ToolCalls[0].OfFunction)
+	if sig != "" {
+		t.Fatalf("non-gemini model should not inject thought signature, got %q", sig)
+	}
+}
+
+func readThoughtSignatureFromAssistantToolCallParam(t *testing.T, call *openai.ChatCompletionMessageFunctionToolCallParam) string {
+	t.Helper()
+	if call == nil {
+		return ""
+	}
+	raw, err := json.Marshal(call)
+	if err != nil {
+		t.Fatalf("marshal tool call: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal tool call payload: %v", err)
+	}
+	extra, ok := payload["extra_content"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	google, ok := extra["google"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	sig, _ := google["thought_signature"].(string)
+	return sig
 }

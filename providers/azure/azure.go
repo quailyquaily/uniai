@@ -52,7 +52,7 @@ func New(cfg Config) (*Provider, error) {
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	messages, err := oaicompat.ToMessages(req.Messages)
+	messages, err := oaicompat.ToMessages(req.Messages, p.deployment)
 	if err != nil {
 		return nil, fmt.Errorf("azure provider model %q: %w", p.deployment, err)
 	}

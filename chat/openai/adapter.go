@@ -317,6 +317,7 @@ func toToolCalls(calls []openai.ChatCompletionMessageToolCallUnionParam) []chat.
 		if call.OfFunction == nil {
 			continue
 		}
+		sig := thoughtSignatureFromToolCallParam(call.OfFunction)
 		out = append(out, chat.ToolCall{
 			ID:   call.OfFunction.ID,
 			Type: "function",
@@ -324,9 +325,41 @@ func toToolCalls(calls []openai.ChatCompletionMessageToolCallUnionParam) []chat.
 				Name:      call.OfFunction.Function.Name,
 				Arguments: call.OfFunction.Function.Arguments,
 			},
+			ThoughtSignature: sig,
 		})
 	}
 	return out
+}
+
+func thoughtSignatureFromToolCallParam(call *openai.ChatCompletionMessageFunctionToolCallParam) string {
+	if call == nil {
+		return ""
+	}
+	raw, err := json.Marshal(call)
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		ExtraContent any `json:"extra_content"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	extraMap, ok := payload.ExtraContent.(map[string]any)
+	if !ok {
+		return ""
+	}
+	googleMap, ok := extraMap["google"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if sig, ok := googleMap["thought_signature"].(string); ok {
+		return strings.TrimSpace(sig)
+	}
+	if sig, ok := googleMap["thoughtSignature"].(string); ok {
+		return strings.TrimSpace(sig)
+	}
+	return ""
 }
 
 func toOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {

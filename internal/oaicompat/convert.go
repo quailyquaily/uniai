@@ -15,8 +15,10 @@ import (
 	"github.com/quailyquaily/uniai/internal/toolschema"
 )
 
+const geminiThoughtSignatureValidatorBypass = "skip_thought_signature_validator"
+
 // ToMessages converts chat.Message slice to OpenAI SDK message params.
-func ToMessages(input []chat.Message) ([]openai.ChatCompletionMessageParamUnion, error) {
+func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMessageParamUnion, error) {
 	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(input))
 	for _, m := range input {
 		switch m.Role {
@@ -55,7 +57,7 @@ func ToMessages(input []chat.Message) ([]openai.ChatCompletionMessageParamUnion,
 				msg.Name = openai.String(m.Name)
 			}
 			if len(m.ToolCalls) > 0 {
-				msg.ToolCalls = ToToolCallParams(m.ToolCalls)
+				msg.ToolCalls = ToToolCallParams(m.ToolCalls, model)
 			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &msg})
 		case chat.RoleTool:
@@ -174,8 +176,9 @@ func ToToolChoice(choice *chat.ToolChoice) openai.ChatCompletionToolChoiceOption
 }
 
 // ToToolCallParams converts chat.ToolCall slice to OpenAI SDK tool call params.
-func ToToolCallParams(calls []chat.ToolCall) []openai.ChatCompletionMessageToolCallUnionParam {
+func ToToolCallParams(calls []chat.ToolCall, model string) []openai.ChatCompletionMessageToolCallUnionParam {
 	out := make([]openai.ChatCompletionMessageToolCallUnionParam, 0, len(calls))
+	attachGeminiThoughtSignature := isGeminiOpenAIModel(model)
 	for _, call := range calls {
 		if call.Type != "" && call.Type != "function" {
 			continue
@@ -183,14 +186,25 @@ func ToToolCallParams(calls []chat.ToolCall) []openai.ChatCompletionMessageToolC
 		if call.ID == "" || call.Function.Name == "" {
 			continue
 		}
-		out = append(out, openai.ChatCompletionMessageToolCallUnionParam{
-			OfFunction: &openai.ChatCompletionMessageFunctionToolCallParam{
-				ID: call.ID,
-				Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
-					Name:      call.Function.Name,
-					Arguments: call.Function.Arguments,
-				},
+		toolCall := openai.ChatCompletionMessageFunctionToolCallParam{
+			ID: call.ID,
+			Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+				Name:      call.Function.Name,
+				Arguments: call.Function.Arguments,
 			},
+		}
+		if attachGeminiThoughtSignature {
+			signature := resolveGeminiThoughtSignature(call)
+			toolCall.SetExtraFields(map[string]any{
+				"extra_content": map[string]any{
+					"google": map[string]any{
+						"thought_signature": signature,
+					},
+				},
+			})
+		}
+		out = append(out, openai.ChatCompletionMessageToolCallUnionParam{
+			OfFunction: &toolCall,
 		})
 	}
 	return out
@@ -216,6 +230,20 @@ func ToToolCalls(calls []openai.ChatCompletionMessageToolCallUnion) []chat.ToolC
 		})
 	}
 	return out
+}
+
+func isGeminiOpenAIModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized = strings.TrimPrefix(normalized, "models/")
+	return strings.HasPrefix(normalized, "gemini-") || strings.Contains(normalized, "/gemini-")
+}
+
+func resolveGeminiThoughtSignature(call chat.ToolCall) string {
+	sig := strings.TrimSpace(call.ThoughtSignature)
+	if sig != "" {
+		return sig
+	}
+	return geminiThoughtSignatureValidatorBypass
 }
 
 // ApplyOptions applies shared OpenAI-compatible option fields to params.

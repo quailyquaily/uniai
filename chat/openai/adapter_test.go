@@ -93,3 +93,47 @@ func TestToChatOptionsWithUserImageParts(t *testing.T) {
 		t.Fatalf("unexpected second part: %#v", msg.Parts[1])
 	}
 }
+
+func TestToChatOptionsReadsThoughtSignatureFromExtraContent(t *testing.T) {
+	call := openai.ChatCompletionMessageFunctionToolCallParam{
+		ID: "call_1",
+		Function: openai.ChatCompletionMessageFunctionToolCallFunctionParam{
+			Name:      "read_file",
+			Arguments: `{"path":"/tmp/a.txt"}`,
+		},
+	}
+	call.SetExtraFields(map[string]any{
+		"extra_content": map[string]any{
+			"google": map[string]any{
+				"thought_signature": "sig_from_caller",
+			},
+		},
+	})
+	req := openai.ChatCompletionNewParams{
+		Model: openai.ChatModel("gemini-3-flash"),
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{
+				OfAssistant: &openai.ChatCompletionAssistantMessageParam{
+					ToolCalls: []openai.ChatCompletionMessageToolCallUnionParam{
+						{OfFunction: &call},
+					},
+				},
+			},
+		},
+	}
+
+	opts, err := toChatOptions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	chatReq, err := chat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if len(chatReq.Messages) != 1 || len(chatReq.Messages[0].ToolCalls) != 1 {
+		t.Fatalf("expected one assistant tool call in chat request")
+	}
+	if got := chatReq.Messages[0].ToolCalls[0].ThoughtSignature; got != "sig_from_caller" {
+		t.Fatalf("unexpected thought signature: %q", got)
+	}
+}

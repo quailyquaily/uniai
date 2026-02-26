@@ -80,7 +80,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("model is required")
 	}
 
-	messages, err := oaicompat.ToMessages(req.Messages)
+	messages, err := oaicompat.ToMessages(req.Messages, model)
 	if err != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider model %q: %w", model, err)
 	}
