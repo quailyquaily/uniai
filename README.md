@@ -65,7 +65,6 @@ func main() {
 Supported provider names:
 
 - `openai` (default)
-- `openai_custom` (uses `Config.OpenAIAPIBase`)
 - `deepseek` (OpenAI-compatible)
 - `xai` (OpenAI-compatible)
 - `groq` (OpenAI-compatible)
@@ -74,6 +73,8 @@ Supported provider names:
 - `anthropic`
 - `bedrock`
 - `cloudflare`
+
+For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenAIAPIBase`.
 
 ### Multimodal chat input (V1)
 
@@ -271,7 +272,7 @@ resp, err := client.Chat(ctx,
 
 Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
 
-Supported providers: OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
+Supported providers: OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
 

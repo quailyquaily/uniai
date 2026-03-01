@@ -66,7 +66,7 @@ For each message:
 
 ## Provider Support Matrix (Current)
 
-- OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`): supports `user` `text`, `image_url`, `image_base64`.
+- OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`): supports `user` `text`, `image_url`, `image_base64`.
 - Azure (`azure`): same mapping path as OpenAI-compatible.
 - Gemini (`gemini`):
   - supports `user` `text` and `image_base64`
@@ -74,6 +74,36 @@ For each message:
 - Anthropic (`anthropic`): text-only in chat path
 - Bedrock (`bedrock`): text-only in chat path
 - Cloudflare (`cloudflare`): text-only in chat path
+
+## Mainstream Model Image-Input Support (as of 2026-03-01)
+
+The table below combines model-level capability reference and current `uniai` support status.
+
+| Model / Ecosystem | Model capability (official docs) | `uniai` status | `uniai` provider path | Image input in `uniai` |
+| --- | --- | --- | --- | --- |
+| OpenAI (GPT-5/5.1, GPT-4.1, GPT-4o, o3) | Supports image input | Supported | `openai`, `azure` | `image_url`, `image_base64` |
+| Google Gemini (3.1/2.5 family) | Supports image input | Partially supported | `gemini` | `image_base64` only (`image_url` rejected) |
+| xAI Grok | Some models support image input | Supported (OpenAI-compatible path) | `xai` | `image_url`, `image_base64` |
+| Anthropic Claude | Current models support image input | Not yet supported in chat path | `anthropic` | text-only |
+| Mistral Vision models | Vision-capable models available | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent (typically `image_url` / `image_base64`) |
+| Qwen2.5-VL | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
+| Llama 3.2 Vision | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
+
+References:
+
+- OpenAI GPT-5: <https://developers.openai.com/api/docs/models/gpt-5>
+- OpenAI GPT-4.1: <https://developers.openai.com/api/docs/models/gpt-4.1>
+- OpenAI o3: <https://developers.openai.com/api/docs/models/o3>
+- Anthropic model overview: <https://platform.claude.com/docs/en/about-claude/models/overview>
+- Anthropic vision docs: <https://platform.claude.com/docs/en/build-with-claude/vision>
+- Gemini 3.1 Pro Preview: <https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview>
+- Gemini 2.5 Pro: <https://ai.google.dev/gemini-api/docs/models/gemini-2.5-pro>
+- Gemini 2.5 Flash: <https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash>
+- xAI image understanding: <https://docs.x.ai/developers/model-capabilities/images/understanding>
+- xAI models: <https://docs.x.ai/developers/models>
+- Mistral vision: <https://docs.mistral.ai/capabilities/vision>
+- Qwen2.5-VL-72B-Instruct: <https://huggingface.co/Qwen/Qwen2.5-VL-72B-Instruct>
+- Llama-3.2-11B-Vision-Instruct: <https://huggingface.co/meta-llama/Llama-3.2-11B-Vision-Instruct>
 
 ## Usage Examples
 

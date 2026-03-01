@@ -127,7 +127,7 @@ For each message:
 
 ## Provider Mapping Strategy (V1)
 
-### OpenAI-compatible (`openai`, `openai_custom`, `deepseek`, `xai`, `groq`, `azure`)
+### OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`, `azure`)
 
 Input:
 

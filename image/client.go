@@ -43,7 +43,7 @@ func (c *Client) Create(ctx context.Context, opts ...Option) (*Result, error) {
 		err      error
 	)
 	switch provider {
-	case "openai", "openai_custom":
+	case "openai":
 		respData, err = openai.CreateImages(ctx, c.cfg.OpenAIAPIKey, c.cfg.OpenAIAPIBase, req.Model, req.Prompt, req.Count, req.Options.OpenAI)
 	case "gemini":
 		respData, err = gemini.CreateImages(ctx, c.cfg.GeminiAPIKey, req.Model, req.Prompt, req.Count, req.Options.Gemini)

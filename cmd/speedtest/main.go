@@ -102,11 +102,7 @@ func run(args []string) error {
 func runOne(cfg *fileConfig, t testConfig, method string, live bool) testResult {
 	provider := strings.TrimSpace(t.Provider)
 	if provider == "" {
-		if strings.TrimSpace(t.APIBase) != "" {
-			provider = "openai_custom"
-		} else {
-			provider = "openai"
-		}
+		provider = "openai"
 	}
 
 	result := testResult{
@@ -287,7 +283,7 @@ func annotateAPIErrorMessage(msg, provider, apiBase string) string {
 	if strings.Contains(lower, "content-type 'text/html") || strings.Contains(lower, "not 'application/json'") {
 		base := strings.TrimRight(strings.TrimSpace(apiBase), "/")
 		switch provider {
-		case "openai", "openai_custom", "deepseek", "xai", "groq":
+		case "openai", "deepseek", "xai", "groq":
 			if base == "" {
 				return msg + "; hint: got HTML instead of JSON, check provider endpoint or proxy settings"
 			}

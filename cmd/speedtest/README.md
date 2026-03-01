@@ -107,8 +107,7 @@ tests:
 
 - `name`: test name (required, must be unique)
 - `provider`: provider name (optional)
-  - default is `openai_custom` when `api_base` is non-empty
-  - otherwise default is `openai`
+  - default is `openai`
 - `api_base`: API base URL (optional)
 - `api_key_ref`: environment variable name for API key (required for non-cloudflare providers)
 - `cloudflare_account_id_ref`: env var name for Cloudflare Account ID (required when `provider=cloudflare`)

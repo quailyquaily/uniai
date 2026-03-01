@@ -249,22 +249,6 @@ type chatConfig struct {
 
 func pickChatConfigs() []chatConfig {
 	var out []chatConfig
-	if key := env("TEST_OPENAI_CUSTOM_API_KEY"); key != "" {
-		model := env("TEST_OPENAI_CUSTOM_MODEL")
-		if model != "" {
-			out = append(out, chatConfig{
-				provider: "openai_custom",
-				model:    model,
-				cfg: Config{
-					Provider:      "openai_custom",
-					OpenAIAPIKey:  key,
-					OpenAIAPIBase: env("TEST_OPENAI_CUSTOM_API_BASE"),
-					OpenAIModel:   model,
-				},
-			})
-		}
-	}
-
 	if key := env("TEST_OPENAI_API_KEY"); key != "" {
 		model := env("TEST_OPENAI_MODEL")
 		if model != "" {
@@ -447,14 +431,6 @@ func pickImageConfig() (Config, string, string, bool) {
 			OpenAIAPIKey:  key,
 			OpenAIAPIBase: env("TEST_OPENAI_API_BASE"),
 		}, "openai", model, true
-	}
-
-	if key := env("TEST_OPENAI_CUSTOM_API_KEY"); key != "" {
-		model := envDefault("TEST_OPENAI_CUSTOM_IMAGE_MODEL", "gpt-image-1")
-		return Config{
-			OpenAIAPIKey:  key,
-			OpenAIAPIBase: env("TEST_OPENAI_CUSTOM_API_BASE"),
-		}, "openai_custom", model, true
 	}
 
 	if key := env("TEST_GEMINI_API_KEY"); key != "" {

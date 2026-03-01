@@ -27,7 +27,7 @@ func (c *Client) GetConfig() ClientConfigView {
 	}
 
 	switch provider {
-	case "openai", "openai_custom":
+	case "openai":
 		out.Model = c.cfg.OpenAIModel
 		out.APIBase = c.cfg.OpenAIAPIBase
 	case "deepseek":
