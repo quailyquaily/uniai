@@ -36,14 +36,22 @@ type anthropicMessage struct {
 }
 
 type anthropicContentPart struct {
+	Type      string                `json:"type"`
+	Text      string                `json:"text,omitempty"`
+	Source    *anthropicImageSource `json:"source,omitempty"`
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Input     any                   `json:"input,omitempty"`
+	ToolUseID string                `json:"tool_use_id,omitempty"`
+	Content   any                   `json:"content,omitempty"`
+	IsError   *bool                 `json:"is_error,omitempty"`
+}
+
+type anthropicImageSource struct {
 	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
-	ID        string `json:"id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Input     any    `json:"input,omitempty"`
-	ToolUseID string `json:"tool_use_id,omitempty"`
-	Content   any    `json:"content,omitempty"`
-	IsError   *bool  `json:"is_error,omitempty"`
+	MediaType string `json:"media_type,omitempty"`
+	Data      string `json:"data,omitempty"`
+	URL       string `json:"url,omitempty"`
 }
 
 type anthropicRequest struct {
@@ -100,97 +108,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("model is required")
 	}
 
-	normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
+	body, err := buildRequest(req, model)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic provider model %q: %w", model, err)
 	}
-
-	systemParts := make([]string, 0, 1)
-	messages := make([]anthropicMessage, 0, len(normalizedMessages))
-	for _, m := range normalizedMessages {
-		text := m.Content
-		switch m.Role {
-		case chat.RoleSystem:
-			if text != "" {
-				systemParts = append(systemParts, text)
-			}
-			continue
-		case chat.RoleUser:
-			msg := anthropicMessage{Role: "user"}
-			if text != "" {
-				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
-			}
-			if len(msg.Content) > 0 {
-				messages = append(messages, msg)
-			}
-		case chat.RoleAssistant:
-			msg := anthropicMessage{Role: "assistant"}
-			if text != "" {
-				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
-			}
-			if len(m.ToolCalls) > 0 {
-				toolParts, err := toAnthropicToolUses(m.ToolCalls)
-				if err != nil {
-					return nil, err
-				}
-				msg.Content = append(msg.Content, toolParts...)
-			}
-			if len(msg.Content) > 0 {
-				messages = append(messages, msg)
-			}
-		case chat.RoleTool:
-			if m.ToolCallID == "" {
-				return nil, fmt.Errorf("tool_call_id is required for tool messages")
-			}
-			messages = append(messages, anthropicMessage{
-				Role: "user",
-				Content: []anthropicContentPart{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolCallID,
-					Content:   text,
-				}},
-			})
-		default:
-			return nil, fmt.Errorf("anthropic provider does not support role %q", m.Role)
-		}
-	}
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("at least one non-system message is required")
-	}
-
-	maxTokens := 8192
-	if req.Options.MaxTokens != nil {
-		maxTokens = *req.Options.MaxTokens
-	}
-
-	body := anthropicRequest{
-		Model:         model,
-		System:        strings.Join(systemParts, "\n"),
-		Messages:      messages,
-		MaxTokens:     maxTokens,
-		Temperature:   req.Options.Temperature,
-		TopP:          req.Options.TopP,
-		StopSequences: req.Options.Stop,
-	}
-	if len(req.Tools) > 0 {
-		tools, err := toAnthropicTools(req.Tools)
-		if err != nil {
-			return nil, err
-		}
-		if len(tools) > 0 {
-			body.Tools = tools
-		}
-	}
-	if req.ToolChoice != nil {
-		choice, err := toAnthropicToolChoice(req.ToolChoice)
-		if err != nil {
-			return nil, err
-		}
-		if choice != nil {
-			body.ToolChoice = choice
-		}
-	}
-	applyAnthropicOptions(&body, req.Options.Anthropic)
 
 	if req.Options.OnStream != nil {
 		body.Stream = true
@@ -283,6 +204,142 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	return result, nil
+}
+
+func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
+	systemParts := make([]string, 0, 1)
+	messages := make([]anthropicMessage, 0, len(req.Messages))
+
+	for _, m := range req.Messages {
+		switch m.Role {
+		case chat.RoleSystem:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			if text != "" {
+				systemParts = append(systemParts, text)
+			}
+		case chat.RoleUser:
+			msg := anthropicMessage{Role: "user"}
+			for _, part := range chat.NormalizeMessageParts(m) {
+				if err := chat.ValidatePart(part); err != nil {
+					return nil, fmt.Errorf("role %q: %w", m.Role, err)
+				}
+				switch part.Type {
+				case chat.PartTypeText:
+					if strings.TrimSpace(part.Text) == "" {
+						continue
+					}
+					msg.Content = append(msg.Content, anthropicContentPart{
+						Type: "text",
+						Text: part.Text,
+					})
+				case chat.PartTypeImageBase64:
+					mimeType := strings.TrimSpace(part.MIMEType)
+					if mimeType == "" {
+						mimeType = "image/png"
+					}
+					msg.Content = append(msg.Content, anthropicContentPart{
+						Type: "image",
+						Source: &anthropicImageSource{
+							Type:      "base64",
+							MediaType: mimeType,
+							Data:      strings.TrimSpace(part.DataBase64),
+						},
+					})
+				case chat.PartTypeImageURL:
+					msg.Content = append(msg.Content, anthropicContentPart{
+						Type: "image",
+						Source: &anthropicImageSource{
+							Type: "url",
+							URL:  strings.TrimSpace(part.URL),
+						},
+					})
+				default:
+					return nil, fmt.Errorf("role %q: unsupported part type %q", m.Role, part.Type)
+				}
+			}
+			if len(msg.Content) > 0 {
+				messages = append(messages, msg)
+			}
+		case chat.RoleAssistant:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			msg := anthropicMessage{Role: "assistant"}
+			if text != "" {
+				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
+			}
+			if len(m.ToolCalls) > 0 {
+				toolParts, err := toAnthropicToolUses(m.ToolCalls)
+				if err != nil {
+					return nil, err
+				}
+				msg.Content = append(msg.Content, toolParts...)
+			}
+			if len(msg.Content) > 0 {
+				messages = append(messages, msg)
+			}
+		case chat.RoleTool:
+			if m.ToolCallID == "" {
+				return nil, fmt.Errorf("tool_call_id is required for tool messages")
+			}
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			messages = append(messages, anthropicMessage{
+				Role: "user",
+				Content: []anthropicContentPart{{
+					Type:      "tool_result",
+					ToolUseID: m.ToolCallID,
+					Content:   text,
+				}},
+			})
+		default:
+			return nil, fmt.Errorf("anthropic provider does not support role %q", m.Role)
+		}
+	}
+	if len(messages) == 0 {
+		return nil, fmt.Errorf("at least one non-system message is required")
+	}
+
+	maxTokens := 8192
+	if req.Options.MaxTokens != nil {
+		maxTokens = *req.Options.MaxTokens
+	}
+
+	body := &anthropicRequest{
+		Model:         model,
+		System:        strings.Join(systemParts, "\n"),
+		Messages:      messages,
+		MaxTokens:     maxTokens,
+		Temperature:   req.Options.Temperature,
+		TopP:          req.Options.TopP,
+		StopSequences: req.Options.Stop,
+	}
+	if len(req.Tools) > 0 {
+		tools, err := toAnthropicTools(req.Tools)
+		if err != nil {
+			return nil, err
+		}
+		if len(tools) > 0 {
+			body.Tools = tools
+		}
+	}
+	if req.ToolChoice != nil {
+		choice, err := toAnthropicToolChoice(req.ToolChoice)
+		if err != nil {
+			return nil, err
+		}
+		if choice != nil {
+			body.ToolChoice = choice
+		}
+	}
+	applyAnthropicOptions(body, req.Options.Anthropic)
+	return body, nil
 }
 
 func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {

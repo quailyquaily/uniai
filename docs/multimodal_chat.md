@@ -71,7 +71,7 @@ For each message:
 - Gemini (`gemini`):
   - supports `user` `text` and `image_base64`
   - rejects `user` `image_url` with explicit unsupported error
-- Anthropic (`anthropic`): text-only in chat path
+- Anthropic (`anthropic`): supports `user` `text`, `image_url`, `image_base64`
 - Bedrock (`bedrock`): text-only in chat path
 - Cloudflare (`cloudflare`): text-only in chat path
 
@@ -84,7 +84,7 @@ The table below combines model-level capability reference and current `uniai` su
 | OpenAI (GPT-5/5.1, GPT-4.1, GPT-4o, o3) | Supports image input | Supported | `openai`, `azure` | `image_url`, `image_base64` |
 | Google Gemini (3.1/2.5 family) | Supports image input | Partially supported | `gemini` | `image_base64` only (`image_url` rejected) |
 | xAI Grok | Some models support image input | Supported (OpenAI-compatible path) | `xai` | `image_url`, `image_base64` |
-| Anthropic Claude | Current models support image input | Not yet supported in chat path | `anthropic` | text-only |
+| Anthropic Claude | Current models support image input | Supported | `anthropic` | `image_url`, `image_base64` |
 | Mistral Vision models | Vision-capable models available | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent (typically `image_url` / `image_base64`) |
 | Qwen2.5-VL | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
 | Llama 3.2 Vision | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
