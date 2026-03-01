@@ -1,5 +1,8 @@
 # Multimodal Chat API Proposal (Lean V1, 2026-02-12)
 
+> Status update: the core V1 design in this proposal has been implemented.
+> For current behavior and usage, see [`docs/multimodal_chat.md`](multimodal_chat.md).
+
 ## Status
 
 - Proposal

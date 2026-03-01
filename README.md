@@ -5,6 +5,7 @@
 ## Features
 
 - Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
+- Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
@@ -57,7 +58,7 @@ func main() {
 
 `Chat` chooses the provider in this order:
 
-1. `chat.WithProvider(...)`
+1. `uniai.WithProvider(...)`
 2. `Config.Provider`
 3. default: `"openai"`
 
@@ -73,6 +74,63 @@ Supported provider names:
 - `anthropic`
 - `bedrock`
 - `cloudflare`
+
+### Multimodal chat input (V1)
+
+`uniai` supports structured chat content with `Message.Parts`.
+
+Supported part types:
+
+- `text`
+- `image_url`
+- `image_base64`
+
+Role constraints:
+
+- `user` can use `text`, `image_url`, and `image_base64`.
+- `system` / `assistant` / `tool` are text-only.
+
+Example:
+
+```go
+resp, err := client.Chat(ctx,
+    uniai.WithProvider("openai"),
+    uniai.WithModel("gpt-5.2"),
+    uniai.WithMessages(
+        uniai.UserParts(
+            uniai.TextPart("Describe this image."),
+            uniai.ImageURLPart("https://example.com/cat.png"),
+        ),
+    ),
+)
+if err != nil {
+    log.Fatal(err)
+}
+log.Println(resp.Text)
+```
+
+With base64 image input:
+
+```go
+resp, err := client.Chat(ctx,
+    uniai.WithProvider("openai"),
+    uniai.WithModel("gpt-5.2"),
+    uniai.WithMessages(
+        uniai.UserParts(
+            uniai.TextPart("What do you see?"),
+            uniai.ImageBase64Part("image/png", base64PNG),
+        ),
+    ),
+)
+```
+
+Behavior notes:
+
+- `Parts` takes precedence over legacy `Content`.
+- If `Parts` is empty and `Content` is set, `Content` is treated as one `text` part.
+- `Result.Text` remains the compatibility field; `Result.Parts` is also populated (currently text parts in V1).
+
+Provider support details and examples: [`docs/multimodal_chat.md`](docs/multimodal_chat.md).
 
 ### Tool calling
 
