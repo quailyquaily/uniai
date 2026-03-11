@@ -52,7 +52,7 @@ func TestBuildRequestMapsToolsAndThoughtSignature(t *testing.T) {
 		}(),
 	}
 
-	out, err := buildRequest(req)
+	out, err := buildRequest(req, req.Model)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestBuildRequestMapsUserImageBase64Part(t *testing.T) {
 		},
 	}
 
-	out, err := buildRequest(req)
+	out, err := buildRequest(req, req.Model)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -141,11 +141,111 @@ func TestBuildRequestRejectsUserImageURLPart(t *testing.T) {
 			),
 		},
 	}
-	_, err := buildRequest(req)
+	_, err := buildRequest(req, req.Model)
 	if err == nil {
 		t.Fatalf("expected unsupported image_url error")
 	}
 	if !strings.Contains(err.Error(), "unsupported part type") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildRequestMapsReasoningEffortForGemini3(t *testing.T) {
+	req := &chat.Request{
+		Model: "gemini-3.0-pro",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortHigh
+				return &v
+			}(),
+			ReasoningDetails: true,
+		},
+	}
+
+	out, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if out.GenerationConfig == nil || out.GenerationConfig.ThinkingConfig == nil {
+		t.Fatalf("expected thinking config")
+	}
+	if got := out.GenerationConfig.ThinkingConfig.ThinkingLevel; got != "high" {
+		t.Fatalf("unexpected thinking level: %q", got)
+	}
+	if out.GenerationConfig.ThinkingConfig.IncludeThoughts == nil || !*out.GenerationConfig.ThinkingConfig.IncludeThoughts {
+		t.Fatalf("expected includeThoughts=true")
+	}
+}
+
+func TestBuildRequestMapsReasoningBudgetForGemini25(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "gemini-2.5-pro",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	out, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if out.GenerationConfig == nil || out.GenerationConfig.ThinkingConfig == nil || out.GenerationConfig.ThinkingConfig.ThinkingBudget == nil {
+		t.Fatalf("expected thinking budget")
+	}
+	if got := *out.GenerationConfig.ThinkingConfig.ThinkingBudget; got != budget {
+		t.Fatalf("unexpected thinking budget: %d", got)
+	}
+}
+
+func TestBuildRequestRejectsReasoningBudgetForGemini3(t *testing.T) {
+	budget := 1024
+	req := &chat.Request{
+		Model: "gemini-3.0-pro",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "reasoning effort") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildRequestRejectsEffortAndBudgetTogether(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "gemini-2.5-pro",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortLow
+				return &v
+			}(),
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "together") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -172,7 +272,7 @@ func TestToChatResultParsesFunctionCallAndSignature(t *testing.T) {
 		},
 	}
 
-	out, err := toChatResult(in, "")
+	out, err := toChatResult(in, "", false)
 	if err != nil {
 		t.Fatalf("toChatResult: %v", err)
 	}
@@ -197,6 +297,33 @@ func TestToChatResultParsesFunctionCallAndSignature(t *testing.T) {
 	}
 	if args["path"] != "/tmp/a.txt" {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestToChatResultSeparatesThoughtSummary(t *testing.T) {
+	in := &geminiResponse{
+		Model: "gemini-2.5-pro",
+		Candidates: []geminiCandidate{
+			{
+				Content: geminiContent{
+					Parts: []geminiPart{
+						{Text: "internal summary", Thought: true},
+						{Text: "visible answer"},
+					},
+				},
+			},
+		},
+	}
+
+	out, err := toChatResult(in, "", true)
+	if err != nil {
+		t.Fatalf("toChatResult: %v", err)
+	}
+	if out.Text != "visible answer" {
+		t.Fatalf("unexpected visible text: %q", out.Text)
+	}
+	if out.Reasoning == nil || len(out.Reasoning.Summary) != 1 || out.Reasoning.Summary[0] != "internal summary" {
+		t.Fatalf("unexpected reasoning summary: %#v", out.Reasoning)
 	}
 }
 
@@ -279,7 +406,7 @@ func TestBuildRequestRecoversThoughtSignatureFromToolCallID(t *testing.T) {
 		},
 	}
 
-	out, err := buildRequest(req)
+	out, err := buildRequest(req, req.Model)
 	if err != nil {
 		t.Fatalf("build request: %v", err)
 	}
@@ -311,7 +438,7 @@ func TestBuildRequestFailsWithoutThoughtSignature(t *testing.T) {
 		},
 	}
 
-	_, err := buildRequest(req)
+	_, err := buildRequest(req, req.Model)
 	if err == nil {
 		t.Fatalf("expected missing thought signature error")
 	}

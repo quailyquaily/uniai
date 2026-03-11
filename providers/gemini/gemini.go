@@ -52,6 +52,7 @@ type geminiContent struct {
 
 type geminiPart struct {
 	Text             string                  `json:"text,omitempty"`
+	Thought          bool                    `json:"thought,omitempty"`
 	InlineData       *geminiInlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
@@ -93,14 +94,21 @@ type geminiFunctionCallingConfig struct {
 }
 
 type geminiGenerationConfig struct {
-	Temperature      *float64 `json:"temperature,omitempty"`
-	TopP             *float64 `json:"topP,omitempty"`
-	TopK             *int     `json:"topK,omitempty"`
-	MaxOutputTokens  *int     `json:"maxOutputTokens,omitempty"`
-	StopSequences    []string `json:"stopSequences,omitempty"`
-	CandidateCount   *int     `json:"candidateCount,omitempty"`
-	ResponseMIMEType string   `json:"responseMimeType,omitempty"`
-	ResponseSchema   any      `json:"responseSchema,omitempty"`
+	Temperature      *float64              `json:"temperature,omitempty"`
+	TopP             *float64              `json:"topP,omitempty"`
+	TopK             *int                  `json:"topK,omitempty"`
+	MaxOutputTokens  *int                  `json:"maxOutputTokens,omitempty"`
+	StopSequences    []string              `json:"stopSequences,omitempty"`
+	CandidateCount   *int                  `json:"candidateCount,omitempty"`
+	ResponseMIMEType string                `json:"responseMimeType,omitempty"`
+	ResponseSchema   any                   `json:"responseSchema,omitempty"`
+	ThinkingConfig   *geminiThinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+type geminiThinkingConfig struct {
+	IncludeThoughts *bool  `json:"includeThoughts,omitempty"`
+	ThinkingBudget  *int   `json:"thinkingBudget,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 
 type geminiResponse struct {
@@ -115,9 +123,10 @@ type geminiCandidate struct {
 }
 
 type geminiUsage struct {
-	InputTokens  int `json:"promptTokenCount,omitempty"`
-	OutputTokens int `json:"candidatesTokenCount,omitempty"`
-	TotalTokens  int `json:"totalTokenCount,omitempty"`
+	InputTokens    int `json:"promptTokenCount,omitempty"`
+	OutputTokens   int `json:"candidatesTokenCount,omitempty"`
+	TotalTokens    int `json:"totalTokenCount,omitempty"`
+	ThoughtsTokens int `json:"thoughtsTokenCount,omitempty"`
 }
 
 type geminiErrorEnvelope struct {
@@ -140,7 +149,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("model is required")
 	}
 
-	payload, err := buildRequest(req)
+	payload, err := buildRequest(req, model)
 	if err != nil {
 		return nil, fmt.Errorf("gemini provider model %q: %w", model, err)
 	}
@@ -186,7 +195,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 
-	result, err := toChatResult(&out, model)
+	result, err := toChatResult(&out, model, req.Options.ReasoningDetails)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +203,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	return result, nil
 }
 
-func buildRequest(req *chat.Request) (*geminiRequest, error) {
+func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 	out := &geminiRequest{}
 
 	systemParts := make([]geminiPart, 0, 1)
@@ -345,7 +354,11 @@ func buildRequest(req *chat.Request) (*geminiRequest, error) {
 		}
 	}
 
-	if gen := toGenerationConfig(req.Options); gen != nil {
+	gen, err := toGenerationConfig(model, req.Options)
+	if err != nil {
+		return nil, err
+	}
+	if gen != nil {
 		out.GenerationConfig = gen
 	}
 
@@ -552,7 +565,7 @@ func toFunctionCallingConfig(choice *chat.ToolChoice) (*geminiFunctionCallingCon
 	}
 }
 
-func toGenerationConfig(opts chat.Options) *geminiGenerationConfig {
+func toGenerationConfig(model string, opts chat.Options) (*geminiGenerationConfig, error) {
 	cfg := &geminiGenerationConfig{}
 	has := false
 
@@ -576,13 +589,136 @@ func toGenerationConfig(opts chat.Options) *geminiGenerationConfig {
 	applyGeminiOptions(cfg, opts.OpenAI)
 	applyGeminiOptions(cfg, opts.Azure)
 	applyGeminiOptions(cfg, opts.Cloudflare)
+	if err := applyGeminiReasoningOptions(model, cfg, opts); err != nil {
+		return nil, err
+	}
 
 	if !has {
-		if cfg.TopK == nil && cfg.CandidateCount == nil && cfg.ResponseMIMEType == "" && cfg.ResponseSchema == nil {
-			return nil
+		if cfg.TopK == nil && cfg.CandidateCount == nil && cfg.ResponseMIMEType == "" && cfg.ResponseSchema == nil && cfg.ThinkingConfig == nil {
+			return nil, nil
 		}
 	}
-	return cfg
+	return cfg, nil
+}
+
+func applyGeminiReasoningOptions(model string, cfg *geminiGenerationConfig, opts chat.Options) error {
+	if cfg == nil {
+		return nil
+	}
+	if opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails {
+		return nil
+	}
+	if opts.ReasoningEffort != nil && opts.ReasoningBudget != nil {
+		return fmt.Errorf("gemini provider does not support reasoning effort and reasoning budget tokens together")
+	}
+
+	model = strings.ToLower(normalizeGeminiModel(model))
+	thinking := cfg.ThinkingConfig
+	if thinking == nil {
+		thinking = &geminiThinkingConfig{}
+	}
+	if opts.ReasoningDetails {
+		thinking.IncludeThoughts = boolPtr(true)
+	}
+
+	switch {
+	case strings.HasPrefix(model, "gemini-3"):
+		if opts.ReasoningBudget != nil {
+			return fmt.Errorf("gemini model %q uses reasoning effort, not reasoning budget tokens", model)
+		}
+		if opts.ReasoningEffort != nil {
+			level, err := geminiThinkingLevelForEffort(*opts.ReasoningEffort)
+			if err != nil {
+				return err
+			}
+			thinking.ThinkingLevel = level
+		}
+	case strings.HasPrefix(model, "gemini-2.5"):
+		if opts.ReasoningBudget != nil {
+			if err := validateGemini25ReasoningBudget(model, *opts.ReasoningBudget); err != nil {
+				return err
+			}
+			thinking.ThinkingBudget = opts.ReasoningBudget
+		}
+		if opts.ReasoningEffort != nil {
+			budget, err := gemini25BudgetForEffort(*opts.ReasoningEffort)
+			if err != nil {
+				return err
+			}
+			if err := validateGemini25ReasoningBudget(model, budget); err != nil {
+				return err
+			}
+			thinking.ThinkingBudget = intPtr(budget)
+		}
+	default:
+		return fmt.Errorf("gemini provider model %q does not support unified reasoning controls", model)
+	}
+
+	if thinking.IncludeThoughts != nil || thinking.ThinkingBudget != nil || strings.TrimSpace(thinking.ThinkingLevel) != "" {
+		cfg.ThinkingConfig = thinking
+	}
+	return nil
+}
+
+func geminiThinkingLevelForEffort(effort chat.ReasoningEffort) (string, error) {
+	switch effort {
+	case chat.ReasoningEffortMinimal:
+		return "minimal", nil
+	case chat.ReasoningEffortLow:
+		return "low", nil
+	case chat.ReasoningEffortMedium:
+		return "medium", nil
+	case chat.ReasoningEffortHigh:
+		return "high", nil
+	default:
+		return "", fmt.Errorf("gemini provider does not support reasoning effort %q", effort)
+	}
+}
+
+func gemini25BudgetForEffort(effort chat.ReasoningEffort) (int, error) {
+	switch effort {
+	case chat.ReasoningEffortNone:
+		return 0, nil
+	case chat.ReasoningEffortMinimal:
+		return 1024, nil
+	case chat.ReasoningEffortLow:
+		return 4096, nil
+	case chat.ReasoningEffortMedium:
+		return 16384, nil
+	case chat.ReasoningEffortHigh:
+		return 24576, nil
+	default:
+		return 0, fmt.Errorf("gemini 2.5 provider does not support reasoning effort %q", effort)
+	}
+}
+
+func validateGemini25ReasoningBudget(model string, budget int) error {
+	switch {
+	case strings.Contains(model, "flash-lite"):
+		if budget == -1 || budget == 0 {
+			return nil
+		}
+		if budget < 512 || budget > 24576 {
+			return fmt.Errorf("gemini model %q reasoning budget must be -1, 0, or 512..24576", model)
+		}
+		return nil
+	case strings.Contains(model, "flash"):
+		if budget == -1 {
+			return nil
+		}
+		if budget < 0 || budget > 24576 {
+			return fmt.Errorf("gemini model %q reasoning budget must be -1 or 0..24576", model)
+		}
+		return nil
+	default:
+		if budget == -1 {
+			return nil
+		}
+		if budget < 128 || budget > 32768 {
+			return fmt.Errorf("gemini model %q reasoning budget must be -1 or 128..32768", model)
+		}
+		return nil
+	}
 }
 
 func applyGeminiOptions(cfg *geminiGenerationConfig, opts structs.JSONMap) {
@@ -628,7 +764,7 @@ func applyGeminiOptions(cfg *geminiGenerationConfig, opts structs.JSONMap) {
 	}
 }
 
-func toChatResult(in *geminiResponse, fallbackModel string) (*chat.Result, error) {
+func toChatResult(in *geminiResponse, fallbackModel string, reasoningDetails bool) (*chat.Result, error) {
 	if in == nil {
 		return &chat.Result{Model: fallbackModel}, nil
 	}
@@ -654,8 +790,14 @@ func toChatResult(in *geminiResponse, fallbackModel string) (*chat.Result, error
 	calls := make([]chat.ToolCall, 0)
 	for i, part := range parts {
 		if strings.TrimSpace(part.Text) != "" {
-			text = append(text, part.Text)
-			outParts = append(outParts, chat.TextPart(part.Text))
+			if part.Thought {
+				if reasoningDetails {
+					result.Reasoning = appendGeminiReasoningDetail(result.Reasoning, part.Text)
+				}
+			} else {
+				text = append(text, part.Text)
+				outParts = append(outParts, chat.TextPart(part.Text))
+			}
 		}
 		if part.FunctionCall != nil {
 			args, err := json.Marshal(part.FunctionCall.Args)
@@ -682,6 +824,22 @@ func toChatResult(in *geminiResponse, fallbackModel string) (*chat.Result, error
 	result.ToolCalls = calls
 	return result, nil
 }
+
+func appendGeminiReasoningDetail(reasoning *chat.ReasoningResult, text string) *chat.ReasoningResult {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return reasoning
+	}
+	if reasoning == nil {
+		reasoning = &chat.ReasoningResult{}
+	}
+	reasoning.Summary = append(reasoning.Summary, text)
+	return reasoning
+}
+
+func boolPtr(v bool) *bool { return &v }
+
+func intPtr(v int) *int { return &v }
 
 func encodeToolCallID(callID, thoughtSignature string) string {
 	callID = strings.TrimSpace(callID)

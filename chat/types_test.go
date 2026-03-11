@@ -74,3 +74,24 @@ func TestOptions(t *testing.T) {
 		t.Fatalf("user not set")
 	}
 }
+
+func TestReasoningOptions(t *testing.T) {
+	req, err := BuildRequest(
+		WithMessages(User("hi")),
+		WithReasoningEffort(ReasoningEffortHigh),
+		WithReasoningBudgetTokens(4096),
+		WithReasoningDetails(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.Options.ReasoningEffort == nil || *req.Options.ReasoningEffort != ReasoningEffortHigh {
+		t.Fatalf("reasoning effort not set")
+	}
+	if req.Options.ReasoningBudget == nil || *req.Options.ReasoningBudget != 4096 {
+		t.Fatalf("reasoning budget not set")
+	}
+	if !req.Options.ReasoningDetails {
+		t.Fatalf("reasoning details not enabled")
+	}
+}

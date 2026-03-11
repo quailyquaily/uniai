@@ -7,6 +7,7 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/oaicompat"
@@ -79,6 +80,12 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if model == "" {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("model is required")
 	}
+	if req.Options.ReasoningBudget != nil {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider does not support reasoning budget tokens; use reasoning effort")
+	}
+	if req.Options.ReasoningDetails {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
+	}
 
 	messages, err := oaicompat.ToMessages(req.Messages, model)
 	if err != nil {
@@ -117,6 +124,9 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	}
 	if req.Options.User != nil {
 		params.User = openai.String(*req.Options.User)
+	}
+	if req.Options.ReasoningEffort != nil {
+		params.ReasoningEffort = shared.ReasoningEffort(*req.Options.ReasoningEffort)
 	}
 
 	if len(req.Tools) > 0 {

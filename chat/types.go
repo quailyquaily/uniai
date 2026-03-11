@@ -65,6 +65,18 @@ type ToolChoice struct {
 	FunctionName string `json:"function_name,omitempty"`
 }
 
+type ReasoningEffort string
+
+const (
+	ReasoningEffortNone    ReasoningEffort = "none"
+	ReasoningEffortMinimal ReasoningEffort = "minimal"
+	ReasoningEffortLow     ReasoningEffort = "low"
+	ReasoningEffortMedium  ReasoningEffort = "medium"
+	ReasoningEffortHigh    ReasoningEffort = "high"
+	ReasoningEffortMax     ReasoningEffort = "max"
+	ReasoningEffortXHigh   ReasoningEffort = "xhigh"
+)
+
 type DebugFn func(label string, payload string)
 
 type ToolsEmulationMode string
@@ -90,6 +102,9 @@ type Options struct {
 	PresencePenalty    *float64           `json:"presence_penalty,omitempty"`
 	FrequencyPenalty   *float64           `json:"frequency_penalty,omitempty"`
 	User               *string            `json:"user,omitempty"`
+	ReasoningEffort    *ReasoningEffort   `json:"reasoning_effort,omitempty"`
+	ReasoningBudget    *int               `json:"reasoning_budget_tokens,omitempty"`
+	ReasoningDetails   bool               `json:"reasoning_details,omitempty"`
 	OpenAI             structs.JSONMap    `json:"openai_options,omitempty"`
 	Azure              structs.JSONMap    `json:"azure_options,omitempty"`
 	Anthropic          structs.JSONMap    `json:"anthropic_options,omitempty"`
@@ -116,14 +131,27 @@ type Usage struct {
 }
 
 type Result struct {
-	Text      string     `json:"text,omitempty"`
-	Parts     []Part     `json:"parts,omitempty"`
-	Model     string     `json:"model,omitempty"`
-	Messages  []Message  `json:"messages,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
-	Usage     Usage      `json:"usage,omitempty"`
-	Raw       any        `json:"raw,omitempty"`
-	Warnings  []string   `json:"warnings,omitempty"`
+	Text      string           `json:"text,omitempty"`
+	Parts     []Part           `json:"parts,omitempty"`
+	Model     string           `json:"model,omitempty"`
+	Messages  []Message        `json:"messages,omitempty"`
+	ToolCalls []ToolCall       `json:"tool_calls,omitempty"`
+	Reasoning *ReasoningResult `json:"reasoning,omitempty"`
+	Usage     Usage            `json:"usage,omitempty"`
+	Raw       any              `json:"raw,omitempty"`
+	Warnings  []string         `json:"warnings,omitempty"`
+}
+
+type ReasoningResult struct {
+	Summary []string         `json:"summary,omitempty"`
+	Blocks  []ReasoningBlock `json:"blocks,omitempty"`
+}
+
+type ReasoningBlock struct {
+	Type      string `json:"type,omitempty"`
+	Text      string `json:"text,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // OnStreamFunc is called for each streaming event.
@@ -225,6 +253,18 @@ func WithFrequencyPenalty(v float64) Option {
 
 func WithUser(user string) Option {
 	return func(r *Request) { r.Options.User = &user }
+}
+
+func WithReasoningEffort(v ReasoningEffort) Option {
+	return func(r *Request) { r.Options.ReasoningEffort = &v }
+}
+
+func WithReasoningBudgetTokens(v int) Option {
+	return func(r *Request) { r.Options.ReasoningBudget = &v }
+}
+
+func WithReasoningDetails() Option {
+	return func(r *Request) { r.Options.ReasoningDetails = true }
 }
 
 func WithToolsEmulationMode(mode ToolsEmulationMode) Option {

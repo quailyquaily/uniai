@@ -23,6 +23,9 @@ type (
 	ToolChoice         = chat.ToolChoice
 	ToolCall           = chat.ToolCall
 	ToolCallFunction   = chat.ToolCallFunction
+	ReasoningEffort    = chat.ReasoningEffort
+	ReasoningResult    = chat.ReasoningResult
+	ReasoningBlock     = chat.ReasoningBlock
 	DebugFn            = chat.DebugFn
 	ToolsEmulationMode = chat.ToolsEmulationMode
 	OnStreamFunc       = chat.OnStreamFunc
@@ -44,6 +47,16 @@ const (
 )
 
 const (
+	ReasoningEffortNone    = chat.ReasoningEffortNone
+	ReasoningEffortMinimal = chat.ReasoningEffortMinimal
+	ReasoningEffortLow     = chat.ReasoningEffortLow
+	ReasoningEffortMedium  = chat.ReasoningEffortMedium
+	ReasoningEffortHigh    = chat.ReasoningEffortHigh
+	ReasoningEffortMax     = chat.ReasoningEffortMax
+	ReasoningEffortXHigh   = chat.ReasoningEffortXHigh
+)
+
+const (
 	ToolsEmulationOff      = chat.ToolsEmulationOff
 	ToolsEmulationFallback = chat.ToolsEmulationFallback
 	ToolsEmulationForce    = chat.ToolsEmulationForce
@@ -62,6 +75,11 @@ func WithStopWords(stops ...string) ChatOption       { return chat.WithStopWords
 func WithPresencePenalty(v float64) ChatOption       { return chat.WithPresencePenalty(v) }
 func WithFrequencyPenalty(v float64) ChatOption      { return chat.WithFrequencyPenalty(v) }
 func WithUser(user string) ChatOption                { return chat.WithUser(user) }
+func WithReasoningEffort(v ReasoningEffort) ChatOption {
+	return chat.WithReasoningEffort(v)
+}
+func WithReasoningBudgetTokens(v int) ChatOption { return chat.WithReasoningBudgetTokens(v) }
+func WithReasoningDetails() ChatOption           { return chat.WithReasoningDetails() }
 func WithToolsEmulationMode(mode ToolsEmulationMode) ChatOption {
 	return chat.WithToolsEmulationMode(mode)
 }

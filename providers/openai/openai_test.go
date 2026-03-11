@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	openai "github.com/openai/openai-go/v3"
@@ -90,6 +91,70 @@ func TestMaxCompletionTokensHeuristic(t *testing.T) {
 	}
 	if !params.MaxCompletionTokens.Valid() || params.MaxCompletionTokens.Value != int64(maxTokens) {
 		t.Fatalf("expected max_completion_tokens for o1 models")
+	}
+}
+
+func TestBuildParamsMapsReasoningEffort(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortHigh
+				return &v
+			}(),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.ReasoningEffort != "high" {
+		t.Fatalf("unexpected reasoning effort: %q", params.ReasoningEffort)
+	}
+}
+
+func TestBuildParamsRejectsReasoningBudget(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "gpt-5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := err.Error(); got == "" || !strings.Contains(got, "reasoning budget") || !strings.Contains(got, "reasoning effort") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildParamsRejectsReasoningDetails(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningDetails: true,
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := err.Error(); got == "" || !strings.Contains(got, "Responses API") || !strings.Contains(got, "not supported") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

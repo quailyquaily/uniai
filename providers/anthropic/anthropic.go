@@ -38,6 +38,9 @@ type anthropicMessage struct {
 type anthropicContentPart struct {
 	Type      string                `json:"type"`
 	Text      string                `json:"text,omitempty"`
+	Thinking  string                `json:"thinking,omitempty"`
+	Signature string                `json:"signature,omitempty"`
+	Data      string                `json:"data,omitempty"`
 	Source    *anthropicImageSource `json:"source,omitempty"`
 	ID        string                `json:"id,omitempty"`
 	Name      string                `json:"name,omitempty"`
@@ -55,18 +58,20 @@ type anthropicImageSource struct {
 }
 
 type anthropicRequest struct {
-	Model         string               `json:"model"`
-	System        string               `json:"system,omitempty"`
-	Messages      []anthropicMessage   `json:"messages"`
-	MaxTokens     int                  `json:"max_tokens"`
-	Temperature   *float64             `json:"temperature,omitempty"`
-	TopP          *float64             `json:"top_p,omitempty"`
-	TopK          *int                 `json:"top_k,omitempty"`
-	StopSequences []string             `json:"stop_sequences,omitempty"`
-	Metadata      *anthropicMetadata   `json:"metadata,omitempty"`
-	Tools         []anthropicTool      `json:"tools,omitempty"`
-	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
-	Stream        bool                 `json:"stream,omitempty"`
+	Model         string                 `json:"model"`
+	System        string                 `json:"system,omitempty"`
+	Messages      []anthropicMessage     `json:"messages"`
+	MaxTokens     int                    `json:"max_tokens"`
+	Temperature   *float64               `json:"temperature,omitempty"`
+	TopP          *float64               `json:"top_p,omitempty"`
+	TopK          *int                   `json:"top_k,omitempty"`
+	StopSequences []string               `json:"stop_sequences,omitempty"`
+	Metadata      *anthropicMetadata     `json:"metadata,omitempty"`
+	Tools         []anthropicTool        `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice   `json:"tool_choice,omitempty"`
+	Thinking      *anthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig  *anthropicOutputConfig `json:"output_config,omitempty"`
+	Stream        bool                   `json:"stream,omitempty"`
 }
 
 type anthropicResponse struct {
@@ -95,6 +100,15 @@ type anthropicToolChoice struct {
 	DisableParallelToolUse *bool  `json:"disable_parallel_tool_use,omitempty"`
 }
 
+type anthropicThinking struct {
+	Type         string `json:"type"`
+	BudgetTokens *int   `json:"budget_tokens,omitempty"`
+}
+
+type anthropicOutputConfig struct {
+	Effort string `json:"effort,omitempty"`
+}
+
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
 	if p.cfg.APIKey == "" {
@@ -114,6 +128,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	if req.Options.OnStream != nil {
+		if req.Options.ReasoningDetails {
+			return nil, fmt.Errorf("anthropic provider does not support reasoning details with streaming yet")
+		}
 		body.Stream = true
 	}
 
@@ -169,40 +186,11 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 
-	textParts := make([]string, 0, len(out.Content))
-	toolCalls := make([]chat.ToolCall, 0)
-	for _, part := range out.Content {
-		switch part.Type {
-		case "text":
-			if strings.TrimSpace(part.Text) != "" {
-				textParts = append(textParts, part.Text)
-			}
-		case "tool_use":
-			call, err := fromAnthropicToolUse(part)
-			if err != nil {
-				return nil, err
-			}
-			toolCalls = append(toolCalls, call)
-		}
+	result, err := toResult(&out, req.Options.ReasoningDetails)
+	if err != nil {
+		return nil, err
 	}
-	text := strings.Join(textParts, "\n")
-
-	result := &chat.Result{
-		Text:      text,
-		Model:     out.Model,
-		Parts:     []chat.Part{},
-		ToolCalls: toolCalls,
-		Usage: chat.Usage{
-			InputTokens:  out.Usage.InputTokens,
-			OutputTokens: out.Usage.OutputTokens,
-			TotalTokens:  out.Usage.InputTokens + out.Usage.OutputTokens,
-		},
-		Raw: out,
-	}
-	if text != "" {
-		result.Parts = append(result.Parts, chat.TextPart(text))
-	}
-
+	result.Raw = out
 	return result, nil
 }
 
@@ -338,8 +326,58 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 			body.ToolChoice = choice
 		}
 	}
+	if err := applyAnthropicReasoningOptions(body, model, req.Options); err != nil {
+		return nil, err
+	}
 	applyAnthropicOptions(body, req.Options.Anthropic)
 	return body, nil
+}
+
+func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts chat.Options) error {
+	if body == nil {
+		return nil
+	}
+	if opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails {
+		return nil
+	}
+
+	model = strings.ToLower(strings.TrimSpace(model))
+	supportsEffort := anthropicSupportsEffort(model)
+	prefersEffort := anthropicPrefersEffort(model)
+
+	if opts.ReasoningBudget != nil {
+		budget := *opts.ReasoningBudget
+		if budget < 1024 {
+			return fmt.Errorf("anthropic reasoning budget must be at least 1024")
+		}
+		if prefersEffort {
+			return fmt.Errorf("anthropic model %q prefers reasoning effort; reasoning budget tokens are not supported in this path", model)
+		}
+		body.Thinking = &anthropicThinking{
+			Type:         "enabled",
+			BudgetTokens: opts.ReasoningBudget,
+		}
+	}
+
+	if opts.ReasoningEffort != nil {
+		if !supportsEffort {
+			return fmt.Errorf("anthropic model %q does not support reasoning effort", model)
+		}
+		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
+	}
+
+	if opts.ReasoningDetails {
+		switch {
+		case prefersEffort:
+			body.Thinking = &anthropicThinking{Type: "adaptive"}
+		case body.Thinking != nil:
+			// explicit budget already set
+		default:
+			return fmt.Errorf("anthropic model %q requires WithReasoningBudgetTokens(...) to return reasoning details", model)
+		}
+	}
+
+	return nil
 }
 
 func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {
@@ -453,6 +491,87 @@ func fromAnthropicToolUse(part anthropicContentPart) (chat.ToolCall, error) {
 			Arguments: args,
 		},
 	}, nil
+}
+
+func toResult(out *anthropicResponse, reasoningDetails bool) (*chat.Result, error) {
+	if out == nil {
+		return &chat.Result{}, nil
+	}
+	textParts := make([]string, 0, len(out.Content))
+	toolCalls := make([]chat.ToolCall, 0)
+	var reasoning *chat.ReasoningResult
+	for _, part := range out.Content {
+		switch part.Type {
+		case "text":
+			if strings.TrimSpace(part.Text) != "" {
+				textParts = append(textParts, part.Text)
+			}
+		case "tool_use":
+			call, err := fromAnthropicToolUse(part)
+			if err != nil {
+				return nil, err
+			}
+			toolCalls = append(toolCalls, call)
+		case "thinking":
+			if reasoningDetails {
+				reasoning = appendAnthropicReasoning(reasoning, "thinking", part.Thinking, part.Signature, "")
+			}
+		case "redacted_thinking":
+			if reasoningDetails {
+				reasoning = appendAnthropicReasoning(reasoning, "redacted_thinking", "", part.Signature, part.Data)
+			}
+		}
+	}
+	text := strings.Join(textParts, "\n")
+
+	result := &chat.Result{
+		Text:      text,
+		Model:     out.Model,
+		Parts:     []chat.Part{},
+		ToolCalls: toolCalls,
+		Reasoning: reasoning,
+		Usage: chat.Usage{
+			InputTokens:  out.Usage.InputTokens,
+			OutputTokens: out.Usage.OutputTokens,
+			TotalTokens:  out.Usage.InputTokens + out.Usage.OutputTokens,
+		},
+	}
+	if text != "" {
+		result.Parts = append(result.Parts, chat.TextPart(text))
+	}
+	return result, nil
+}
+
+func appendAnthropicReasoning(reasoning *chat.ReasoningResult, typ, text, signature, data string) *chat.ReasoningResult {
+	text = strings.TrimSpace(text)
+	signature = strings.TrimSpace(signature)
+	data = strings.TrimSpace(data)
+	if text == "" && signature == "" && data == "" {
+		return reasoning
+	}
+	if reasoning == nil {
+		reasoning = &chat.ReasoningResult{}
+	}
+	if text != "" {
+		reasoning.Summary = append(reasoning.Summary, text)
+	}
+	reasoning.Blocks = append(reasoning.Blocks, chat.ReasoningBlock{
+		Type:      typ,
+		Text:      text,
+		Signature: signature,
+		Data:      data,
+	})
+	return reasoning
+}
+
+func anthropicSupportsEffort(model string) bool {
+	return strings.Contains(model, "opus-4-5") ||
+		strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "sonnet-4-6")
+}
+
+func anthropicPrefersEffort(model string) bool {
+	return strings.Contains(model, "opus-4-6") || strings.Contains(model, "sonnet-4-6")
 }
 
 // SSE event data types for streaming.

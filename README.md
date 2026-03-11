@@ -76,6 +76,59 @@ Supported provider names:
 
 For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenAIAPIBase`.
 
+### Reasoning
+
+Reasoning-related chat interfaces:
+
+- `uniai.WithReasoningEffort(...)`
+- `uniai.WithReasoningBudgetTokens(...)`
+- `uniai.WithReasoningDetails()`
+- `resp.Reasoning`
+
+Available effort constants:
+
+- `uniai.ReasoningEffortNone`
+- `uniai.ReasoningEffortMinimal`
+- `uniai.ReasoningEffortLow`
+- `uniai.ReasoningEffortMedium`
+- `uniai.ReasoningEffortHigh`
+- `uniai.ReasoningEffortMax`
+- `uniai.ReasoningEffortXHigh`
+
+Behavior notes:
+
+- If you do not call any reasoning interface, `uniai` does not send reasoning-related request fields.
+- `WithReasoningEffort(...)` controls reasoning level when the selected provider/model supports effort-style controls.
+- `WithReasoningBudgetTokens(...)` controls reasoning token budget when the selected provider/model supports budget-style controls.
+- `WithReasoningDetails()` opts in to retrieving provider reasoning details into `resp.Reasoning`.
+
+Provider guidance:
+
+- OpenAI: use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported yet on the current Chat Completions path.
+- Gemini 3.x: use `WithReasoningEffort(...)`.
+- Gemini 2.5: use `WithReasoningBudgetTokens(...)`.
+- Anthropic Claude 4.6: use `WithReasoningEffort(...)`.
+- Anthropic manual-thinking models: use `WithReasoningBudgetTokens(...)`.
+
+Example:
+
+```go
+resp, err := client.Chat(ctx,
+	uniai.WithProvider("gemini"),
+	uniai.WithModel("gemini-2.5-pro"),
+	uniai.WithMessages(uniai.User("Solve this step by step.")),
+	uniai.WithReasoningBudgetTokens(4096),
+	uniai.WithReasoningDetails(),
+)
+if err != nil {
+	log.Fatal(err)
+}
+log.Println(resp.Text)
+if resp.Reasoning != nil {
+	log.Printf("reasoning summary: %+v", resp.Reasoning.Summary)
+}
+```
+
 ### Multimodal chat input (V1)
 
 `uniai` supports structured chat content with `Message.Parts`.

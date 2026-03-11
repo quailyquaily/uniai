@@ -111,3 +111,108 @@ func TestBuildRequestRejectsNonTextPartForSystemRole(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestBuildRequestMapsReasoningBudget(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "claude-opus-4-5-20250929",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body.Thinking == nil || body.Thinking.Type != "enabled" || body.Thinking.BudgetTokens == nil || *body.Thinking.BudgetTokens != budget {
+		t.Fatalf("unexpected thinking config: %#v", body.Thinking)
+	}
+}
+
+func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
+	req := &chat.Request{
+		Model: "claude-sonnet-4-6-20260201",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningDetails: true,
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body.Thinking == nil || body.Thinking.Type != "adaptive" {
+		t.Fatalf("expected adaptive thinking, got %#v", body.Thinking)
+	}
+}
+
+func TestBuildRequestRejectsReasoningDetailsWithoutBudgetOnManualModel(t *testing.T) {
+	req := &chat.Request{
+		Model: "claude-opus-4-5-20250929",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningDetails: true,
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "WithReasoningBudgetTokens") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildRequestRejectsReasoningBudgetOnEffortModel(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "claude-sonnet-4-6-20260201",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "reasoning effort") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestToResultParsesReasoningDetails(t *testing.T) {
+	out, err := toResult(&anthropicResponse{
+		Model: "claude-opus-4-5-20250929",
+		Content: []anthropicContentPart{
+			{Type: "thinking", Thinking: "I should inspect the file", Signature: "sig1"},
+			{Type: "redacted_thinking", Data: "opaque"},
+			{Type: "text", Text: "done"},
+		},
+	}, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Text != "done" {
+		t.Fatalf("unexpected text: %q", out.Text)
+	}
+	if out.Reasoning == nil || len(out.Reasoning.Summary) != 1 || out.Reasoning.Summary[0] != "I should inspect the file" {
+		t.Fatalf("unexpected reasoning summary: %#v", out.Reasoning)
+	}
+	if len(out.Reasoning.Blocks) != 2 {
+		t.Fatalf("unexpected reasoning blocks: %#v", out.Reasoning)
+	}
+}
