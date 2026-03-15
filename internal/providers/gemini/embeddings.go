@@ -110,7 +110,7 @@ func CreateEmbeddings(ctx context.Context, token, base, model string, inputs []s
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-goog-api-key", token)
 
-	resp, err := httputil.DefaultClient.Do(httpReq)
+	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {
 		return nil, err
 	}

@@ -148,7 +148,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := httputil.DefaultClient.Do(httpReq)
+	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {
 		diag.LogError(p.cfg.Debug, debugFn, "anthropic.chat.response", err)
 		return nil, err

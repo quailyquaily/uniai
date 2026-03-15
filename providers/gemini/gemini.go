@@ -173,7 +173,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
-	resp, err := httputil.DefaultClient.Do(httpReq)
+	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {
 		diag.LogError(p.cfg.Debug, debugFn, "gemini.chat.response", err)
 		return nil, err

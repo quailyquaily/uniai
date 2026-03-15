@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,21 @@ const (
 // DefaultClient is a shared http.Client with a reasonable timeout.
 var DefaultClient = &http.Client{
 	Timeout: DefaultTimeout,
+}
+
+// ClientForContext returns a client that won't impose a shorter timeout than
+// the caller's context deadline. When the caller already set a deadline, rely
+// on context cancellation instead of http.Client.Timeout.
+func ClientForContext(ctx context.Context) *http.Client {
+	if ctx == nil {
+		return DefaultClient
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return DefaultClient
+	}
+	client := *DefaultClient
+	client.Timeout = 0
+	return &client
 }
 
 // ReadBody reads a response body with a size limit to prevent memory exhaustion.

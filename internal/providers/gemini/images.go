@@ -291,7 +291,7 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", token)
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -408,7 +408,7 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", token)
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -469,7 +469,7 @@ func geminiDownloadImage(ctx context.Context, uri string) (string, string, error
 		return "", "", err
 	}
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
 		return "", "", err
 	}

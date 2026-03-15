@@ -50,7 +50,7 @@ func Run(ctx context.Context, token, base, accountID, model, contentType string,
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
 		return nil, err
 	}

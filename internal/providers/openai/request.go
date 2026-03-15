@@ -25,7 +25,7 @@ func doRequest(ctx context.Context, token, base, method, path string, data []byt
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := httputil.DefaultClient.Do(req)
+	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
 		return nil, err
 	}
