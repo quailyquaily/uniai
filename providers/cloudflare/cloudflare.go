@@ -376,11 +376,17 @@ func toCloudflareTools(tools []chat.Tool, responsesCompatible bool) ([]map[strin
 			continue
 		}
 		item := map[string]any{
-			"name":       name,
-			"parameters": params,
+			"type": "function",
+			"function": map[string]any{
+				"name":       name,
+				"parameters": params,
+			},
 		}
 		if desc := strings.TrimSpace(tool.Function.Description); desc != "" {
-			item["description"] = desc
+			item["function"].(map[string]any)["description"] = desc
+		}
+		if tool.Function.Strict != nil {
+			item["function"].(map[string]any)["strict"] = *tool.Function.Strict
 		}
 		out = append(out, item)
 	}

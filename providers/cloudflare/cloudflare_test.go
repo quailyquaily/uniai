@@ -69,9 +69,10 @@ func TestBuildPayloadMapsResponsesToolsForGptOss(t *testing.T) {
 	}
 }
 
-func TestBuildPayloadMapsTraditionalToolsAndToolMessages(t *testing.T) {
+func TestBuildPayloadMapsTypedToolsAndToolMessagesForKimi(t *testing.T) {
+	strict := true
 	req := &chat.Request{
-		Model: "@cf/meta/llama-4-scout",
+		Model: "@cf/moonshotai/kimi-k2.5",
 		Messages: []chat.Message{
 			chat.User("weather?"),
 			{
@@ -90,10 +91,18 @@ func TestBuildPayloadMapsTraditionalToolsAndToolMessages(t *testing.T) {
 			chat.ToolResult("call_1", `{"temperature_c":18}`),
 		},
 		Tools: []chat.Tool{
-			chat.FunctionTool("get_weather", "Get weather", []byte(`{"type":"object","properties":{"city":{"type":"string"}}}`)),
+			{
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:                 "get_weather",
+					Description:          "Get weather",
+					ParametersJSONSchema: []byte(`{"type":"object","properties":{"city":{"type":"string"}}}`),
+					Strict:               &strict,
+				},
+			},
 		},
 		ToolChoice: func() *chat.ToolChoice {
-			c := chat.ToolChoiceRequired()
+			c := chat.ToolChoiceFunction("get_weather")
 			return &c
 		}(),
 	}
@@ -106,19 +115,40 @@ func TestBuildPayloadMapsTraditionalToolsAndToolMessages(t *testing.T) {
 	if _, ok := payload["messages"]; !ok {
 		t.Fatalf("expected messages to be set for non gpt-oss")
 	}
-	if payload["tool_choice"] != "required" {
-		t.Fatalf("expected required tool_choice for non gpt-oss, got %#v", payload["tool_choice"])
+	choice, ok := payload["tool_choice"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected function tool_choice object for kimi, got %#v", payload["tool_choice"])
+	}
+	if choice["type"] != "function" {
+		t.Fatalf("unexpected tool_choice type: %#v", choice["type"])
+	}
+	choiceFn, ok := choice["function"].(map[string]any)
+	if !ok || choiceFn["name"] != "get_weather" {
+		t.Fatalf("unexpected tool_choice function payload: %#v", choice["function"])
 	}
 
 	tools, ok := payload["tools"].([]map[string]any)
 	if !ok || len(tools) != 1 {
 		t.Fatalf("expected one mapped tool, got %#v", payload["tools"])
 	}
-	if _, hasType := tools[0]["type"]; hasType {
-		t.Fatalf("traditional cloudflare tools should not include type field")
+	if tools[0]["type"] != "function" {
+		t.Fatalf("expected typed tool mapping, got %#v", tools[0]["type"])
 	}
-	if tools[0]["name"] != "get_weather" {
-		t.Fatalf("unexpected tool name: %#v", tools[0]["name"])
+	fnTool, ok := tools[0]["function"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested function payload, got %#v", tools[0]["function"])
+	}
+	if fnTool["name"] != "get_weather" {
+		t.Fatalf("unexpected tool name: %#v", fnTool["name"])
+	}
+	if fnTool["description"] != "Get weather" {
+		t.Fatalf("unexpected tool description: %#v", fnTool["description"])
+	}
+	if fnTool["strict"] != true {
+		t.Fatalf("expected strict=true in nested function payload")
+	}
+	if _, ok := fnTool["parameters"].(map[string]any); !ok {
+		t.Fatalf("expected parameters schema map, got %#v", fnTool["parameters"])
 	}
 
 	messages, ok := payload["messages"].([]map[string]any)
