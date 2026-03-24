@@ -73,9 +73,11 @@ For each message:
   - rejects `user` `image_url` with explicit unsupported error
 - Anthropic (`anthropic`): supports `user` `text`, `image_url`, `image_base64` (Claude 3+)
 - Bedrock (`bedrock`): text-only in chat path
-- Cloudflare (`cloudflare`): text-only in chat path
+- Cloudflare (`cloudflare`):
+  - native `messages` path supports `user` `text`, `image_url`, `image_base64` for vision-capable Workers AI models such as `@cf/moonshotai/kimi-k2.5`
+  - current `gpt-oss` responses-style `input` path remains text-only
 
-## Mainstream Model Image-Input Support (as of 2026-03-01)
+## Mainstream Model Image-Input Support (as of 2026-03-24)
 
 The table below combines model-level capability reference and current `uniai` support status.
 
@@ -85,6 +87,7 @@ The table below combines model-level capability reference and current `uniai` su
 | Google Gemini (3.1/2.5 family) | Supports image input | Partially supported | `gemini` | `image_base64` only (`image_url` rejected) |
 | xAI Grok | Some models support image input | Supported (OpenAI-compatible path) | `xai` | `image_url`, `image_base64` |
 | Anthropic Claude | Claude 3+ and current models support image input | Supported | `anthropic` | `image_url`, `image_base64` |
+| Moonshot Kimi K2.5 on Workers AI | Supports vision inputs | Supported on native Cloudflare `messages` path | `cloudflare` | `image_url`, `image_base64` |
 | Mistral Vision models | Vision-capable models available | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent (typically `image_url` / `image_base64`) |
 | Qwen2.5-VL | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
 | Llama 3.2 Vision | Supports image input | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent |
@@ -97,6 +100,8 @@ References:
 - Anthropic model overview: <https://platform.claude.com/docs/en/about-claude/models/overview>
 - Anthropic files docs (Claude 3+ image support note): <https://platform.claude.com/docs/en/build-with-claude/files>
 - Anthropic vision docs: <https://platform.claude.com/docs/en/build-with-claude/vision>
+- Cloudflare Workers AI model list (`kimi-k2.5` capability flags): <https://developers.cloudflare.com/workers-ai/models/#text-generation>
+- Cloudflare Workers AI `kimi-k2.5` model schema: <https://developers.cloudflare.com/workers-ai/models/kimi-k2.5/>
 - Gemini 3.1 Pro Preview: <https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview>
 - Gemini 2.5 Pro: <https://ai.google.dev/gemini-api/docs/models/gemini-2.5-pro>
 - Gemini 2.5 Flash: <https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash>
@@ -161,6 +166,26 @@ resp, err := client.Chat(ctx,
     ),
 )
 ```
+
+### Cloudflare Workers AI (`kimi-k2.5`): URL image + text
+
+```go
+resp, err := client.Chat(ctx,
+    uniai.WithProvider("cloudflare"),
+    uniai.WithModel("@cf/moonshotai/kimi-k2.5"),
+    uniai.WithMessages(
+        uniai.UserParts(
+            uniai.TextPart("Describe this image."),
+            uniai.ImageURLPart("https://example.com/cat.png"),
+        ),
+    ),
+)
+```
+
+Notes:
+
+- For Cloudflare `image_base64`, `uniai` sends a `data:<mime>;base64,...` URL in the Workers AI `messages[].content` array.
+- The current Cloudflare `gpt-oss` path still uses responses-style `input` and remains text-only.
 
 ## Common Errors
 

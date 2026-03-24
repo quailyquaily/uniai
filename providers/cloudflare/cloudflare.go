@@ -74,18 +74,18 @@ func buildPayload(req *chat.Request, model string) (structs.JSONMap, error) {
 
 	responsesCompatible := isGptOssModel(model)
 	if !hasAnyKey(&payload, "messages", "prompt", "input") {
-		normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
-		if err != nil {
-			return nil, err
-		}
 		if responsesCompatible {
+			normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
+			if err != nil {
+				return nil, err
+			}
 			input, err := toResponsesInput(normalizedMessages)
 			if err != nil {
 				return nil, err
 			}
 			payload["input"] = input
 		} else {
-			messages, err := toScopedMessages(normalizedMessages)
+			messages, err := toScopedMessages(req.Messages)
 			if err != nil {
 				return nil, err
 			}
@@ -139,9 +139,12 @@ func applyCommonOptions(payload *structs.JSONMap, opts chat.Options) {
 func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 	out := make([]map[string]any, 0, len(msgs))
 	for _, m := range msgs {
-		text := m.Content
 		switch m.Role {
-		case chat.RoleSystem, chat.RoleUser:
+		case chat.RoleSystem:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
@@ -153,7 +156,27 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 				msg["name"] = name
 			}
 			out = append(out, msg)
+		case chat.RoleUser:
+			content, ok, err := toScopedUserContent(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
+			if !ok {
+				continue
+			}
+			msg := map[string]any{
+				"role":    m.Role,
+				"content": content,
+			}
+			if name := strings.TrimSpace(m.Name); name != "" {
+				msg["name"] = name
+			}
+			out = append(out, msg)
 		case chat.RoleAssistant:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			msg := map[string]any{
 				"role": chat.RoleAssistant,
 			}
@@ -180,6 +203,10 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 			if strings.TrimSpace(m.ToolCallID) == "" {
 				return nil, fmt.Errorf("tool_call_id is required for tool messages")
 			}
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			msg := map[string]any{
 				"role":         chat.RoleTool,
 				"tool_call_id": m.ToolCallID,
@@ -187,6 +214,10 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 			}
 			out = append(out, msg)
 		default:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("role %q: %w", m.Role, err)
+			}
 			if strings.TrimSpace(text) == "" {
 				continue
 			}
@@ -197,6 +228,74 @@ func toScopedMessages(msgs []chat.Message) ([]map[string]any, error) {
 		}
 	}
 	return out, nil
+}
+
+func toScopedUserContent(m chat.Message) (any, bool, error) {
+	parts := chat.NormalizeMessageParts(m)
+	if len(parts) == 0 {
+		return nil, false, nil
+	}
+	if len(parts) == 1 && parts[0].Type == chat.PartTypeText {
+		if err := chat.ValidatePart(parts[0]); err != nil {
+			return nil, false, err
+		}
+		if strings.TrimSpace(parts[0].Text) == "" {
+			return nil, false, nil
+		}
+		return parts[0].Text, true, nil
+	}
+
+	content := make([]map[string]any, 0, len(parts))
+	for i, part := range parts {
+		item, ok, err := toScopedUserPart(part)
+		if err != nil {
+			return nil, false, fmt.Errorf("part[%d]: %w", i, err)
+		}
+		if !ok {
+			continue
+		}
+		content = append(content, item)
+	}
+	if len(content) == 0 {
+		return nil, false, nil
+	}
+	return content, true, nil
+}
+
+func toScopedUserPart(part chat.Part) (map[string]any, bool, error) {
+	if err := chat.ValidatePart(part); err != nil {
+		return nil, false, err
+	}
+	switch part.Type {
+	case chat.PartTypeText:
+		if strings.TrimSpace(part.Text) == "" {
+			return nil, false, nil
+		}
+		return map[string]any{
+			"type": "text",
+			"text": part.Text,
+		}, true, nil
+	case chat.PartTypeImageURL:
+		return map[string]any{
+			"type": "image_url",
+			"image_url": map[string]any{
+				"url": strings.TrimSpace(part.URL),
+			},
+		}, true, nil
+	case chat.PartTypeImageBase64:
+		mimeType := strings.TrimSpace(part.MIMEType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		return map[string]any{
+			"type": "image_url",
+			"image_url": map[string]any{
+				"url": fmt.Sprintf("data:%s;base64,%s", mimeType, strings.TrimSpace(part.DataBase64)),
+			},
+		}, true, nil
+	default:
+		return nil, false, fmt.Errorf("unsupported part type %q", part.Type)
+	}
 }
 
 func toResponsesInput(msgs []chat.Message) ([]any, error) {

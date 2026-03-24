@@ -292,9 +292,76 @@ func TestBuildPayloadAcceptsTextParts(t *testing.T) {
 	}
 }
 
-func TestBuildPayloadRejectsImagePartInV1(t *testing.T) {
+func TestBuildPayloadMapsUserImageURLPartForKimi(t *testing.T) {
 	req := &chat.Request{
-		Model: "@cf/meta/llama-4-scout",
+		Model: "@cf/moonshotai/kimi-k2.5",
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageURLPart("https://example.com/a.png"),
+			),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one mapped message, got %#v", payload["messages"])
+	}
+	content, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("expected multimodal content array, got %#v", messages[0]["content"])
+	}
+	if content[0]["type"] != "text" || content[0]["text"] != "describe this" {
+		t.Fatalf("unexpected text content part: %#v", content[0])
+	}
+	image, ok := content[1]["image_url"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image_url object, got %#v", content[1]["image_url"])
+	}
+	if content[1]["type"] != "image_url" || image["url"] != "https://example.com/a.png" {
+		t.Fatalf("unexpected image content part: %#v", content[1])
+	}
+}
+
+func TestBuildPayloadMapsUserImageBase64PartForKimi(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/moonshotai/kimi-k2.5",
+		Messages: []chat.Message{
+			chat.UserParts(
+				chat.TextPart("describe this"),
+				chat.ImageBase64Part("image/jpeg", "QUJD"),
+			),
+		},
+	}
+
+	payload, err := buildPayload(req, req.Model)
+	if err != nil {
+		t.Fatalf("build payload: %v", err)
+	}
+	messages, ok := payload["messages"].([]map[string]any)
+	if !ok || len(messages) != 1 {
+		t.Fatalf("expected one mapped message, got %#v", payload["messages"])
+	}
+	content, ok := messages[0]["content"].([]map[string]any)
+	if !ok || len(content) != 2 {
+		t.Fatalf("expected multimodal content array, got %#v", messages[0]["content"])
+	}
+	image, ok := content[1]["image_url"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected image_url object, got %#v", content[1]["image_url"])
+	}
+	if content[1]["type"] != "image_url" || image["url"] != "data:image/jpeg;base64,QUJD" {
+		t.Fatalf("unexpected image content part: %#v", content[1])
+	}
+}
+
+func TestBuildPayloadRejectsImagePartForGptOssResponsesPath(t *testing.T) {
+	req := &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
 		Messages: []chat.Message{
 			chat.UserParts(chat.ImageURLPart("https://example.com/a.png")),
 		},

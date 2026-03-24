@@ -183,6 +183,7 @@ Behavior notes:
 - `Parts` takes precedence over legacy `Content`.
 - If `Parts` is empty and `Content` is set, `Content` is treated as one `text` part.
 - `Result.Text` remains the compatibility field; `Result.Parts` is also populated (currently text parts in V1).
+- Cloudflare native `messages` models such as `@cf/moonshotai/kimi-k2.5` support `image_url` and `image_base64`; the current `gpt-oss` responses-style path remains text-only.
 
 Provider support details and examples: [`docs/multimodal_chat.md`](docs/multimodal_chat.md).
 
