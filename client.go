@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/uniai/providers/cloudflare"
 	"github.com/quailyquaily/uniai/providers/gemini"
 	"github.com/quailyquaily/uniai/providers/openai"
+	openairesp "github.com/quailyquaily/uniai/providers/openai_resp"
 	"github.com/quailyquaily/uniai/rerank"
 )
 
@@ -124,6 +125,18 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		p, err := openai.New(openai.Config{
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      base,
+			DefaultModel: c.cfg.OpenAIModel,
+			Debug:        c.cfg.Debug,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p.Chat(ctx, req)
+
+	case "openai_resp":
+		p, err := openairesp.New(openairesp.Config{
+			APIKey:       c.cfg.OpenAIAPIKey,
+			BaseURL:      c.cfg.OpenAIAPIBase,
 			DefaultModel: c.cfg.OpenAIModel,
 			Debug:        c.cfg.Debug,
 		})

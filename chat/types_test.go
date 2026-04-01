@@ -1,11 +1,32 @@
 package chat
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/lyricat/goutils/structs"
+)
 
 func TestBuildRequestRequiresMessages(t *testing.T) {
 	_, err := BuildRequest(WithModel("gpt-4.1-mini"))
 	if err == nil {
 		t.Fatalf("expected error when messages are missing")
+	}
+}
+
+func TestBuildRequestAllowsOpenAIInputWithoutMessages(t *testing.T) {
+	_, err := BuildRequest(
+		WithProvider("openai_resp"),
+		WithOpenAIOptions(structs.JSONMap{
+			"input": []map[string]any{
+				{
+					"role":    "user",
+					"content": "hello",
+				},
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

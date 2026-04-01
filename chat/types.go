@@ -131,6 +131,7 @@ type Usage struct {
 }
 
 type Result struct {
+	ID        string           `json:"id,omitempty"`
 	Text      string           `json:"text,omitempty"`
 	Parts     []Part           `json:"parts,omitempty"`
 	Model     string           `json:"model,omitempty"`
@@ -183,7 +184,7 @@ func BuildRequest(opts ...Option) (*Request, error) {
 			opt(req)
 		}
 	}
-	if len(req.Messages) == 0 {
+	if len(req.Messages) == 0 && !req.Options.OpenAI.HasKey("input") {
 		return nil, fmt.Errorf("messages are required")
 	}
 	for i := range req.Messages {

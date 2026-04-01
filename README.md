@@ -65,6 +65,7 @@ func main() {
 Supported provider names:
 
 - `openai` (default)
+- `openai_resp` (native OpenAI Responses API)
 - `deepseek` (OpenAI-compatible)
 - `xai` (OpenAI-compatible)
 - `groq` (OpenAI-compatible)
@@ -75,6 +76,28 @@ Supported provider names:
 - `cloudflare`
 
 For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenAIAPIBase`.
+
+### `openai` vs `openai_resp`
+
+Use `openai` when you want Chat Completions behavior or compatibility with OpenAI-like providers.
+
+Use `openai_resp` when you want native OpenAI Responses API behavior.
+
+Practical differences:
+
+- `openai` uses `/v1/chat/completions`
+- `openai_resp` uses `/v1/responses`
+- `openai` is the safer choice for OpenAI-compatible endpoints such as DeepSeek, xAI, Groq, or custom compatible bases
+- `openai_resp` is the right choice for current OpenAI-only features such as `previous_response_id` and `WithReasoningDetails()`
+- `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
+
+Important GPT-5.4 edge case:
+
+- `openai` can fail on `gpt-5.4` when function tools are combined with reasoning effort, returning a 400 like:
+  `Function tools with reasoning_effort are not supported for gpt-5.4 in /v1/chat/completions. Please use /v1/responses instead.`
+- `openai_resp` exists specifically to handle that native Responses path.
+
+There is a runnable repro/demo for this in [`cmd/openairesptest`](cmd/openairesptest).
 
 ### Reasoning
 
@@ -104,7 +127,8 @@ Behavior notes:
 
 Provider guidance:
 
-- OpenAI: use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported yet on the current Chat Completions path.
+- OpenAI Chat Completions (`openai`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported on this path.
+- OpenAI Responses (`openai_resp`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is supported.
 - Gemini 3.x: use `WithReasoningEffort(...)`.
 - Gemini 2.5: use `WithReasoningBudgetTokens(...)`.
 - Anthropic Claude 4.6: use `WithReasoningEffort(...)`.
@@ -326,7 +350,7 @@ resp, err := client.Chat(ctx,
 
 Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
 
-Supported providers: OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
+Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
 
