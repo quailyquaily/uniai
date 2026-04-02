@@ -19,6 +19,7 @@ import (
 type Config struct {
 	APIKey       string
 	DefaultModel string
+	Headers      map[string]string
 	Debug        bool
 }
 
@@ -27,6 +28,7 @@ type Provider struct {
 }
 
 func New(cfg Config) *Provider {
+	cfg.Headers = httputil.CloneHeaders(cfg.Headers)
 	return &Provider{cfg: cfg}
 }
 
@@ -147,6 +149,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httputil.ApplyHeaders(httpReq.Header, p.cfg.Headers)
 
 	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {

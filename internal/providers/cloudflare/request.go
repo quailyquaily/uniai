@@ -26,14 +26,22 @@ type apiEnvelope struct {
 }
 
 func RunJSON(ctx context.Context, token, base, accountID, model string, payload any) (json.RawMessage, error) {
+	return RunJSONWithHeaders(ctx, token, base, accountID, model, nil, payload)
+}
+
+func RunJSONWithHeaders(ctx context.Context, token, base, accountID, model string, headers map[string]string, payload any) (json.RawMessage, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	return Run(ctx, token, base, accountID, model, "application/json", body)
+	return RunWithHeaders(ctx, token, base, accountID, model, headers, "application/json", body)
 }
 
 func Run(ctx context.Context, token, base, accountID, model, contentType string, body []byte) (json.RawMessage, error) {
+	return RunWithHeaders(ctx, token, base, accountID, model, nil, contentType, body)
+}
+
+func RunWithHeaders(ctx context.Context, token, base, accountID, model string, headers map[string]string, contentType string, body []byte) (json.RawMessage, error) {
 	url, err := buildRunURL(base, accountID, model)
 	if err != nil {
 		return nil, err
@@ -49,6 +57,7 @@ func Run(ctx context.Context, token, base, accountID, model, contentType string,
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	httputil.ApplyHeaders(req.Header, headers)
 
 	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {

@@ -1,10 +1,14 @@
 package anthropic
 
 import (
+	"context"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 func TestBuildRequestMapsUserImageBase64Part(t *testing.T) {
@@ -215,4 +219,56 @@ func TestToResultParsesReasoningDetails(t *testing.T) {
 	if len(out.Reasoning.Blocks) != 2 {
 		t.Fatalf("unexpected reasoning blocks: %#v", out.Reasoning)
 	}
+}
+
+func TestChatAppliesCustomHeaders(t *testing.T) {
+	originalTransport := httputil.DefaultClient.Transport
+	defer func() {
+		httputil.DefaultClient.Transport = originalTransport
+	}()
+
+	httputil.DefaultClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if got := r.Header.Get("X-Test-Header"); got != "test-value" {
+			t.Fatalf("expected custom header, got %q", got)
+		}
+		if got := r.Header.Get("anthropic-version"); got != "2024-01-01" {
+			t.Fatalf("expected overridden anthropic-version header, got %q", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(strings.NewReader(`{
+				"content":[{"type":"text","text":"ok"}],
+				"model":"claude-sonnet-test",
+				"usage":{"input_tokens":1,"output_tokens":1}
+			}`)),
+		}, nil
+	})
+
+	p := New(Config{
+		APIKey:       "test-key",
+		DefaultModel: "claude-sonnet-test",
+		Headers: map[string]string{
+			"X-Test-Header":     "test-value",
+			"anthropic-version": "2024-01-01",
+		},
+	})
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
 }

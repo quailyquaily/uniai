@@ -23,6 +23,7 @@ type Config struct {
 	APIKey       string
 	BaseURL      string
 	DefaultModel string
+	Headers      map[string]string
 	Debug        bool
 }
 
@@ -34,6 +35,7 @@ func New(cfg Config) (*Provider, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, fmt.Errorf("gemini api key is required")
 	}
+	cfg.Headers = httputil.CloneHeaders(cfg.Headers)
 	return &Provider{cfg: cfg}, nil
 }
 
@@ -172,6 +174,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httputil.ApplyHeaders(httpReq.Header, p.cfg.Headers)
 
 	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {

@@ -7,8 +7,10 @@ import (
 	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/azure"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/internal/oaicompat"
 )
 
@@ -17,6 +19,7 @@ type Config struct {
 	Endpoint   string
 	Deployment string
 	APIVersion string
+	Headers    map[string]string
 	Debug      bool
 }
 
@@ -39,10 +42,14 @@ func New(cfg Config) (*Provider, error) {
 	if apiVersion == "" {
 		apiVersion = azureAPIVersion
 	}
-	client := openai.NewClient(
+	opts := []option.RequestOption{
 		azure.WithEndpoint(cfg.Endpoint, apiVersion),
 		azure.WithAPIKey(cfg.APIKey),
-	)
+	}
+	for key, value := range httputil.CloneHeaders(cfg.Headers) {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+	client := openai.NewClient(opts...)
 	return &Provider{
 		client:     client,
 		deployment: cfg.Deployment,

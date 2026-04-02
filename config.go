@@ -6,6 +6,9 @@ type Config struct {
 	Provider string
 	Debug    bool
 
+	// ChatHeaders are applied to chat provider HTTP requests only.
+	ChatHeaders map[string]string
+
 	// OpenAI / OpenAI-compatible
 	OpenAIAPIKey  string
 	OpenAIAPIBase string

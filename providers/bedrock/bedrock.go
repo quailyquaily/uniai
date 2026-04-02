@@ -8,12 +8,14 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/bedrockruntime"
 	"github.com/aws/aws-sdk-go/service/bedrockruntime/bedrockruntimeiface"
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 type Config struct {
@@ -21,12 +23,14 @@ type Config struct {
 	AwsSecret string
 	AwsRegion string
 	ModelArn  string
+	Headers   map[string]string
 	Debug     bool
 }
 
 type Provider struct {
 	client   bedrockruntimeiface.BedrockRuntimeAPI
 	modelArn string
+	headers  map[string]string
 	debug    bool
 }
 
@@ -42,6 +46,7 @@ func New(cfg Config) *Provider {
 	return &Provider{
 		client:   bedrockruntime.New(sess),
 		modelArn: cfg.ModelArn,
+		headers:  httputil.CloneHeaders(cfg.Headers),
 		debug:    cfg.Debug,
 	}
 }
@@ -137,7 +142,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		Body:        body,
 		Accept:      aws.String("application/json"),
 		ContentType: aws.String("application/json"),
-	})
+	}, p.requestOptions()...)
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "bedrock.chat.response", err)
 		return nil, err
@@ -207,7 +212,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 		Body:        body,
 		Accept:      aws.String("application/json"),
 		ContentType: aws.String("application/json"),
-	})
+	}, p.requestOptions()...)
 	if err != nil {
 		return nil, err
 	}
@@ -304,4 +309,11 @@ func applyBedrockOptions(payload map[string]any, opts structs.JSONMap) {
 			payload["top_k"] = top
 		}
 	}
+}
+
+func (p *Provider) requestOptions() []request.Option {
+	if len(p.headers) == 0 {
+		return nil
+	}
+	return []request.Option{request.WithSetRequestHeaders(p.headers)}
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 	cf "github.com/quailyquaily/uniai/internal/providers/cloudflare"
 	"github.com/quailyquaily/uniai/internal/toolschema"
 )
@@ -17,6 +18,7 @@ type Config struct {
 	AccountID string
 	APIToken  string
 	APIBase   string
+	Headers   map[string]string
 	Debug     bool
 }
 
@@ -31,6 +33,7 @@ func New(cfg Config) (*Provider, error) {
 	if cfg.APIToken == "" {
 		return nil, fmt.Errorf("cloudflare api token is required")
 	}
+	cfg.Headers = httputil.CloneHeaders(cfg.Headers)
 	return &Provider{cfg: cfg}, nil
 }
 
@@ -55,7 +58,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	diag.LogText(p.cfg.Debug, debugFn, "cloudflare.chat.request", string(reqBody))
 
-	resultRaw, err := cf.RunJSON(ctx, p.cfg.APIToken, p.cfg.APIBase, p.cfg.AccountID, model, payload)
+	resultRaw, err := cf.RunJSONWithHeaders(ctx, p.cfg.APIToken, p.cfg.APIBase, p.cfg.AccountID, model, p.cfg.Headers, payload)
 	if err != nil {
 		diag.LogError(p.cfg.Debug, debugFn, "cloudflare.chat.response", err)
 		return nil, err
