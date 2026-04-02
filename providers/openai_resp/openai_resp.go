@@ -507,12 +507,17 @@ func buildFunctionTools(tools []chat.Tool) ([]responses.ToolUnionParam, error) {
 				return nil, err
 			}
 			toolschema.Normalize(params)
-			normalizeOpenAIStrictSchema(params)
+			if tool.Function.Strict != nil && *tool.Function.Strict {
+				normalizeOpenAIStrictSchema(params)
+			}
 		}
 		fn := responses.FunctionToolParam{
 			Name:       name,
 			Parameters: params,
-			Strict:     openai.Bool(true),
+			// Responses API treats omitted strict as provider-default strict mode.
+			// Default to false here so uniai preserves ordinary JSON Schema semantics
+			// unless the caller explicitly opts into strict validation.
+			Strict: openai.Bool(false),
 		}
 		if tool.Function.Strict != nil {
 			fn.Strict = openai.Bool(*tool.Function.Strict)

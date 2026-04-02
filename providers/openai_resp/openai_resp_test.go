@@ -74,8 +74,11 @@ func TestBuildParamsMapsResponsesRequest(t *testing.T) {
 	if len(params.Tools) != 1 || params.Tools[0].OfFunction == nil {
 		t.Fatalf("expected one function tool, got %#v", params.Tools)
 	}
-	if got, ok := params.Tools[0].OfFunction.Parameters["additionalProperties"].(bool); !ok || got {
-		t.Fatalf("expected additionalProperties=false, got %#v", params.Tools[0].OfFunction.Parameters["additionalProperties"])
+	if !params.Tools[0].OfFunction.Strict.Valid() || params.Tools[0].OfFunction.Strict.Value {
+		t.Fatalf("expected compat tool strict=false by default, got %#v", params.Tools[0].OfFunction.Strict)
+	}
+	if _, ok := params.Tools[0].OfFunction.Parameters["additionalProperties"]; ok {
+		t.Fatalf("expected default compat schema to preserve additionalProperties, got %#v", params.Tools[0].OfFunction.Parameters["additionalProperties"])
 	}
 	if len(params.Input.OfInputItemList) != 1 || params.Input.OfInputItemList[0].OfMessage == nil {
 		t.Fatalf("expected one input message, got %#v", params.Input)
@@ -354,28 +357,79 @@ func TestBuildParamsMergesRawAndCompatTools(t *testing.T) {
 	if params.Tools[1].OfFunction == nil || params.Tools[1].OfFunction.Name != "compat_tool" {
 		t.Fatalf("unexpected compat tool: %#v", params.Tools[1])
 	}
-	if got, ok := params.Tools[1].OfFunction.Parameters["additionalProperties"].(bool); !ok || got {
-		t.Fatalf("expected compat tool additionalProperties=false, got %#v", params.Tools[1].OfFunction.Parameters["additionalProperties"])
+	if !params.Tools[1].OfFunction.Strict.Valid() || params.Tools[1].OfFunction.Strict.Value {
+		t.Fatalf("expected compat tool strict=false by default, got %#v", params.Tools[1].OfFunction.Strict)
+	}
+	if _, ok := params.Tools[1].OfFunction.Parameters["additionalProperties"]; ok {
+		t.Fatalf("expected compat tool schema to preserve additionalProperties by default, got %#v", params.Tools[1].OfFunction.Parameters["additionalProperties"])
 	}
 }
 
-func TestBuildParamsAddsAdditionalPropertiesFalseRecursively(t *testing.T) {
+func TestBuildParamsNormalizesStrictSchemasRecursively(t *testing.T) {
+	strict := true
 	req := &chat.Request{
 		Model: "gpt-5.4",
 		Messages: []chat.Message{
 			chat.User("hello"),
 		},
 		Tools: []chat.Tool{
-			chat.FunctionTool("compat_tool", "desc", []byte(`{
-				"type":"object",
-				"properties":{
-					"payload":{
+			{
+				Type: "function",
+				Function: chat.ToolFunction{
+					Name:        "compat_tool",
+					Description: "desc",
+					ParametersJSONSchema: []byte(`{
 						"type":"object",
 						"properties":{
-							"city":{"type":"string"}
+							"payload":{
+								"type":"object",
+								"properties":{
+									"city":{"type":"string"}
+								}
+							}
 						}
-					}
-				}
+					}`),
+					Strict: &strict,
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	tool := params.Tools[0].OfFunction
+	if tool == nil {
+		t.Fatalf("expected compat function tool, got %#v", params.Tools)
+	}
+	if !tool.Strict.Valid() || !tool.Strict.Value {
+		t.Fatalf("expected strict=true, got %#v", tool.Strict)
+	}
+	payload, ok := tool.Parameters["properties"].(map[string]any)["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested payload object, got %#v", tool.Parameters)
+	}
+	if got, ok := payload["additionalProperties"].(bool); !ok || got {
+		t.Fatalf("expected nested additionalProperties=false, got %#v", payload["additionalProperties"])
+	}
+}
+
+func TestBuildParamsPreservesOptionalFieldsWhenStrictIsDefaultedOff(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.4",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Tools: []chat.Tool{
+			chat.FunctionTool("bash", "desc", []byte(`{
+				"type":"object",
+				"properties":{
+					"cmd":{"type":"string"},
+					"cwd":{"type":"string"},
+					"timeout_seconds":{"type":"number"}
+				},
+				"required":["cmd"]
 			}`)),
 		},
 	}
@@ -388,12 +442,18 @@ func TestBuildParamsAddsAdditionalPropertiesFalseRecursively(t *testing.T) {
 	if tool == nil {
 		t.Fatalf("expected compat function tool, got %#v", params.Tools)
 	}
-	payload, ok := tool.Parameters["properties"].(map[string]any)["payload"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected nested payload object, got %#v", tool.Parameters)
+	if !tool.Strict.Valid() || tool.Strict.Value {
+		t.Fatalf("expected strict=false by default, got %#v", tool.Strict)
 	}
-	if got, ok := payload["additionalProperties"].(bool); !ok || got {
-		t.Fatalf("expected nested additionalProperties=false, got %#v", payload["additionalProperties"])
+	required, ok := tool.Parameters["required"].([]any)
+	if !ok {
+		t.Fatalf("expected required array, got %#v", tool.Parameters["required"])
+	}
+	if len(required) != 1 || required[0] != "cmd" {
+		t.Fatalf("expected required to preserve only cmd, got %#v", required)
+	}
+	if _, ok := tool.Parameters["additionalProperties"]; ok {
+		t.Fatalf("expected default schema to avoid strict normalization, got %#v", tool.Parameters["additionalProperties"])
 	}
 }
 
