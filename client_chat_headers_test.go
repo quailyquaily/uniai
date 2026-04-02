@@ -63,3 +63,64 @@ func TestClientChatAppliesCustomHeaders(t *testing.T) {
 		t.Fatalf("unexpected text: %q", resp.Text)
 	}
 }
+
+func TestClientChatClonesCustomHeaders(t *testing.T) {
+	headers := map[string]string{
+		"X-Test-Header": "initial-value",
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Test-Header"); got != "initial-value" {
+			t.Fatalf("expected original custom header, got %q", got)
+		}
+		if got := r.Header.Get("X-New-Header"); got != "" {
+			t.Fatalf("expected cloned headers to ignore later additions, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl_test",
+			"object":  "chat.completion",
+			"created": 0,
+			"model":   "gpt-4.1-mini",
+			"choices": []map[string]any{
+				{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "ok",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     1,
+				"completion_tokens": 1,
+				"total_tokens":      2,
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "openai",
+		OpenAIAPIKey:  "test-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "gpt-4.1-mini",
+		ChatHeaders:   headers,
+	})
+
+	headers["X-Test-Header"] = "mutated-value"
+	headers["X-New-Header"] = "later-value"
+
+	resp, err := client.Chat(context.Background(), chat.WithMessages(chat.User("hello")))
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}

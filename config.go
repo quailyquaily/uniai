@@ -1,5 +1,7 @@
 package uniai
 
+import "github.com/quailyquaily/uniai/internal/httputil"
+
 // Config provides shared configuration for uniai clients.
 // Fields are optional and used by specific providers/features.
 type Config struct {
@@ -55,6 +57,7 @@ const (
 )
 
 func (cfg Config) withDefaults() Config {
+	cfg.ChatHeaders = httputil.CloneHeaders(cfg.ChatHeaders)
 	if cfg.OpenAIAPIBase == "" {
 		cfg.OpenAIAPIBase = DefaultOpenAIAPIBase
 	}
