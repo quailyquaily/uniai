@@ -433,6 +433,7 @@ func example(ctx context.Context) error {
 
 All configuration is provided via `uniai.Config`. Only the fields required for the providers you use need to be set.
 
+- Chat defaults: `Provider`, `Debug`, `ChatHeaders` (`ChatHeaders` apply to chat provider HTTP requests only)
 - OpenAI/OpenAI-compatible: `OpenAIAPIKey`, `OpenAIAPIBase`, `OpenAIModel`
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
 - Anthropic: `AnthropicAPIKey`, `AnthropicModel`
@@ -448,6 +449,9 @@ client := uniai.New(uniai.Config{
     Provider:     "openai",
     OpenAIAPIKey: "...",
     OpenAIModel:  "gpt-5.2",
+    ChatHeaders: map[string]string{
+        "X-Request-ID": "req-123",
+    },
     Debug:        true,
 })
 ```
