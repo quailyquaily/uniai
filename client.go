@@ -126,6 +126,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      base,
 			DefaultModel: c.cfg.OpenAIModel,
+			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
@@ -138,6 +139,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      c.cfg.OpenAIAPIBase,
 			DefaultModel: c.cfg.OpenAIModel,
+			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
@@ -158,6 +160,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			APIKey:       apiKey,
 			BaseURL:      c.cfg.GeminiAPIBase,
 			DefaultModel: geminiModel,
+			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
 		})
 		if err != nil {
@@ -171,6 +174,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			Endpoint:   c.cfg.AzureOpenAIEndpoint,
 			Deployment: c.cfg.AzureOpenAIModel,
 			APIVersion: c.cfg.AzureOpenAIAPIVersion,
+			Headers:    c.cfg.ChatHeaders,
 			Debug:      c.cfg.Debug,
 		})
 		if err != nil {
@@ -182,6 +186,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		p := anthropic.New(anthropic.Config{
 			APIKey:       c.cfg.AnthropicAPIKey,
 			DefaultModel: c.cfg.AnthropicModel,
+			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
@@ -192,6 +197,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			AwsSecret: c.cfg.AwsSecret,
 			AwsRegion: c.cfg.AwsRegion,
 			ModelArn:  c.cfg.AwsBedrockModelArn,
+			Headers:   c.cfg.ChatHeaders,
 			Debug:     c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
@@ -201,6 +207,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			AccountID: c.cfg.CloudflareAccountID,
 			APIToken:  c.cfg.CloudflareAPIToken,
 			APIBase:   c.cfg.CloudflareAPIBase,
+			Headers:   c.cfg.ChatHeaders,
 			Debug:     c.cfg.Debug,
 		})
 		if err != nil {

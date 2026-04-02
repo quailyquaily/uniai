@@ -10,6 +10,7 @@ import (
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/internal/oaicompat"
 )
 
@@ -17,6 +18,7 @@ type Config struct {
 	APIKey       string
 	BaseURL      string
 	DefaultModel string
+	Headers      map[string]string
 	Debug        bool
 }
 
@@ -34,6 +36,9 @@ func New(cfg Config) (*Provider, error) {
 	opts := []option.RequestOption{option.WithAPIKey(cfg.APIKey)}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	}
+	for key, value := range httputil.CloneHeaders(cfg.Headers) {
+		opts = append(opts, option.WithHeader(key, value))
 	}
 	return &Provider{
 		client:       openai.NewClient(opts...),

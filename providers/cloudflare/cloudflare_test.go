@@ -1,7 +1,10 @@
 package cloudflare
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
@@ -369,5 +372,51 @@ func TestBuildPayloadRejectsImagePartForGptOssResponsesPath(t *testing.T) {
 	_, err := buildPayload(req, req.Model)
 	if err == nil {
 		t.Fatalf("expected unsupported part error")
+	}
+}
+
+func TestChatAppliesCustomHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/client/v4/accounts/account-id/ai/run/@cf/openai/gpt-oss-120b" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Test-Header"); got != "test-value" {
+			t.Fatalf("expected custom header, got %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"result": map[string]any{
+				"response": "ok",
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		AccountID: "account-id",
+		APIToken:  "token",
+		APIBase:   server.URL,
+		Headers: map[string]string{
+			"X-Test-Header": "test-value",
+		},
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Model: "@cf/openai/gpt-oss-120b",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
 	}
 }
