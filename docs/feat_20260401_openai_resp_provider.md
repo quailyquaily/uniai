@@ -35,7 +35,7 @@ The current `providers/openai` implementation is built on Chat Completions. That
 
 Using a distinct provider string is the cleanest cut for this repository:
 
-- `openai` currently means "Chat Completions-like behavior" and is shared with non-OpenAI endpoints in [`client.go`](/home/lyric/Codework/arch/uniai/client.go)
+- `openai` currently means "Chat Completions-like behavior" and is shared with non-OpenAI endpoints in `client.go`
 - `openai_resp` will mean "native Responses API behavior"
 - callers can opt in per request with `WithProvider("openai_resp")`
 - no existing OpenAI-compatible workflow regresses by surprise
@@ -341,7 +341,7 @@ Rationale:
 
 ## Client Wiring
 
-Add a new provider branch in [`client.go`](/home/lyric/Codework/arch/uniai/client.go):
+Add a new provider branch in `client.go`:
 
 - `openai_resp`
 
