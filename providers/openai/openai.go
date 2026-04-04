@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	openai "github.com/openai/openai-go/v3"
@@ -24,6 +25,7 @@ type Config struct {
 
 type Provider struct {
 	client       openai.Client
+	baseURL      string
 	defaultModel string
 	debug        bool
 }
@@ -42,6 +44,7 @@ func New(cfg Config) (*Provider, error) {
 	}
 	return &Provider{
 		client:       openai.NewClient(opts...),
+		baseURL:      strings.TrimSpace(cfg.BaseURL),
 		defaultModel: cfg.DefaultModel,
 		debug:        cfg.Debug,
 	}, nil
@@ -49,7 +52,7 @@ func New(cfg Config) (*Provider, error) {
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	params, err := buildParams(req, p.defaultModel)
+	params, err := buildParams(req, p.defaultModel, p.baseURL)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +80,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	return toResult(resp), nil
 }
 
-func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionNewParams, error) {
+func buildParams(req *chat.Request, defaultModel string, baseURL ...string) (openai.ChatCompletionNewParams, error) {
 	model := req.Model
 	if model == "" {
 		model = defaultModel
@@ -96,6 +99,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if err != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider model %q: %w", model, err)
 	}
+	applyKimiReasoningContentWorkaround(messages, model, firstNonEmpty(baseURL...))
 
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(model),
@@ -188,4 +192,53 @@ func useMaxCompletionTokens(model string) bool {
 		strings.HasPrefix(model, "o1") ||
 		strings.HasPrefix(model, "o3") ||
 		strings.HasPrefix(model, "o4")
+}
+
+func applyKimiReasoningContentWorkaround(messages []openai.ChatCompletionMessageParamUnion, model, baseURL string) {
+	if !shouldApplyKimiReasoningContentWorkaround(model, baseURL) {
+		return
+	}
+	for i := range messages {
+		msg := messages[i].OfAssistant
+		if msg == nil || len(msg.ToolCalls) == 0 {
+			continue
+		}
+		msg.SetExtraFields(map[string]any{
+			"reasoning_content": ".",
+		})
+	}
+}
+
+func shouldApplyKimiReasoningContentWorkaround(model, baseURL string) bool {
+	normalizedModel := strings.ToLower(strings.TrimSpace(model))
+	normalizedModel = strings.TrimPrefix(normalizedModel, "models/")
+	if strings.HasPrefix(normalizedModel, "kimi-") {
+		return true
+	}
+	return isKimiCompatibleBaseURL(baseURL)
+}
+
+func isKimiCompatibleBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return false
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "api.moonshot.ai", "api.kimi.com", "api.moonshot.cn":
+		return true
+	default:
+		return false
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }

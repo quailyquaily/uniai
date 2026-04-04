@@ -286,6 +286,7 @@ for {
 Notes:
 - Do not rebuild tool calls manually (for example, `id: "call_1"`). Rebuilding can lose provider-specific metadata.
 - For Gemini native tool calling, missing tool-call metadata in follow-up rounds will cause request errors.
+- Some OpenAI-compatible backends also need provider/model-specific request shims. See [`docs/workarounds.md`](docs/workarounds.md).
 
 ### Tool calling emulation
 

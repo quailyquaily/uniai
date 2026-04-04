@@ -307,6 +307,123 @@ func TestChatAppliesCustomHeaders(t *testing.T) {
 	}
 }
 
+func TestBuildParamsKimiWorkaroundByModel(t *testing.T) {
+	req := &chat.Request{
+		Model: "kimi-k2.5",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := readReasoningContentFromAssistantMessageParam(t, params.Messages[1].OfAssistant)
+	if got != "." {
+		t.Fatalf("expected reasoning_content workaround, got %q", got)
+	}
+}
+
+func TestBuildParamsKimiWorkaroundByBaseURL(t *testing.T) {
+	req := &chat.Request{
+		Model: "custom-model",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "", "https://api.kimi.com/coding/v1/messages")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := readReasoningContentFromAssistantMessageParam(t, params.Messages[1].OfAssistant)
+	if got != "." {
+		t.Fatalf("expected reasoning_content workaround, got %q", got)
+	}
+}
+
+func TestBuildParamsNonKimiDoesNotInjectReasoningContent(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "", "https://api.openai.com/v1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	got := readReasoningContentFromAssistantMessageParam(t, params.Messages[1].OfAssistant)
+	if got != "" {
+		t.Fatalf("non-kimi request should not inject reasoning_content, got %q", got)
+	}
+}
+
+func TestShouldApplyKimiReasoningContentWorkaround(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   string
+		baseURL string
+		want    bool
+	}{
+		{name: "kimi model", model: "kimi-k2.5", want: true},
+		{name: "moonshot ai base", model: "custom-model", baseURL: "https://api.moonshot.ai/v1", want: true},
+		{name: "kimi coding base", model: "custom-model", baseURL: "https://api.kimi.com/coding/v1/messages", want: true},
+		{name: "moonshot cn base", model: "custom-model", baseURL: "https://api.moonshot.cn/v1", want: true},
+		{name: "non kimi", model: "gpt-4.1-mini", baseURL: "https://api.openai.com/v1", want: false},
+	}
+
+	for _, tc := range tests {
+		if got := shouldApplyKimiReasoningContentWorkaround(tc.model, tc.baseURL); got != tc.want {
+			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, got)
+		}
+	}
+}
+
 func TestBuildParamsGeminiAddsThoughtSignatureFallback(t *testing.T) {
 	req := &chat.Request{
 		Model: "gemini-3-flash",
@@ -460,4 +577,21 @@ func readThoughtSignatureFromAssistantToolCallParam(t *testing.T, call *openai.C
 	}
 	sig, _ := google["thought_signature"].(string)
 	return sig
+}
+
+func readReasoningContentFromAssistantMessageParam(t *testing.T, msg *openai.ChatCompletionAssistantMessageParam) string {
+	t.Helper()
+	if msg == nil {
+		return ""
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("marshal assistant message: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal assistant message payload: %v", err)
+	}
+	value, _ := payload["reasoning_content"].(string)
+	return value
 }
