@@ -365,6 +365,8 @@ If you provide a pricing catalog via `Config.Pricing`, `uniai` fills `Usage.Cost
 
 A maintained example catalog lives in `pricing.example.yaml`.
 
+Detailed usage notes live in [`docs/pricing.md`](docs/pricing.md).
+
 ```go
 pricing, err := uniai.ParsePricingYAML([]byte(`
 version: uniai.pricing.v1
