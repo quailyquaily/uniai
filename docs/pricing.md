@@ -10,7 +10,7 @@ If you provide a `PricingCatalog` through `Config.Pricing`, `uniai` can calculat
 
 - provider
 - model
-- token usage returned by the upstream provider
+- token usage attached to the `Client.Chat()` result
 - your own price table
 
 When a rule matches:
@@ -19,6 +19,8 @@ When a rule matches:
 - the final streaming event populates `ev.Usage.Cost`
 
 When no rule matches, `Usage.Cost` stays `nil`.
+
+When tool emulation triggers, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy that single `Client.Chat()` call.
 
 ## Scope
 

@@ -327,7 +327,7 @@ resp, err := client.Chat(ctx,
     uniai.WithMessages(uniai.User("Tell me a story.")),
     uniai.WithOnStream(func(ev uniai.StreamEvent) error {
         if ev.Done {
-            // stream finished; ev.Usage contains token counts and, when known, cost
+            // stream finished; ev.Usage contains final token counts and, when known, cost
             return nil
         }
         if ev.Delta != "" {
@@ -355,13 +355,13 @@ Check out the [stream demo](cmd/stream/README.md) for a runnable terminal exampl
 
 Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
-When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
+When combined with tool emulation (`WithToolsEmulationMode`), only the final text response streams. The final `Usage` / `Usage.Cost` values reflect the whole `Client.Chat()` call, including internal tool-emulation requests.
 
 ## Cost estimation
 
 `uniai` does not ship built-in model pricing.
 
-If you provide a pricing catalog via `Config.Pricing`, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when a rule matches the current provider/model.
+If you provide a pricing catalog via `Config.Pricing`, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when a rule matches the current provider/model. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
 
 A maintained example catalog lives in `pricing.example.yaml`.
 

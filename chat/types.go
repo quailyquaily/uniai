@@ -131,19 +131,25 @@ type Request struct {
 	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
 }
 
-// Usage reports token usage returned by the provider.
+// Usage reports token usage for a Chat operation.
+//
+// For a single upstream request, these values mirror the provider-reported token
+// counts. When uniai internally performs multiple chat requests to satisfy one
+// Chat() call, such as tool emulation, the values are aggregated across those
+// internal requests.
 //
 // Cache is an additional breakdown. It does not replace or redefine the top-level
 // input/output/total token counts.
 type Usage struct {
-	// InputTokens is the provider-reported total input token count.
+	// InputTokens is the total input token count for the Chat() call.
 	InputTokens int `json:"input_tokens"`
 
-	// OutputTokens is the provider-reported total output token count.
+	// OutputTokens is the total output token count for the Chat() call.
 	OutputTokens int `json:"output_tokens"`
 
-	// TotalTokens is the provider-reported total token count when available, or the
-	// sum of input and output tokens when uniai derives it.
+	// TotalTokens is the total token count for the Chat() call when upstream
+	// providers report it, or the sum of input and output tokens when uniai derives
+	// it.
 	TotalTokens int `json:"total_tokens"`
 
 	// Cache contains cache-hit and cache-write breakdown data when the provider
