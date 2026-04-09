@@ -1,5 +1,7 @@
 # uniai
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/quailyquaily/uniai.svg)](https://pkg.go.dev/github.com/quailyquaily/uniai)
+
 `uniai` is a small Go client that unifies chat, embeddings, image generation, audio transcription, reranking, and classification across multiple providers. It wraps provider-specific clients and normalizes request/response types.
 
 ## Features
