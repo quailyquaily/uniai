@@ -81,12 +81,16 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if providerName == "" {
 		providerName = "openai"
 	}
+	if req.Options.OnStream != nil {
+		req.Options.OnStream = c.wrapChatStreamCost(providerName, req, req.Options.OnStream)
+	}
 	mode := req.Options.ToolsEmulationMode
 	if mode == "" {
 		mode = chat.ToolsEmulationOff
 	}
 	if len(req.Tools) > 0 && mode == chat.ToolsEmulationForce {
 		resp, err := c.chatWithToolEmulation(ctx, providerName, req)
+		c.annotateChatResultCost(providerName, req, resp)
 		chat.EnsureResultParts(resp)
 		return resp, err
 	}
@@ -94,6 +98,7 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
+	c.annotateChatResultCost(providerName, req, resp)
 	chat.EnsureResultParts(resp)
 	if len(req.Tools) == 0 {
 		return resp, nil
@@ -105,8 +110,64 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 		return resp, nil
 	}
 	resp, err = c.chatWithToolEmulation(ctx, providerName, req)
+	c.annotateChatResultCost(providerName, req, resp)
 	chat.EnsureResultParts(resp)
 	return resp, err
+}
+
+func (c *Client) annotateChatResultCost(providerName string, req *chat.Request, resp *chat.Result) {
+	if resp == nil || resp.Usage.Cost != nil || c.cfg.Pricing == nil {
+		return
+	}
+	model := c.resolveChatCostModel(providerName, req, resp)
+	if cost, ok := c.cfg.Pricing.EstimateChatCost(providerName, model, resp.Usage); ok {
+		resp.Usage.Cost = cost
+	}
+}
+
+func (c *Client) wrapChatStreamCost(providerName string, req *chat.Request, onStream chat.OnStreamFunc) chat.OnStreamFunc {
+	if onStream == nil {
+		return nil
+	}
+	model := c.resolveChatRequestedModel(providerName, req)
+	return func(ev chat.StreamEvent) error {
+		if ev.Done && ev.Usage != nil && ev.Usage.Cost == nil && c.cfg.Pricing != nil {
+			usage := *ev.Usage
+			if cost, ok := c.cfg.Pricing.EstimateChatCost(providerName, model, usage); ok {
+				usage.Cost = cost
+				ev.Usage = &usage
+			}
+		}
+		return onStream(ev)
+	}
+}
+
+func (c *Client) resolveChatCostModel(providerName string, req *chat.Request, resp *chat.Result) string {
+	if resp != nil && resp.Model != "" {
+		return resp.Model
+	}
+	return c.resolveChatRequestedModel(providerName, req)
+}
+
+func (c *Client) resolveChatRequestedModel(providerName string, req *chat.Request) string {
+	if req != nil && req.Model != "" {
+		return req.Model
+	}
+	switch providerName {
+	case "gemini":
+		if c.cfg.GeminiModel != "" {
+			return c.cfg.GeminiModel
+		}
+		return c.cfg.OpenAIModel
+	case "azure":
+		return c.cfg.AzureOpenAIModel
+	case "anthropic":
+		return c.cfg.AnthropicModel
+	case "bedrock":
+		return c.cfg.AwsBedrockModelArn
+	default:
+		return c.cfg.OpenAIModel
+	}
 }
 
 func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Request) (*chat.Result, error) {

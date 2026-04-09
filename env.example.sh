@@ -21,7 +21,6 @@ export TEST_XAI_MODEL="grok-3-mini"
 export TEST_XAI_API_BASE=""
 
 # Deepseek (OpenAI-compatible)
-# NOTE: deepseek pricing is not in core/pricing.go; add it if you enable this test.
 export TEST_DEEPSEEK_API_KEY=""
 export TEST_DEEPSEEK_MODEL="deepseek-chat"
 export TEST_DEEPSEEK_API_BASE=""
