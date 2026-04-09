@@ -128,7 +128,7 @@ func (c *PricingCatalog) findChatPricingRule(provider, model string) *ChatPricin
 	}
 	for i := range c.Chat {
 		rule := &c.Chat[i]
-		if strings.TrimSpace(rule.Provider) != "" {
+		if normalizeProvider(rule.Provider) != "" {
 			continue
 		}
 		if chatPricingRuleMatches(rule, model) {
@@ -176,20 +176,10 @@ func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool)
 	}
 
 	if usage.Cache.CacheCreationInputTokens > 0 {
-		remaining := usage.Cache.CacheCreationInputTokens
-		for key, tokens := range usage.Cache.Details {
-			rate, ok := findDetailRate(rule.CacheCreationInputDetailUSDPerMillion, key)
-			if !ok || tokens <= 0 {
-				continue
-			}
-			cacheCreationCost += tokensCost(tokens, rate)
-			remaining -= tokens
-		}
-		if remaining > 0 {
-			if rule.CacheCreationInputUSDPerMillion == nil {
-				return nil, false
-			}
-			cacheCreationCost += tokensCost(remaining, *rule.CacheCreationInputUSDPerMillion)
+		var ok bool
+		cacheCreationCost, ok = estimateCacheCreationCost(rule, usage.Cache)
+		if !ok {
+			return nil, false
 		}
 	}
 
@@ -228,6 +218,32 @@ func findDetailRate(rates map[string]float64, key string) (float64, bool) {
 	return 0, false
 }
 
+func estimateCacheCreationCost(rule ChatPricingRule, cache UsageCache) (float64, bool) {
+	remaining := cache.CacheCreationInputTokens
+	cost := 0.0
+
+	for key, tokens := range cache.Details {
+		rate, ok := findDetailRate(rule.CacheCreationInputDetailUSDPerMillion, key)
+		if !ok || tokens <= 0 {
+			continue
+		}
+		if tokens > remaining {
+			return 0, false
+		}
+		cost += tokensCost(tokens, rate)
+		remaining -= tokens
+	}
+
+	if remaining > 0 {
+		if rule.CacheCreationInputUSDPerMillion == nil {
+			return 0, false
+		}
+		cost += tokensCost(remaining, *rule.CacheCreationInputUSDPerMillion)
+	}
+
+	return cost, true
+}
+
 func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {
 	out := ChatPricingRule{
 		Provider:            in.Provider,
@@ -259,25 +275,51 @@ func validateChatPricingRule(rule ChatPricingRule) error {
 	if strings.TrimSpace(rule.Model) == "" {
 		return fmt.Errorf("model is required")
 	}
+	if err := validateFinitePrice("input_usd_per_million", rule.InputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice("output_usd_per_million", rule.OutputUSDPerMillion); err != nil {
+		return err
+	}
 	if rule.InputUSDPerMillion < 0 {
 		return fmt.Errorf("input_usd_per_million must be >= 0")
 	}
 	if rule.OutputUSDPerMillion < 0 {
 		return fmt.Errorf("output_usd_per_million must be >= 0")
 	}
-	if rule.CachedInputUSDPerMillion != nil && *rule.CachedInputUSDPerMillion < 0 {
-		return fmt.Errorf("cached_input_usd_per_million must be >= 0")
+	if rule.CachedInputUSDPerMillion != nil {
+		if err := validateFinitePrice("cached_input_usd_per_million", *rule.CachedInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rule.CachedInputUSDPerMillion < 0 {
+			return fmt.Errorf("cached_input_usd_per_million must be >= 0")
+		}
 	}
-	if rule.CacheCreationInputUSDPerMillion != nil && *rule.CacheCreationInputUSDPerMillion < 0 {
-		return fmt.Errorf("cache_creation_input_usd_per_million must be >= 0")
+	if rule.CacheCreationInputUSDPerMillion != nil {
+		if err := validateFinitePrice("cache_creation_input_usd_per_million", *rule.CacheCreationInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rule.CacheCreationInputUSDPerMillion < 0 {
+			return fmt.Errorf("cache_creation_input_usd_per_million must be >= 0")
+		}
 	}
 	for key, value := range rule.CacheCreationInputDetailUSDPerMillion {
 		if strings.TrimSpace(key) == "" {
 			return fmt.Errorf("cache_creation_input_detail_usd_per_million key is required")
 		}
+		if err := validateFinitePrice(fmt.Sprintf("cache_creation_input_detail_usd_per_million[%q]", key), value); err != nil {
+			return err
+		}
 		if value < 0 {
 			return fmt.Errorf("cache_creation_input_detail_usd_per_million[%q] must be >= 0", key)
 		}
+	}
+	return nil
+}
+
+func validateFinitePrice(field string, value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return fmt.Errorf("%s must be a finite number", field)
 	}
 	return nil
 }
