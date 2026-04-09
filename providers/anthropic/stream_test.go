@@ -108,6 +108,41 @@ func TestChatStreamToolCall(t *testing.T) {
 	}
 }
 
+func TestChatStreamCacheUsage(t *testing.T) {
+	sse := strings.Join([]string{
+		sseEvent("message_start", `{"type":"message_start","message":{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":100,"cache_read_input_tokens":80,"cache_creation_input_tokens":40,"cache_creation":{"ephemeral_5m_input_tokens":40}}}}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("message_delta", `{"type":"message_delta","usage":{"output_tokens":5}}`),
+		sseEvent("message_stop", `{"type":"message_stop"}`),
+	}, "")
+
+	var gotUsage *chat.Usage
+	p := &Provider{}
+	result, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+		if ev.Done {
+			gotUsage = ev.Usage
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotUsage == nil {
+		t.Fatal("missing final usage")
+	}
+	if gotUsage.Cache.CachedInputTokens != 80 || gotUsage.Cache.CacheCreationInputTokens != 40 {
+		t.Fatalf("unexpected stream cache usage: %#v", gotUsage.Cache)
+	}
+	if gotUsage.Cache.Details["ephemeral_5m_input_tokens"] != 40 {
+		t.Fatalf("unexpected stream cache details: %#v", gotUsage.Cache.Details)
+	}
+	if result.Usage.Cache.CachedInputTokens != 80 {
+		t.Fatalf("unexpected result cache usage: %#v", result.Usage.Cache)
+	}
+}
+
 func TestChatStreamCallbackError(t *testing.T) {
 	sse := strings.Join([]string{
 		sseEvent("message_start", `{"type":"message_start","message":{"model":"test","usage":{"input_tokens":1}}}`),

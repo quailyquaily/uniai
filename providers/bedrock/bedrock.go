@@ -57,16 +57,29 @@ type bedrockMessage struct {
 }
 
 type bedrockMsgContent struct {
-	Type string `json:"type"`
-	Text string `json:"text,omitempty"`
+	Type         string               `json:"type"`
+	Text         string               `json:"text,omitempty"`
+	CacheControl *bedrockCacheControl `json:"cache_control,omitempty"`
 }
 
 type bedrockResponse struct {
 	Content []bedrockMsgContent `json:"content"`
-	Usage   struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage   bedrockUsage        `json:"usage"`
+}
+
+type bedrockCacheControl struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
+}
+
+type bedrockUsage struct {
+	InputTokens              int            `json:"input_tokens,omitempty"`
+	OutputTokens             int            `json:"output_tokens,omitempty"`
+	CacheReadInputTokens     int            `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
+	CacheWriteInputTokens    int            `json:"cache_write_input_tokens,omitempty"`
+	CacheCreation            map[string]int `json:"cache_creation,omitempty"`
+	CacheDetails             map[string]int `json:"cache_details,omitempty"`
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
@@ -74,30 +87,33 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if p.modelArn == "" {
 		return nil, fmt.Errorf("bedrock model arn is required")
 	}
-
-	normalizedMessages, err := chat.NormalizeTextOnlyMessages(req.Messages)
-	if err != nil {
-		return nil, fmt.Errorf("bedrock provider model %q: %w", p.modelArn, err)
+	if err := validateBedrockCacheControl(req, p.modelArn); err != nil {
+		return nil, err
 	}
 
 	systemParts := make([]string, 0, 1)
-	messages := make([]bedrockMessage, 0, len(normalizedMessages))
-	for _, m := range normalizedMessages {
-		text := m.Content
+	messages := make([]bedrockMessage, 0, len(req.Messages))
+	for _, m := range req.Messages {
 		switch m.Role {
 		case chat.RoleSystem:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
+			}
 			if text != "" {
 				systemParts = append(systemParts, text)
 			}
 		case chat.RoleUser, chat.RoleAssistant:
-			if text == "" {
+			content, err := toBedrockContent(m)
+			if err != nil {
+				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
+			}
+			if len(content) == 0 {
 				continue
 			}
 			messages = append(messages, bedrockMessage{
-				Role: m.Role,
-				Content: []bedrockMsgContent{
-					{Type: "text", Text: text},
-				},
+				Role:    m.Role,
+				Content: content,
 			})
 		default:
 			return nil, fmt.Errorf("bedrock provider does not support role %q", m.Role)
@@ -153,6 +169,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err := json.Unmarshal(resp.Body, &out); err != nil {
 		return nil, err
 	}
+	usage := parseBedrockUsage(resp.Body, out.Usage)
 
 	var textParts []string
 	for _, c := range out.Content {
@@ -170,12 +187,8 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			}
 			return []chat.Part{chat.TextPart(text)}
 		}(),
-		Usage: chat.Usage{
-			InputTokens:  out.Usage.InputTokens,
-			OutputTokens: out.Usage.OutputTokens,
-			TotalTokens:  out.Usage.InputTokens + out.Usage.OutputTokens,
-		},
-		Raw: out,
+		Usage: usage,
+		Raw:   out,
 	}
 	if len(req.Tools) > 0 {
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
@@ -196,14 +209,10 @@ type bedrockStreamEvent struct {
 		Text string `json:"text,omitempty"`
 	} `json:"delta,omitempty"`
 	Message *struct {
-		Model string `json:"model,omitempty"`
-		Usage *struct {
-			InputTokens int `json:"input_tokens"`
-		} `json:"usage,omitempty"`
+		Model string        `json:"model,omitempty"`
+		Usage *bedrockUsage `json:"usage,omitempty"`
 	} `json:"message,omitempty"`
-	Usage *struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage,omitempty"`
+	Usage *bedrockUsage `json:"usage,omitempty"`
 }
 
 func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.OnStreamFunc, tools []chat.Tool) (*chat.Result, error) {
@@ -220,10 +229,9 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 	defer stream.Close()
 
 	var (
-		textParts    []string
-		model        string
-		inputTokens  int
-		outputTokens int
+		textParts []string
+		model     string
+		usage     chat.Usage
 	)
 
 	for event := range stream.Events() {
@@ -242,7 +250,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 			if ev.Message != nil {
 				model = ev.Message.Model
 				if ev.Message.Usage != nil {
-					inputTokens = ev.Message.Usage.InputTokens
+					applyBedrockUsage(&usage, *ev.Message.Usage)
 				}
 			}
 		case "content_block_delta":
@@ -256,7 +264,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 			}
 		case "message_delta":
 			if ev.Usage != nil {
-				outputTokens = ev.Usage.OutputTokens
+				applyBedrockUsage(&usage, *ev.Usage)
 			}
 		}
 	}
@@ -265,14 +273,10 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 		return nil, err
 	}
 
-	totalTokens := inputTokens + outputTokens
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	if err := onStream(chat.StreamEvent{
-		Done: true,
-		Usage: &chat.Usage{
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			TotalTokens:  totalTokens,
-		},
+		Done:  true,
+		Usage: &usage,
 	}); err != nil {
 		return nil, err
 	}
@@ -287,11 +291,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 			}
 			return []chat.Part{chat.TextPart(text)}
 		}(),
-		Usage: chat.Usage{
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			TotalTokens:  totalTokens,
-		},
+		Usage: usage,
 	}
 	if len(tools) > 0 {
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
@@ -316,4 +316,165 @@ func (p *Provider) requestOptions() []request.Option {
 		return nil
 	}
 	return []request.Option{request.WithSetRequestHeaders(p.headers)}
+}
+
+func validateBedrockCacheControl(req *chat.Request, modelArn string) error {
+	if req == nil || !chat.RequestHasExplicitCacheControl(req) {
+		return nil
+	}
+	if !strings.Contains(strings.ToLower(strings.TrimSpace(modelArn)), "anthropic.") {
+		return fmt.Errorf("bedrock provider explicit cache control currently supports Anthropic Claude model arns only")
+	}
+	for i, msg := range req.Messages {
+		if msg.Role != chat.RoleSystem {
+			continue
+		}
+		for _, part := range msg.Parts {
+			if part.CacheControl != nil {
+				return fmt.Errorf("bedrock provider does not support explicit cache control on system parts yet (message[%d])", i)
+			}
+		}
+	}
+	for i, tool := range req.Tools {
+		if tool.CacheControl != nil {
+			return fmt.Errorf("bedrock provider does not support explicit cache control on tools yet (tool[%d])", i)
+		}
+	}
+	return nil
+}
+
+func toBedrockContent(msg chat.Message) ([]bedrockMsgContent, error) {
+	parts := chat.NormalizeMessageParts(msg)
+	if len(parts) == 0 {
+		return nil, nil
+	}
+	out := make([]bedrockMsgContent, 0, len(parts))
+	for _, part := range parts {
+		if err := chat.ValidatePart(part); err != nil {
+			return nil, err
+		}
+		if part.Type != chat.PartTypeText {
+			return nil, fmt.Errorf("unsupported part type %q", part.Type)
+		}
+		if strings.TrimSpace(part.Text) == "" && part.CacheControl == nil {
+			continue
+		}
+		out = append(out, bedrockMsgContent{
+			Type:         "text",
+			Text:         part.Text,
+			CacheControl: toBedrockCacheControl(part.CacheControl),
+		})
+	}
+	return out, nil
+}
+
+func toBedrockCacheControl(ctrl *chat.CacheControl) *bedrockCacheControl {
+	if ctrl == nil {
+		return nil
+	}
+	out := &bedrockCacheControl{Type: "ephemeral"}
+	if ttl := strings.TrimSpace(ctrl.TTL); ttl != "" {
+		out.TTL = ttl
+	}
+	return out
+}
+
+func parseBedrockUsage(rawBody []byte, typed bedrockUsage) chat.Usage {
+	usage := chat.Usage{
+		InputTokens:  typed.InputTokens,
+		OutputTokens: typed.OutputTokens,
+		TotalTokens:  typed.InputTokens + typed.OutputTokens,
+	}
+	applyBedrockUsage(&usage, typed)
+
+	var payload map[string]any
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
+		return usage
+	}
+	rawUsage, ok := payload["usage"].(map[string]any)
+	if !ok {
+		return usage
+	}
+	if usage.InputTokens == 0 {
+		usage.InputTokens = int(extractBedrockNumber(rawUsage, "input_tokens"))
+	}
+	if usage.OutputTokens == 0 {
+		usage.OutputTokens = int(extractBedrockNumber(rawUsage, "output_tokens"))
+	}
+	if usage.Cache.CachedInputTokens == 0 {
+		usage.Cache.CachedInputTokens = int(extractBedrockNumber(rawUsage, "cache_read_input_tokens"))
+	}
+	if usage.Cache.CacheCreationInputTokens == 0 {
+		usage.Cache.CacheCreationInputTokens = int(extractBedrockNumber(rawUsage, "cache_creation_input_tokens", "cache_write_input_tokens"))
+	}
+	chat.AddUsageCacheDetails(&usage, extractBedrockDetails(rawUsage, "cache_creation"))
+	chat.AddUsageCacheDetails(&usage, extractBedrockDetails(rawUsage, "cache_details"))
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	return usage
+}
+
+func applyBedrockUsage(dst *chat.Usage, src bedrockUsage) {
+	if dst == nil {
+		return
+	}
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.Cache.CachedInputTokens = src.CacheReadInputTokens
+	}
+	switch {
+	case src.CacheCreationInputTokens > 0:
+		dst.Cache.CacheCreationInputTokens = src.CacheCreationInputTokens
+	case src.CacheWriteInputTokens > 0:
+		dst.Cache.CacheCreationInputTokens = src.CacheWriteInputTokens
+	}
+	chat.AddUsageCacheDetails(dst, src.CacheCreation)
+	chat.AddUsageCacheDetails(dst, src.CacheDetails)
+}
+
+func extractBedrockNumber(m map[string]any, keys ...string) float64 {
+	for _, key := range keys {
+		if raw, ok := m[key]; ok {
+			switch val := raw.(type) {
+			case float64:
+				return val
+			case float32:
+				return float64(val)
+			case int:
+				return float64(val)
+			case int32:
+				return float64(val)
+			case int64:
+				return float64(val)
+			}
+		}
+	}
+	return 0
+}
+
+func extractBedrockDetails(m map[string]any, key string) map[string]int {
+	raw, ok := m[key]
+	if !ok {
+		return nil
+	}
+	details, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+	out := make(map[string]int, len(details))
+	for name, val := range details {
+		n := int(extractBedrockNumber(map[string]any{"value": val}, "value"))
+		if n == 0 {
+			continue
+		}
+		out[name] = n
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

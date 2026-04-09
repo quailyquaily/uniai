@@ -89,30 +89,31 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 }
 
 var openAIResponsesOptionKeys = map[string]struct{}{
-	"background":           {},
-	"conversation":         {},
-	"include":              {},
-	"input":                {},
-	"instructions":         {},
-	"max_tool_calls":       {},
-	"metadata":             {},
-	"parallel_tool_calls":  {},
-	"previous_response_id": {},
-	"prompt":               {},
-	"prompt_cache_key":     {},
-	"reasoning":            {},
-	"response_format":      {},
-	"safety_identifier":    {},
-	"service_tier":         {},
-	"store":                {},
-	"stream_options":       {},
-	"text":                 {},
-	"tool_choice":          {},
-	"tools":                {},
-	"top_logprobs":         {},
-	"truncation":           {},
-	"user":                 {},
-	"verbosity":            {},
+	"background":             {},
+	"conversation":           {},
+	"include":                {},
+	"input":                  {},
+	"instructions":           {},
+	"max_tool_calls":         {},
+	"metadata":               {},
+	"parallel_tool_calls":    {},
+	"previous_response_id":   {},
+	"prompt":                 {},
+	"prompt_cache_key":       {},
+	"prompt_cache_retention": {},
+	"reasoning":              {},
+	"response_format":        {},
+	"safety_identifier":      {},
+	"service_tier":           {},
+	"store":                  {},
+	"stream_options":         {},
+	"text":                   {},
+	"tool_choice":            {},
+	"tools":                  {},
+	"top_logprobs":           {},
+	"truncation":             {},
+	"user":                   {},
+	"verbosity":              {},
 }
 
 func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewParams, error) {
@@ -134,6 +135,9 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 	}
 	if req.Options.FrequencyPenalty != nil {
 		return responses.ResponseNewParams{}, fmt.Errorf("openai_resp provider does not support frequency penalty on the Responses API")
+	}
+	if err := chat.ValidateNoScopedCacheControl(req, "openai_resp"); err != nil {
+		return responses.ResponseNewParams{}, err
 	}
 
 	opts := req.Options.OpenAI
@@ -335,6 +339,13 @@ func applyRawRootOptions(params *responses.ResponseNewParams, opts structs.JSONM
 	if opts.HasKey("prompt_cache_key") {
 		if val := strings.TrimSpace(opts.GetString("prompt_cache_key")); val != "" {
 			params.PromptCacheKey = openai.String(val)
+		}
+	}
+	if opts.HasKey("prompt_cache_retention") {
+		if val := strings.TrimSpace(opts.GetString("prompt_cache_retention")); val != "" {
+			params.SetExtraFields(map[string]any{
+				"prompt_cache_retention": val,
+			})
 		}
 	}
 	if opts.HasKey("safety_identifier") {
@@ -754,16 +765,21 @@ func toResult(resp *responses.Response) *chat.Result {
 		return &chat.Result{Warnings: []string{"openai responses response is nil"}}
 	}
 
+	usage := chat.Usage{
+		InputTokens:  int(resp.Usage.InputTokens),
+		OutputTokens: int(resp.Usage.OutputTokens),
+		TotalTokens:  int(resp.Usage.TotalTokens),
+	}
+	if cached := int(resp.Usage.InputTokensDetails.CachedTokens); cached > 0 {
+		usage.Cache.CachedInputTokens = cached
+	}
+
 	result := &chat.Result{
 		ID:    resp.ID,
 		Text:  resp.OutputText(),
 		Model: string(resp.Model),
-		Usage: chat.Usage{
-			InputTokens:  int(resp.Usage.InputTokens),
-			OutputTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:  int(resp.Usage.TotalTokens),
-		},
-		Raw: resp,
+		Usage: usage,
+		Raw:   resp,
 	}
 
 	var textMessages []chat.Message

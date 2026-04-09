@@ -279,6 +279,13 @@ func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) 
 			params.PromptCacheKey = openai.String(val)
 		}
 	}
+	if opt.HasKey("prompt_cache_retention") {
+		if val := strings.TrimSpace(opt.GetString("prompt_cache_retention")); val != "" {
+			params.SetExtraFields(map[string]any{
+				"prompt_cache_retention": val,
+			})
+		}
+	}
 	if opt.HasKey("safety_identifier") {
 		if val := strings.TrimSpace(opt.GetString("safety_identifier")); val != "" {
 			params.SafetyIdentifier = openai.String(val)

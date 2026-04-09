@@ -420,3 +420,21 @@ func TestChatAppliesCustomHeaders(t *testing.T) {
 		t.Fatalf("unexpected text: %q", resp.Text)
 	}
 }
+
+func TestExtractUsageReadsCachedInputTokens(t *testing.T) {
+	usage := extractUsage(map[string]any{
+		"usage": map[string]any{
+			"prompt_tokens": 20,
+			"total_tokens":  25,
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 12,
+			},
+		},
+	})
+	if usage == nil {
+		t.Fatal("expected usage")
+	}
+	if usage.Cache.CachedInputTokens != 12 {
+		t.Fatalf("unexpected cache usage: %#v", usage.Cache)
+	}
+}

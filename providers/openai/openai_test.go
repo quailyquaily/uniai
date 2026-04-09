@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/quailyquaily/uniai/chat"
 )
@@ -120,6 +121,32 @@ func TestBuildParamsMapsReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_retention": "24h",
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(data), `"prompt_cache_retention":"24h"`) {
+		t.Fatalf("expected prompt_cache_retention in payload, got %s", string(data))
+	}
+}
+
 func TestBuildParamsRejectsReasoningBudget(t *testing.T) {
 	budget := 4096
 	req := &chat.Request{
@@ -157,6 +184,23 @@ func TestBuildParamsRejectsReasoningDetails(t *testing.T) {
 		t.Fatalf("expected error")
 	}
 	if got := err.Error(); got == "" || !strings.Contains(got, "Responses API") || !strings.Contains(got, "not supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildParamsRejectsExplicitCacheControl(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.UserParts(chat.WithPartCacheControl(chat.TextPart("hello"), chat.CacheTTL5m())),
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "explicit cache control") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -229,6 +273,11 @@ func TestBuildRequestMapsUserImageBase64Part(t *testing.T) {
 func TestToResultAddsTextPart(t *testing.T) {
 	resp := &openai.ChatCompletion{
 		Model: "gpt-5.2",
+		Usage: openai.CompletionUsage{
+			PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+				CachedTokens: 9,
+			},
+		},
 		Choices: []openai.ChatCompletionChoice{
 			{
 				Message: openai.ChatCompletionMessage{
@@ -244,6 +293,9 @@ func TestToResultAddsTextPart(t *testing.T) {
 	}
 	if out.Parts[0].Type != chat.PartTypeText || out.Parts[0].Text != "hello" {
 		t.Fatalf("unexpected parts: %#v", out.Parts)
+	}
+	if out.Usage.Cache.CachedInputTokens != 9 {
+		t.Fatalf("unexpected cache usage: %#v", out.Usage.Cache)
 	}
 }
 

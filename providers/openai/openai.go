@@ -94,6 +94,9 @@ func buildParams(req *chat.Request, defaultModel string, baseURL ...string) (ope
 	if req.Options.ReasoningDetails {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
 	}
+	if err := chat.ValidateNoScopedCacheControl(req, "openai"); err != nil {
+		return openai.ChatCompletionNewParams{}, err
+	}
 
 	messages, err := oaicompat.ToMessages(req.Messages, model)
 	if err != nil {
@@ -172,17 +175,22 @@ func toResult(resp *openai.ChatCompletion) *chat.Result {
 		parts = append(parts, chat.TextPart(text))
 	}
 
+	usage := chat.Usage{
+		InputTokens:  int(resp.Usage.PromptTokens),
+		OutputTokens: int(resp.Usage.CompletionTokens),
+		TotalTokens:  int(resp.Usage.TotalTokens),
+	}
+	if cached := int(resp.Usage.PromptTokensDetails.CachedTokens); cached > 0 {
+		usage.Cache.CachedInputTokens = cached
+	}
+
 	return &chat.Result{
 		Text:      text,
 		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
-		Usage: chat.Usage{
-			InputTokens:  int(resp.Usage.PromptTokens),
-			OutputTokens: int(resp.Usage.CompletionTokens),
-			TotalTokens:  int(resp.Usage.TotalTokens),
-		},
-		Raw: resp,
+		Usage:     usage,
+		Raw:       resp,
 	}
 }
 

@@ -395,6 +395,9 @@ func toOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {
 			PromptTokens:     int64(result.Usage.InputTokens),
 			CompletionTokens: int64(result.Usage.OutputTokens),
 			TotalTokens:      int64(result.Usage.TotalTokens),
+			PromptTokensDetails: openai.CompletionUsagePromptTokensDetails{
+				CachedTokens: int64(result.Usage.Cache.CachedInputTokens),
+			},
 		},
 	}
 	if result.Model != "" {
