@@ -1,7 +1,9 @@
 package uniai
 
 import (
+	"math"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
@@ -121,6 +123,44 @@ func TestPricingCatalogEstimateChatCostNoBuiltins(t *testing.T) {
 	}
 }
 
+func TestParsePricingYAMLRejectsNonFinitePrices(t *testing.T) {
+	_, err := ParsePricingYAML([]byte(`
+version: uniai.pricing.v1
+chat:
+  - provider: openai
+    model: gpt-5.4
+    input_usd_per_million: .nan
+    output_usd_per_million: 15
+`))
+	if err == nil {
+		t.Fatal("expected non-finite price to be rejected")
+	}
+	if !strings.Contains(err.Error(), "finite number") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPricingCatalogValidateRejectsNonFinitePointerAndDetailPrices(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				Provider:                 "anthropic",
+				Model:                    "claude-sonnet-4-6",
+				InputUSDPerMillion:       3,
+				OutputUSDPerMillion:      15,
+				CachedInputUSDPerMillion: float64Ptr(math.Inf(1)),
+				CacheCreationInputDetailUSDPerMillion: map[string]float64{
+					"ephemeral_5m_input_tokens": math.NaN(),
+				},
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected validation error for non-finite pricing")
+	}
+}
+
 func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
@@ -174,6 +214,39 @@ chat:
 	assertNearlyEqual(t, cost.CacheCreationInput, 20*6.0/1_000_000)
 	assertNearlyEqual(t, cost.Output, 10*15.0/1_000_000)
 	assertNearlyEqual(t, cost.Total, 0.00045)
+}
+
+func TestPricingCatalogEstimateChatCostRejectsOverlappingCacheCreationDetails(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				Provider:                        "anthropic",
+				Model:                           "claude-sonnet-4-6",
+				InputUSDPerMillion:              3,
+				OutputUSDPerMillion:             15,
+				CacheCreationInputUSDPerMillion: float64Ptr(3.75),
+				CacheCreationInputDetailUSDPerMillion: map[string]float64{
+					"ephemeral_5m_input_tokens": 3.75,
+					"ephemeral_1h_input_tokens": 6,
+				},
+			},
+		},
+	}
+
+	if cost, ok := catalog.EstimateChatCost("anthropic", "claude-sonnet-4-6", Usage{
+		InputTokens:  40,
+		OutputTokens: 10,
+		TotalTokens:  50,
+		Cache: UsageCache{
+			CacheCreationInputTokens: 20,
+			Details: map[string]int{
+				"ephemeral_5m_input_tokens": 15,
+				"ephemeral_1h_input_tokens": 15,
+			},
+		},
+	}); ok || cost != nil {
+		t.Fatalf("expected inconsistent cache creation details to return no cost, got %#v ok=%v", cost, ok)
+	}
 }
 
 func TestPricingExampleYAML(t *testing.T) {
