@@ -1,6 +1,9 @@
 package chat
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestNormalizeMessagePartsPrefersParts(t *testing.T) {
 	msg := Message{
@@ -50,6 +53,18 @@ func TestBuildRequestRejectsNonTextPartForAssistantRole(t *testing.T) {
 	)
 	if err == nil {
 		t.Fatalf("expected role constraint error")
+	}
+}
+
+func TestBuildRequestRejectsEmptyCachedTextPart(t *testing.T) {
+	_, err := BuildRequest(
+		WithMessages(UserParts(WithPartCacheControl(TextPart(" \t"), CacheTTL5m()))),
+	)
+	if err == nil {
+		t.Fatalf("expected empty cached text part error")
+	}
+	if got := err.Error(); got == "" || !strings.Contains(got, "non-empty text part") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

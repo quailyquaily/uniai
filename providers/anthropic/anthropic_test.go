@@ -172,6 +172,23 @@ func TestBuildRequestMapsCacheControl(t *testing.T) {
 	}
 }
 
+func TestBuildRequestRejectsEmptyCachedTextPart(t *testing.T) {
+	req := &chat.Request{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []chat.Message{
+			chat.UserParts(chat.WithPartCacheControl(chat.TextPart(" "), chat.CacheTTL5m())),
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := err.Error(); !strings.Contains(got, "non-empty text part") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
 	req := &chat.Request{
 		Model: "claude-sonnet-4-6-20260201",

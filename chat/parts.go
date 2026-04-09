@@ -62,6 +62,9 @@ func ValidatePart(part Part) error {
 	}
 	switch part.Type {
 	case PartTypeText:
+		if part.CacheControl != nil && strings.TrimSpace(part.Text) == "" {
+			return fmt.Errorf("cache control requires non-empty text part")
+		}
 		return nil
 	case PartTypeImageURL:
 		if strings.TrimSpace(part.URL) == "" {

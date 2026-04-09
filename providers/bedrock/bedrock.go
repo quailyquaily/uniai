@@ -169,7 +169,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err := json.Unmarshal(resp.Body, &out); err != nil {
 		return nil, err
 	}
-	usage := parseBedrockUsage(resp.Body, out.Usage)
+	usage := parseBedrockUsage(out.Usage)
 
 	var textParts []string
 	for _, c := range out.Content {
@@ -379,36 +379,13 @@ func toBedrockCacheControl(ctrl *chat.CacheControl) *bedrockCacheControl {
 	return out
 }
 
-func parseBedrockUsage(rawBody []byte, typed bedrockUsage) chat.Usage {
+func parseBedrockUsage(typed bedrockUsage) chat.Usage {
 	usage := chat.Usage{
 		InputTokens:  typed.InputTokens,
 		OutputTokens: typed.OutputTokens,
 		TotalTokens:  typed.InputTokens + typed.OutputTokens,
 	}
 	applyBedrockUsage(&usage, typed)
-
-	var payload map[string]any
-	if err := json.Unmarshal(rawBody, &payload); err != nil {
-		return usage
-	}
-	rawUsage, ok := payload["usage"].(map[string]any)
-	if !ok {
-		return usage
-	}
-	if usage.InputTokens == 0 {
-		usage.InputTokens = int(extractBedrockNumber(rawUsage, "input_tokens"))
-	}
-	if usage.OutputTokens == 0 {
-		usage.OutputTokens = int(extractBedrockNumber(rawUsage, "output_tokens"))
-	}
-	if usage.Cache.CachedInputTokens == 0 {
-		usage.Cache.CachedInputTokens = int(extractBedrockNumber(rawUsage, "cache_read_input_tokens"))
-	}
-	if usage.Cache.CacheCreationInputTokens == 0 {
-		usage.Cache.CacheCreationInputTokens = int(extractBedrockNumber(rawUsage, "cache_creation_input_tokens", "cache_write_input_tokens"))
-	}
-	chat.AddUsageCacheDetails(&usage, extractBedrockDetails(rawUsage, "cache_creation"))
-	chat.AddUsageCacheDetails(&usage, extractBedrockDetails(rawUsage, "cache_details"))
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	return usage
 }
@@ -434,47 +411,4 @@ func applyBedrockUsage(dst *chat.Usage, src bedrockUsage) {
 	}
 	chat.AddUsageCacheDetails(dst, src.CacheCreation)
 	chat.AddUsageCacheDetails(dst, src.CacheDetails)
-}
-
-func extractBedrockNumber(m map[string]any, keys ...string) float64 {
-	for _, key := range keys {
-		if raw, ok := m[key]; ok {
-			switch val := raw.(type) {
-			case float64:
-				return val
-			case float32:
-				return float64(val)
-			case int:
-				return float64(val)
-			case int32:
-				return float64(val)
-			case int64:
-				return float64(val)
-			}
-		}
-	}
-	return 0
-}
-
-func extractBedrockDetails(m map[string]any, key string) map[string]int {
-	raw, ok := m[key]
-	if !ok {
-		return nil
-	}
-	details, ok := raw.(map[string]any)
-	if !ok {
-		return nil
-	}
-	out := make(map[string]int, len(details))
-	for name, val := range details {
-		n := int(extractBedrockNumber(map[string]any{"value": val}, "value"))
-		if n == 0 {
-			continue
-		}
-		out[name] = n
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
