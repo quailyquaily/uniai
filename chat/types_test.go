@@ -173,3 +173,22 @@ func TestUsageMarshalJSONIncludesCacheWhenPresent(t *testing.T) {
 		t.Fatalf("expected cache details in payload, got %s", string(data))
 	}
 }
+
+func TestUsageMarshalJSONIncludesCostWhenPresent(t *testing.T) {
+	data, err := json.Marshal(Usage{
+		InputTokens:  1,
+		OutputTokens: 2,
+		TotalTokens:  3,
+		Cost: &UsageCost{
+			Currency:  "USD",
+			Estimated: true,
+			Total:     0.000123,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal usage: %v", err)
+	}
+	if !strings.Contains(string(data), `"cost":{"currency":"USD","estimated":true,"total":0.000123}`) {
+		t.Fatalf("expected cost details in payload, got %s", string(data))
+	}
+}

@@ -149,6 +149,11 @@ type Usage struct {
 	// Cache contains cache-hit and cache-write breakdown data when the provider
 	// returns it.
 	Cache UsageCache `json:"cache,omitempty"`
+
+	// Cost is a uniai-estimated cost breakdown derived from an external pricing
+	// catalog and the reported usage. It is omitted when pricing is not configured
+	// or no rule matches.
+	Cost *UsageCost `json:"cost,omitempty"`
 }
 
 // UsageCache contains cache-related token breakdowns.
@@ -167,12 +172,28 @@ type UsageCache struct {
 	Details map[string]int `json:"details,omitempty"`
 }
 
+// UsageCost is a local cost estimate derived from Usage and an external pricing
+// catalog. It is not a verbatim upstream billing record.
+type UsageCost struct {
+	Currency string `json:"currency"`
+
+	// Estimated is always true for locally-derived cost values.
+	Estimated bool `json:"estimated"`
+
+	Input              float64 `json:"input,omitempty"`
+	CachedInput        float64 `json:"cached_input,omitempty"`
+	CacheCreationInput float64 `json:"cache_creation_input,omitempty"`
+	Output             float64 `json:"output,omitempty"`
+	Total              float64 `json:"total"`
+}
+
 func (u Usage) MarshalJSON() ([]byte, error) {
 	type usageJSON struct {
 		InputTokens  int         `json:"input_tokens"`
 		OutputTokens int         `json:"output_tokens"`
 		TotalTokens  int         `json:"total_tokens"`
 		Cache        *UsageCache `json:"cache,omitempty"`
+		Cost         *UsageCost  `json:"cost,omitempty"`
 	}
 
 	var cache *UsageCache
@@ -185,6 +206,7 @@ func (u Usage) MarshalJSON() ([]byte, error) {
 		OutputTokens: u.OutputTokens,
 		TotalTokens:  u.TotalTokens,
 		Cache:        cache,
+		Cost:         u.Cost,
 	})
 }
 

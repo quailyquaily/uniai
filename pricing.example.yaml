@@ -1,0 +1,159 @@
+# Example pricing catalog for uniai.
+#
+# Checked against official pricing pages on 2026-04-09.
+# Prices may change later. Re-check the official pages before using this in production.
+#
+# This example intentionally keeps only the standard chat token rates that fit
+# PricingCatalog v1.
+# It does not encode:
+# - Batch / Flex / Priority variants
+# - tool invocation fees
+# - storage fees for cache/context caching
+# - context-length-dependent higher tiers above provider thresholds
+# - image / audio specific token prices
+#
+# Official sources used for this file:
+# - OpenAI: https://openai.com/api/pricing/
+# - Anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
+# - Anthropic announcements: https://www.anthropic.com/news/claude-opus-4-6
+# - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
+# - Gemini: https://ai.google.dev/gemini-api/docs/pricing
+# - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing/
+# - xAI: https://x.ai/api
+# - Groq: https://console.groq.com/docs/models
+# - Groq GPT-OSS cached pricing: https://console.groq.com/docs/model/openai/gpt-oss-120b
+# - Cloudflare: https://developers.cloudflare.com/workers-ai/platform/pricing/
+#
+# Notes:
+# - This example keeps the GPT-5.4 family only and omits GPT-5.4 Pro on purpose.
+# - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
+#   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
+# - Gemini 3.1 Pro below uses the standard <=200k prompt tier.
+# - Gemini Flash below uses the current public model name `gemini-3-flash-preview`.
+
+version: uniai.pricing.v1
+
+chat:
+  # OpenAI
+  - provider: openai
+    model: gpt-5.4
+    input_usd_per_million: 2.50
+    cached_input_usd_per_million: 0.25
+    output_usd_per_million: 15.00
+  - provider: openai
+    model: gpt-5.4-mini
+    input_usd_per_million: 0.75
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 4.50
+  - provider: openai
+    model: gpt-5.4-nano
+    input_usd_per_million: 0.20
+    cached_input_usd_per_million: 0.02
+    output_usd_per_million: 1.25
+
+  # OpenAI Responses API
+  - provider: openai_resp
+    model: gpt-5.4
+    input_usd_per_million: 2.50
+    cached_input_usd_per_million: 0.25
+    output_usd_per_million: 15.00
+  - provider: openai_resp
+    model: gpt-5.4-mini
+    input_usd_per_million: 0.75
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 4.50
+  - provider: openai_resp
+    model: gpt-5.4-nano
+    input_usd_per_million: 0.20
+    cached_input_usd_per_million: 0.02
+    output_usd_per_million: 1.25
+
+  # Anthropic
+  - provider: anthropic
+    model: claude-opus-4-6
+    input_usd_per_million: 5.00
+    cached_input_usd_per_million: 0.50
+    cache_creation_input_usd_per_million: 6.25
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 6.25
+      ephemeral_1h_input_tokens: 10.00
+    output_usd_per_million: 25.00
+  - provider: anthropic
+    model: claude-sonnet-4-6
+    input_usd_per_million: 3.00
+    cached_input_usd_per_million: 0.30
+    cache_creation_input_usd_per_million: 3.75
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 3.75
+      ephemeral_1h_input_tokens: 6.00
+    output_usd_per_million: 15.00
+
+  # Gemini
+  - provider: gemini
+    model: gemini-3.1-pro-preview
+    aliases:
+      - gemini-3.1-pro-preview-customtools
+    input_usd_per_million: 2.00
+    cached_input_usd_per_million: 0.20
+    output_usd_per_million: 12.00
+  - provider: gemini
+    model: gemini-3-flash-preview
+    input_usd_per_million: 0.50
+    cached_input_usd_per_million: 0.05
+    output_usd_per_million: 3.00
+
+  # DeepSeek
+  - provider: deepseek
+    model: deepseek-chat
+    input_usd_per_million: 0.28
+    cached_input_usd_per_million: 0.028
+    output_usd_per_million: 0.42
+  - provider: deepseek
+    model: deepseek-reasoner
+    input_usd_per_million: 0.28
+    cached_input_usd_per_million: 0.028
+    output_usd_per_million: 0.42
+
+  # xAI
+  - provider: xai
+    model: grok-4.20-reasoning
+    input_usd_per_million: 2.00
+    output_usd_per_million: 6.00
+  - provider: xai
+    model: grok-4.20-non-reasoning
+    input_usd_per_million: 2.00
+    output_usd_per_million: 6.00
+  - provider: xai
+    model: grok-4-1-fast-reasoning
+    input_usd_per_million: 0.20
+    output_usd_per_million: 0.50
+  - provider: xai
+    model: grok-4-1-fast-non-reasoning
+    input_usd_per_million: 0.20
+    output_usd_per_million: 0.50
+
+  # Groq
+  - provider: groq
+    model: openai/gpt-oss-120b
+    input_usd_per_million: 0.15
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 0.60
+  - provider: groq
+    model: openai/gpt-oss-20b
+    input_usd_per_million: 0.075
+    output_usd_per_million: 0.30
+  - provider: groq
+    model: llama-3.3-70b-versatile
+    input_usd_per_million: 0.59
+    output_usd_per_million: 0.79
+
+  # Cloudflare Workers AI
+  - provider: cloudflare
+    model: "@cf/openai/gpt-oss-120b"
+    input_usd_per_million: 0.35
+    output_usd_per_million: 0.75
+  - provider: cloudflare
+    model: "@cf/moonshotai/kimi-k2.5"
+    input_usd_per_million: 0.60
+    cached_input_usd_per_million: 0.10
+    output_usd_per_million: 3.00

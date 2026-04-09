@@ -327,7 +327,7 @@ resp, err := client.Chat(ctx,
     uniai.WithMessages(uniai.User("Tell me a story.")),
     uniai.WithOnStream(func(ev uniai.StreamEvent) error {
         if ev.Done {
-            // stream finished; ev.Usage contains token counts
+            // stream finished; ev.Usage contains token counts and, when known, cost
             return nil
         }
         if ev.Delta != "" {
@@ -356,6 +356,63 @@ Check out the [stream demo](cmd/stream/README.md) for a runnable terminal exampl
 Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
 When combined with tool emulation (`WithToolsEmulationMode`), the internal decision request is always non-streaming; only the final text response streams.
+
+## Cost estimation
+
+`uniai` does not ship built-in model pricing.
+
+If you provide a pricing catalog via `Config.Pricing`, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when a rule matches the current provider/model.
+
+A maintained example catalog lives in `pricing.example.yaml`.
+
+```go
+pricing, err := uniai.ParsePricingYAML([]byte(`
+version: uniai.pricing.v1
+chat:
+  - provider: openai
+    model: gpt-5.4
+    input_usd_per_million: 2.50
+    output_usd_per_million: 15
+    cached_input_usd_per_million: 0.25
+`))
+if err != nil {
+    log.Fatal(err)
+}
+
+client := uniai.New(uniai.Config{
+    Provider: "openai",
+    Pricing:  pricing,
+})
+
+resp, err := client.Chat(ctx,
+    uniai.WithModel("gpt-5.4"),
+    uniai.WithMessages(uniai.User("hello")),
+)
+if err != nil {
+    log.Fatal(err)
+}
+if resp.Usage.Cost != nil {
+    log.Printf("estimated cost: %s %.8f", resp.Usage.Cost.Currency, resp.Usage.Cost.Total)
+}
+```
+
+You can also build the catalog directly in Go:
+
+```go
+pricing := &uniai.PricingCatalog{
+    Version: uniai.PricingCatalogVersionV1,
+    Chat: []uniai.ChatPricingRule{
+        {
+            Provider:            "azure",
+            Model:               "my-gpt-5-deployment",
+            InputUSDPerMillion:  1.75,
+            OutputUSDPerMillion: 14,
+        },
+    },
+}
+```
+
+`Usage.Cost` is a local estimate derived from token counts and your price table. It is not a verbatim upstream billing record.
 
 ## Embeddings
 
@@ -436,7 +493,7 @@ func example(ctx context.Context) error {
 
 All configuration is provided via `uniai.Config`. Only the fields required for the providers you use need to be set.
 
-- Chat defaults: `Provider`, `Debug`, `ChatHeaders` (`ChatHeaders` apply to chat provider HTTP requests only)
+- Chat defaults: `Provider`, `Debug`, `ChatHeaders`, `Pricing` (`ChatHeaders` apply to chat provider HTTP requests only; `Pricing` is an optional external pricing catalog for `Usage.Cost`)
 - OpenAI/OpenAI-compatible: `OpenAIAPIKey`, `OpenAIAPIBase`, `OpenAIModel`
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
 - Anthropic: `AnthropicAPIKey`, `AnthropicModel`

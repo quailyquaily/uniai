@@ -11,6 +11,10 @@ type Config struct {
 	// ChatHeaders are applied to chat provider HTTP requests only.
 	ChatHeaders map[string]string
 
+	// Pricing provides optional cost estimation rules. When nil, uniai does not
+	// derive Usage.Cost.
+	Pricing *PricingCatalog
+
 	// OpenAI / OpenAI-compatible
 	OpenAIAPIKey  string
 	OpenAIAPIBase string
@@ -58,6 +62,9 @@ const (
 
 func (cfg Config) withDefaults() Config {
 	cfg.ChatHeaders = httputil.CloneHeaders(cfg.ChatHeaders)
+	if cfg.Pricing != nil {
+		cfg.Pricing = cfg.Pricing.Clone()
+	}
 	if cfg.OpenAIAPIBase == "" {
 		cfg.OpenAIAPIBase = DefaultOpenAIAPIBase
 	}

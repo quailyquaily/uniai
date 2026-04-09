@@ -29,6 +29,7 @@ type (
 	ReasoningBlock     = chat.ReasoningBlock
 	Usage              = chat.Usage
 	UsageCache         = chat.UsageCache
+	UsageCost          = chat.UsageCost
 	DebugFn            = chat.DebugFn
 	ToolsEmulationMode = chat.ToolsEmulationMode
 	OnStreamFunc       = chat.OnStreamFunc
