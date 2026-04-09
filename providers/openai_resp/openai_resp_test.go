@@ -138,6 +138,49 @@ func TestBuildParamsAllowsRawInputWithoutMessages(t *testing.T) {
 	}
 }
 
+func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.4",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_retention": "24h",
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(data), `"prompt_cache_retention":"24h"`) {
+		t.Fatalf("expected prompt_cache_retention in payload, got %s", string(data))
+	}
+}
+
+func TestBuildParamsRejectsExplicitCacheControl(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.4",
+		Messages: []chat.Message{
+			chat.UserParts(chat.WithPartCacheControl(chat.TextPart("hello"), chat.CacheTTL5m())),
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "explicit cache control") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildParamsRejectsUnsupportedSharedOptions(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -551,7 +594,7 @@ func TestToResultParsesResponsesOutput(t *testing.T) {
 		},
 		"usage": map[string]any{
 			"input_tokens":         10,
-			"input_tokens_details": map[string]any{},
+			"input_tokens_details": map[string]any{"cached_tokens": 6},
 			"output_tokens":        5,
 			"output_tokens_details": map[string]any{
 				"reasoning_tokens": 0,
@@ -584,6 +627,9 @@ func TestToResultParsesResponsesOutput(t *testing.T) {
 	}
 	if result.Usage.TotalTokens != 15 {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
+	}
+	if result.Usage.Cache.CachedInputTokens != 6 {
+		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
 	}
 }
 

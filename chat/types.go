@@ -20,11 +20,12 @@ const (
 )
 
 type Part struct {
-	Type       string `json:"type"`
-	Text       string `json:"text,omitempty"`
-	URL        string `json:"url,omitempty"`
-	DataBase64 string `json:"data_base64,omitempty"`
-	MIMEType   string `json:"mime_type,omitempty"`
+	Type         string        `json:"type"`
+	Text         string        `json:"text,omitempty"`
+	URL          string        `json:"url,omitempty"`
+	DataBase64   string        `json:"data_base64,omitempty"`
+	MIMEType     string        `json:"mime_type,omitempty"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 type Message struct {
@@ -49,8 +50,9 @@ type ToolCallFunction struct {
 }
 
 type Tool struct {
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
+	Type         string        `json:"type"`
+	Function     ToolFunction  `json:"function"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 type ToolFunction struct {
@@ -63,6 +65,10 @@ type ToolFunction struct {
 type ToolChoice struct {
 	Mode         string `json:"mode,omitempty"` // auto|none|required|function
 	FunctionName string `json:"function_name,omitempty"`
+}
+
+type CacheControl struct {
+	TTL string `json:"ttl,omitempty"`
 }
 
 type ReasoningEffort string
@@ -125,9 +131,16 @@ type Request struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens  int        `json:"input_tokens"`
+	OutputTokens int        `json:"output_tokens"`
+	TotalTokens  int        `json:"total_tokens"`
+	Cache        UsageCache `json:"cache,omitempty"`
+}
+
+type UsageCache struct {
+	CachedInputTokens        int            `json:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
+	Details                  map[string]int `json:"details,omitempty"`
 }
 
 type Result struct {
@@ -199,6 +212,11 @@ func BuildRequest(opts ...Option) (*Request, error) {
 			if msg.Role != RoleUser {
 				return nil, fmt.Errorf("message[%d]: role %q supports only %q part type", i, msg.Role, PartTypeText)
 			}
+		}
+	}
+	for i := range req.Tools {
+		if err := ValidateCacheControl(req.Tools[i].CacheControl); err != nil {
+			return nil, fmt.Errorf("tool[%d]: %w", i, err)
 		}
 	}
 	return req, nil
@@ -301,7 +319,7 @@ func WithCloudflareOptions(opts structs.JSONMap) Option {
 }
 
 func WithTools(tools []Tool) Option {
-	return func(r *Request) { r.Tools = append([]Tool{}, tools...) }
+	return func(r *Request) { r.Tools = CloneTools(tools) }
 }
 
 func WithToolChoice(choice ToolChoice) Option {
@@ -346,6 +364,24 @@ func ImageURLPart(url string) Part {
 
 func ImageBase64Part(mimeType, dataBase64 string) Part {
 	return Part{Type: PartTypeImageBase64, MIMEType: mimeType, DataBase64: dataBase64}
+}
+
+func WithPartCacheControl(part Part, ctrl CacheControl) Part {
+	part.CacheControl = CloneCacheControl(&ctrl)
+	return part
+}
+
+func WithToolCacheControl(tool Tool, ctrl CacheControl) Tool {
+	tool.CacheControl = CloneCacheControl(&ctrl)
+	return tool
+}
+
+func CacheTTL5m() CacheControl {
+	return CacheControl{TTL: "5m"}
+}
+
+func CacheTTL1h() CacheControl {
+	return CacheControl{TTL: "1h"}
 }
 
 func FunctionTool(name, description string, paramsJSON []byte) Tool {

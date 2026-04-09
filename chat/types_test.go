@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/lyricat/goutils/structs"
@@ -114,5 +115,29 @@ func TestReasoningOptions(t *testing.T) {
 	}
 	if !req.Options.ReasoningDetails {
 		t.Fatalf("reasoning details not enabled")
+	}
+}
+
+func TestBuildRequestRejectsInvalidCacheControlTTL(t *testing.T) {
+	_, err := BuildRequest(
+		WithMessages(UserParts(WithPartCacheControl(TextPart("prefix"), CacheControl{TTL: "30m"}))),
+	)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if err.Error() == "" || !strings.Contains(err.Error(), "unsupported cache ttl") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCacheControlHelpers(t *testing.T) {
+	part := WithPartCacheControl(TextPart("prefix"), CacheTTL5m())
+	if part.CacheControl == nil || part.CacheControl.TTL != "5m" {
+		t.Fatalf("unexpected part cache control: %#v", part.CacheControl)
+	}
+
+	tool := WithToolCacheControl(FunctionTool("lookup", "desc", []byte(`{"type":"object"}`)), CacheTTL1h())
+	if tool.CacheControl == nil || tool.CacheControl.TTL != "1h" {
+		t.Fatalf("unexpected tool cache control: %#v", tool.CacheControl)
 	}
 }

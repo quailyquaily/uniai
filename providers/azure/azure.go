@@ -59,6 +59,9 @@ func New(cfg Config) (*Provider, error) {
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
+	if err := chat.ValidateNoScopedCacheControl(req, "azure"); err != nil {
+		return nil, err
+	}
 	messages, err := oaicompat.ToMessages(req.Messages, p.deployment)
 	if err != nil {
 		return nil, fmt.Errorf("azure provider model %q: %w", p.deployment, err)
@@ -127,7 +130,21 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	} else {
 		diag.LogJSON(p.debug, debugFn, "azure.chat.response", resp)
 	}
+	return toResult(resp), nil
+}
 
+func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openaiOpts structs.JSONMap) {
+	opts := azureOpts
+	if len(opts) == 0 && len(openaiOpts) > 0 {
+		opts = openaiOpts
+	}
+	oaicompat.ApplyOptions(params, opts)
+}
+
+func toResult(resp *openai.ChatCompletion) *chat.Result {
+	if resp == nil {
+		return &chat.Result{Warnings: []string{"azure response is nil"}}
+	}
 	text := ""
 	parts := make([]chat.Part, 0, 1)
 	var toolCalls []chat.ToolCall
@@ -141,24 +158,21 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		parts = append(parts, chat.TextPart(text))
 	}
 
+	usage := chat.Usage{
+		InputTokens:  int(resp.Usage.PromptTokens),
+		OutputTokens: int(resp.Usage.CompletionTokens),
+		TotalTokens:  int(resp.Usage.TotalTokens),
+	}
+	if cached := int(resp.Usage.PromptTokensDetails.CachedTokens); cached > 0 {
+		usage.Cache.CachedInputTokens = cached
+	}
+
 	return &chat.Result{
 		Text:      text,
 		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
-		Usage: chat.Usage{
-			InputTokens:  int(resp.Usage.PromptTokens),
-			OutputTokens: int(resp.Usage.CompletionTokens),
-			TotalTokens:  int(resp.Usage.TotalTokens),
-		},
-		Raw: resp,
-	}, nil
-}
-
-func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openaiOpts structs.JSONMap) {
-	opts := azureOpts
-	if len(opts) == 0 && len(openaiOpts) > 0 {
-		opts = openaiOpts
+		Usage:     usage,
+		Raw:       resp,
 	}
-	oaicompat.ApplyOptions(params, opts)
 }

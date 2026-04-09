@@ -142,6 +142,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if req.Options.OnStream != nil {
 		return nil, fmt.Errorf("gemini provider does not support streaming yet")
 	}
+	if err := chat.ValidateNoScopedCacheControl(req, "gemini"); err != nil {
+		return nil, err
+	}
 
 	model := strings.TrimSpace(req.Model)
 	if model == "" {

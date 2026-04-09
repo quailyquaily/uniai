@@ -38,18 +38,19 @@ type anthropicMessage struct {
 }
 
 type anthropicContentPart struct {
-	Type      string                `json:"type"`
-	Text      string                `json:"text,omitempty"`
-	Thinking  string                `json:"thinking,omitempty"`
-	Signature string                `json:"signature,omitempty"`
-	Data      string                `json:"data,omitempty"`
-	Source    *anthropicImageSource `json:"source,omitempty"`
-	ID        string                `json:"id,omitempty"`
-	Name      string                `json:"name,omitempty"`
-	Input     any                   `json:"input,omitempty"`
-	ToolUseID string                `json:"tool_use_id,omitempty"`
-	Content   any                   `json:"content,omitempty"`
-	IsError   *bool                 `json:"is_error,omitempty"`
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	Thinking     string                 `json:"thinking,omitempty"`
+	Signature    string                 `json:"signature,omitempty"`
+	Data         string                 `json:"data,omitempty"`
+	Source       *anthropicImageSource  `json:"source,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	Input        any                    `json:"input,omitempty"`
+	ToolUseID    string                 `json:"tool_use_id,omitempty"`
+	Content      any                    `json:"content,omitempty"`
+	IsError      *bool                  `json:"is_error,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicImageSource struct {
@@ -61,7 +62,7 @@ type anthropicImageSource struct {
 
 type anthropicRequest struct {
 	Model         string                 `json:"model"`
-	System        string                 `json:"system,omitempty"`
+	System        any                    `json:"system,omitempty"`
 	Messages      []anthropicMessage     `json:"messages"`
 	MaxTokens     int                    `json:"max_tokens"`
 	Temperature   *float64               `json:"temperature,omitempty"`
@@ -80,10 +81,7 @@ type anthropicResponse struct {
 	Content    []anthropicContentPart `json:"content"`
 	Model      string                 `json:"model"`
 	StopReason string                 `json:"stop_reason,omitempty"`
-	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage      anthropicUsage         `json:"usage"`
 }
 
 type anthropicMetadata struct {
@@ -91,9 +89,10 @@ type anthropicMetadata struct {
 }
 
 type anthropicTool struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	InputSchema any    `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description,omitempty"`
+	InputSchema  any                    `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicToolChoice struct {
@@ -109,6 +108,25 @@ type anthropicThinking struct {
 
 type anthropicOutputConfig struct {
 	Effort string `json:"effort,omitempty"`
+}
+
+type anthropicCacheControl struct {
+	Type string `json:"type"`
+	TTL  string `json:"ttl,omitempty"`
+}
+
+type anthropicSystemPart struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+
+type anthropicUsage struct {
+	InputTokens              int            `json:"input_tokens,omitempty"`
+	OutputTokens             int            `json:"output_tokens,omitempty"`
+	CacheReadInputTokens     int            `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
+	CacheCreation            map[string]int `json:"cache_creation,omitempty"`
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
@@ -198,70 +216,57 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 }
 
 func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
-	systemParts := make([]string, 0, 1)
+	systemTextParts := make([]string, 0, 1)
+	systemParts := make([]anthropicSystemPart, 0, 1)
+	structuredSystem := false
 	messages := make([]anthropicMessage, 0, len(req.Messages))
 
 	for _, m := range req.Messages {
 		switch m.Role {
 		case chat.RoleSystem:
-			text, err := chat.MessageText(m)
-			if err != nil {
-				return nil, fmt.Errorf("role %q: %w", m.Role, err)
-			}
-			if text != "" {
-				systemParts = append(systemParts, text)
+			for _, part := range chat.NormalizeMessageParts(m) {
+				systemPart, ok, err := toAnthropicSystemPart(part)
+				if err != nil {
+					return nil, fmt.Errorf("role %q: %w", m.Role, err)
+				}
+				if !ok {
+					continue
+				}
+				if systemPart.CacheControl != nil {
+					structuredSystem = true
+				}
+				systemTextParts = append(systemTextParts, systemPart.Text)
+				systemParts = append(systemParts, systemPart)
 			}
 		case chat.RoleUser:
 			msg := anthropicMessage{Role: "user"}
 			for _, part := range chat.NormalizeMessageParts(m) {
-				if err := chat.ValidatePart(part); err != nil {
+				contentPart, ok, err := toAnthropicContentPart(part)
+				if err != nil {
 					return nil, fmt.Errorf("role %q: %w", m.Role, err)
 				}
-				switch part.Type {
-				case chat.PartTypeText:
-					if strings.TrimSpace(part.Text) == "" {
-						continue
-					}
-					msg.Content = append(msg.Content, anthropicContentPart{
-						Type: "text",
-						Text: part.Text,
-					})
-				case chat.PartTypeImageBase64:
-					mimeType := strings.TrimSpace(part.MIMEType)
-					if mimeType == "" {
-						mimeType = "image/png"
-					}
-					msg.Content = append(msg.Content, anthropicContentPart{
-						Type: "image",
-						Source: &anthropicImageSource{
-							Type:      "base64",
-							MediaType: mimeType,
-							Data:      strings.TrimSpace(part.DataBase64),
-						},
-					})
-				case chat.PartTypeImageURL:
-					msg.Content = append(msg.Content, anthropicContentPart{
-						Type: "image",
-						Source: &anthropicImageSource{
-							Type: "url",
-							URL:  strings.TrimSpace(part.URL),
-						},
-					})
-				default:
-					return nil, fmt.Errorf("role %q: unsupported part type %q", m.Role, part.Type)
+				if !ok {
+					continue
 				}
+				msg.Content = append(msg.Content, contentPart)
 			}
 			if len(msg.Content) > 0 {
 				messages = append(messages, msg)
 			}
 		case chat.RoleAssistant:
-			text, err := chat.MessageText(m)
-			if err != nil {
-				return nil, fmt.Errorf("role %q: %w", m.Role, err)
-			}
 			msg := anthropicMessage{Role: "assistant"}
-			if text != "" {
-				msg.Content = append(msg.Content, anthropicContentPart{Type: "text", Text: text})
+			for _, part := range chat.NormalizeMessageParts(m) {
+				contentPart, ok, err := toAnthropicContentPart(part)
+				if err != nil {
+					return nil, fmt.Errorf("role %q: %w", m.Role, err)
+				}
+				if !ok {
+					continue
+				}
+				if contentPart.Type != "text" {
+					return nil, fmt.Errorf("role %q: unsupported part type %q", m.Role, part.Type)
+				}
+				msg.Content = append(msg.Content, contentPart)
 			}
 			if len(m.ToolCalls) > 0 {
 				toolParts, err := toAnthropicToolUses(m.ToolCalls)
@@ -304,12 +309,17 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 
 	body := &anthropicRequest{
 		Model:         model,
-		System:        strings.Join(systemParts, "\n"),
 		Messages:      messages,
 		MaxTokens:     maxTokens,
 		Temperature:   req.Options.Temperature,
 		TopP:          req.Options.TopP,
 		StopSequences: req.Options.Stop,
+	}
+	switch {
+	case structuredSystem:
+		body.System = systemParts
+	case len(systemTextParts) > 0:
+		body.System = strings.Join(systemTextParts, "\n")
 	}
 	if len(req.Tools) > 0 {
 		tools, err := toAnthropicTools(req.Tools)
@@ -416,9 +426,10 @@ func toAnthropicTools(tools []chat.Tool) ([]anthropicTool, error) {
 			schema = map[string]any{"type": "object"}
 		}
 		at := anthropicTool{
-			Name:        tool.Function.Name,
-			Description: tool.Function.Description,
-			InputSchema: schema,
+			Name:         tool.Function.Name,
+			Description:  tool.Function.Description,
+			InputSchema:  schema,
+			CacheControl: toAnthropicCacheControl(tool.CacheControl),
 		}
 		out = append(out, at)
 	}
@@ -527,17 +538,14 @@ func toResult(out *anthropicResponse, reasoningDetails bool) (*chat.Result, erro
 	}
 	text := strings.Join(textParts, "\n")
 
+	usage := usageFromAnthropicUsage(out.Usage)
 	result := &chat.Result{
 		Text:      text,
 		Model:     out.Model,
 		Parts:     []chat.Part{},
 		ToolCalls: toolCalls,
 		Reasoning: reasoning,
-		Usage: chat.Usage{
-			InputTokens:  out.Usage.InputTokens,
-			OutputTokens: out.Usage.OutputTokens,
-			TotalTokens:  out.Usage.InputTokens + out.Usage.OutputTokens,
-		},
+		Usage:     usage,
 	}
 	if text != "" {
 		result.Parts = append(result.Parts, chat.TextPart(text))
@@ -581,10 +589,8 @@ func anthropicPrefersEffort(model string) bool {
 
 type sseMessageStart struct {
 	Message struct {
-		Model string `json:"model"`
-		Usage struct {
-			InputTokens int `json:"input_tokens"`
-		} `json:"usage"`
+		Model string         `json:"model"`
+		Usage anthropicUsage `json:"usage"`
 	} `json:"message"`
 }
 
@@ -607,9 +613,7 @@ type sseContentBlockDelta struct {
 }
 
 type sseMessageDelta struct {
-	Usage struct {
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage anthropicUsage `json:"usage"`
 }
 
 func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat.Result, error) {
@@ -617,11 +621,10 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
 
 	var (
-		model        string
-		inputTokens  int
-		outputTokens int
-		textParts    []string
-		toolCalls    []chat.ToolCall
+		model     string
+		usage     chat.Usage
+		textParts []string
+		toolCalls []chat.ToolCall
 
 		// per-tool-call accumulator
 		currentToolIndex int = -1
@@ -666,7 +669,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 			var ev sseMessageStart
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
 				model = ev.Message.Model
-				inputTokens = ev.Message.Usage.InputTokens
+				applyAnthropicUsage(&usage, ev.Message.Usage)
 			}
 
 		case "content_block_start":
@@ -719,7 +722,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 		case "message_delta":
 			var ev sseMessageDelta
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
-				outputTokens = ev.Usage.OutputTokens
+				applyAnthropicUsage(&usage, ev.Usage)
 			}
 
 		case "message_stop":
@@ -733,14 +736,10 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 
 	flushToolCall()
 
-	totalTokens := inputTokens + outputTokens
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	if err := onStream(chat.StreamEvent{
-		Done: true,
-		Usage: &chat.Usage{
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			TotalTokens:  totalTokens,
-		},
+		Done:  true,
+		Usage: &usage,
 	}); err != nil {
 		return nil, err
 	}
@@ -756,12 +755,110 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 			return []chat.Part{chat.TextPart(text)}
 		}(),
 		ToolCalls: toolCalls,
-		Usage: chat.Usage{
-			InputTokens:  inputTokens,
-			OutputTokens: outputTokens,
-			TotalTokens:  totalTokens,
-		},
+		Usage:     usage,
 	}, nil
+}
+
+func toAnthropicSystemPart(part chat.Part) (anthropicSystemPart, bool, error) {
+	if err := chat.ValidatePart(part); err != nil {
+		return anthropicSystemPart{}, false, err
+	}
+	if part.Type != chat.PartTypeText {
+		return anthropicSystemPart{}, false, fmt.Errorf("unsupported part type %q", part.Type)
+	}
+	if strings.TrimSpace(part.Text) == "" && part.CacheControl == nil {
+		return anthropicSystemPart{}, false, nil
+	}
+	return anthropicSystemPart{
+		Type:         "text",
+		Text:         part.Text,
+		CacheControl: toAnthropicCacheControl(part.CacheControl),
+	}, true, nil
+}
+
+func toAnthropicContentPart(part chat.Part) (anthropicContentPart, bool, error) {
+	if err := chat.ValidatePart(part); err != nil {
+		return anthropicContentPart{}, false, err
+	}
+	switch part.Type {
+	case chat.PartTypeText:
+		if strings.TrimSpace(part.Text) == "" && part.CacheControl == nil {
+			return anthropicContentPart{}, false, nil
+		}
+		return anthropicContentPart{
+			Type:         "text",
+			Text:         part.Text,
+			CacheControl: toAnthropicCacheControl(part.CacheControl),
+		}, true, nil
+	case chat.PartTypeImageBase64:
+		mimeType := strings.TrimSpace(part.MIMEType)
+		if mimeType == "" {
+			mimeType = "image/png"
+		}
+		return anthropicContentPart{
+			Type: "image",
+			Source: &anthropicImageSource{
+				Type:      "base64",
+				MediaType: mimeType,
+				Data:      strings.TrimSpace(part.DataBase64),
+			},
+			CacheControl: toAnthropicCacheControl(part.CacheControl),
+		}, true, nil
+	case chat.PartTypeImageURL:
+		return anthropicContentPart{
+			Type: "image",
+			Source: &anthropicImageSource{
+				Type: "url",
+				URL:  strings.TrimSpace(part.URL),
+			},
+			CacheControl: toAnthropicCacheControl(part.CacheControl),
+		}, true, nil
+	default:
+		return anthropicContentPart{}, false, fmt.Errorf("unsupported part type %q", part.Type)
+	}
+}
+
+func toAnthropicCacheControl(ctrl *chat.CacheControl) *anthropicCacheControl {
+	if ctrl == nil {
+		return nil
+	}
+	out := &anthropicCacheControl{Type: "ephemeral"}
+	if ttl := strings.TrimSpace(ctrl.TTL); ttl != "" {
+		out.TTL = ttl
+	}
+	return out
+}
+
+func usageFromAnthropicUsage(src anthropicUsage) chat.Usage {
+	usage := chat.Usage{
+		InputTokens:  src.InputTokens,
+		OutputTokens: src.OutputTokens,
+		TotalTokens:  src.InputTokens + src.OutputTokens,
+	}
+	applyAnthropicUsage(&usage, src)
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+	return usage
+}
+
+func applyAnthropicUsage(dst *chat.Usage, src anthropicUsage) {
+	if dst == nil {
+		return
+	}
+	if src.InputTokens > 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens > 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.CacheReadInputTokens > 0 {
+		dst.Cache.CachedInputTokens = src.CacheReadInputTokens
+	}
+	if src.CacheCreationInputTokens > 0 {
+		dst.Cache.CacheCreationInputTokens = src.CacheCreationInputTokens
+	}
+	chat.AddUsageCacheDetails(dst, src.CacheCreation)
 }
 
 func readUserID(opt *structs.JSONMap) string {

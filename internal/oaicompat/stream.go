@@ -63,6 +63,9 @@ func ChatStream(
 			InputTokens:  int(completion.Usage.PromptTokens),
 			OutputTokens: int(completion.Usage.CompletionTokens),
 			TotalTokens:  int(completion.Usage.TotalTokens),
+			Cache: chat.UsageCache{
+				CachedInputTokens: int(completion.Usage.PromptTokensDetails.CachedTokens),
+			},
 		},
 	}); err != nil {
 		return nil, err
@@ -87,16 +90,20 @@ func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
 	if text != "" {
 		parts = append(parts, chat.TextPart(text))
 	}
+	usage := chat.Usage{
+		InputTokens:  int(resp.Usage.PromptTokens),
+		OutputTokens: int(resp.Usage.CompletionTokens),
+		TotalTokens:  int(resp.Usage.TotalTokens),
+		Cache: chat.UsageCache{
+			CachedInputTokens: int(resp.Usage.PromptTokensDetails.CachedTokens),
+		},
+	}
 	return &chat.Result{
 		Text:      text,
 		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
-		Usage: chat.Usage{
-			InputTokens:  int(resp.Usage.PromptTokens),
-			OutputTokens: int(resp.Usage.CompletionTokens),
-			TotalTokens:  int(resp.Usage.TotalTokens),
-		},
-		Raw: resp,
+		Usage:     usage,
+		Raw:       resp,
 	}
 }

@@ -137,6 +137,41 @@ func TestBuildRequestMapsReasoningBudget(t *testing.T) {
 	}
 }
 
+func TestBuildRequestMapsCacheControl(t *testing.T) {
+	req := &chat.Request{
+		Model: "claude-sonnet-4-20250514",
+		Messages: []chat.Message{
+			chat.SystemParts(chat.WithPartCacheControl(chat.TextPart("system prefix"), chat.CacheTTL1h())),
+			chat.UserParts(chat.WithPartCacheControl(chat.TextPart("user prefix"), chat.CacheTTL5m())),
+			chat.AssistantParts(chat.WithPartCacheControl(chat.TextPart("assistant prefix"), chat.CacheTTL5m())),
+		},
+		Tools: []chat.Tool{
+			chat.WithToolCacheControl(chat.FunctionTool("lookup", "desc", []byte(`{"type":"object"}`)), chat.CacheTTL5m()),
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	system, ok := body.System.([]anthropicSystemPart)
+	if !ok || len(system) != 1 {
+		t.Fatalf("expected structured system blocks, got %#v", body.System)
+	}
+	if system[0].CacheControl == nil || system[0].CacheControl.TTL != "1h" {
+		t.Fatalf("unexpected system cache control: %#v", system[0].CacheControl)
+	}
+	if body.Messages[0].Content[0].CacheControl == nil || body.Messages[0].Content[0].CacheControl.TTL != "5m" {
+		t.Fatalf("unexpected user cache control: %#v", body.Messages[0].Content[0].CacheControl)
+	}
+	if body.Messages[1].Content[0].CacheControl == nil || body.Messages[1].Content[0].CacheControl.TTL != "5m" {
+		t.Fatalf("unexpected assistant cache control: %#v", body.Messages[1].Content[0].CacheControl)
+	}
+	if len(body.Tools) != 1 || body.Tools[0].CacheControl == nil || body.Tools[0].CacheControl.TTL != "5m" {
+		t.Fatalf("unexpected tool cache control: %#v", body.Tools)
+	}
+}
+
 func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
 	req := &chat.Request{
 		Model: "claude-sonnet-4-6-20260201",
@@ -218,6 +253,33 @@ func TestToResultParsesReasoningDetails(t *testing.T) {
 	}
 	if len(out.Reasoning.Blocks) != 2 {
 		t.Fatalf("unexpected reasoning blocks: %#v", out.Reasoning)
+	}
+}
+
+func TestToResultParsesCacheUsage(t *testing.T) {
+	out, err := toResult(&anthropicResponse{
+		Model: "claude-sonnet-4-20250514",
+		Content: []anthropicContentPart{
+			{Type: "text", Text: "ok"},
+		},
+		Usage: anthropicUsage{
+			InputTokens:              100,
+			OutputTokens:             20,
+			CacheReadInputTokens:     80,
+			CacheCreationInputTokens: 40,
+			CacheCreation: map[string]int{
+				"ephemeral_5m_input_tokens": 40,
+			},
+		},
+	}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out.Usage.Cache.CachedInputTokens != 80 || out.Usage.Cache.CacheCreationInputTokens != 40 {
+		t.Fatalf("unexpected cache usage: %#v", out.Usage.Cache)
+	}
+	if out.Usage.Cache.Details["ephemeral_5m_input_tokens"] != 40 {
+		t.Fatalf("unexpected cache details: %#v", out.Usage.Cache.Details)
 	}
 }
 

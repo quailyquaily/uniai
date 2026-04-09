@@ -69,6 +69,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 }
 
 func buildPayload(req *chat.Request, model string) (structs.JSONMap, error) {
+	if err := chat.ValidateNoScopedCacheControl(req, "cloudflare"); err != nil {
+		return nil, err
+	}
 	payload := structs.NewJSONMap()
 	payload.Merge(req.Options.Cloudflare)
 	if payload.GetBool("stream") {
@@ -762,6 +765,14 @@ func extractUsage(m map[string]any) *chat.Usage {
 	usage.InputTokens = int(extractNumber(u, "prompt_tokens", "input_tokens"))
 	usage.OutputTokens = int(extractNumber(u, "completion_tokens", "output_tokens"))
 	usage.TotalTokens = int(extractNumber(u, "total_tokens"))
+	if promptDetails, ok := u["prompt_tokens_details"].(map[string]any); ok {
+		usage.Cache.CachedInputTokens = int(extractNumber(promptDetails, "cached_tokens"))
+	}
+	if inputDetails, ok := u["input_tokens_details"].(map[string]any); ok {
+		if cached := int(extractNumber(inputDetails, "cached_tokens")); cached > 0 {
+			usage.Cache.CachedInputTokens = cached
+		}
+	}
 	return usage
 }
 

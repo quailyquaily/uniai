@@ -23,9 +23,12 @@ type (
 	ToolChoice         = chat.ToolChoice
 	ToolCall           = chat.ToolCall
 	ToolCallFunction   = chat.ToolCallFunction
+	CacheControl       = chat.CacheControl
 	ReasoningEffort    = chat.ReasoningEffort
 	ReasoningResult    = chat.ReasoningResult
 	ReasoningBlock     = chat.ReasoningBlock
+	Usage              = chat.Usage
+	UsageCache         = chat.UsageCache
 	DebugFn            = chat.DebugFn
 	ToolsEmulationMode = chat.ToolsEmulationMode
 	OnStreamFunc       = chat.OnStreamFunc
@@ -115,6 +118,14 @@ func ImageURLPart(url string) Part                  { return chat.ImageURLPart(u
 func ImageBase64Part(mimeType, dataBase64 string) Part {
 	return chat.ImageBase64Part(mimeType, dataBase64)
 }
+func WithPartCacheControl(part Part, ctrl CacheControl) Part {
+	return chat.WithPartCacheControl(part, ctrl)
+}
+func WithToolCacheControl(tool Tool, ctrl CacheControl) Tool {
+	return chat.WithToolCacheControl(tool, ctrl)
+}
+func CacheTTL5m() CacheControl { return chat.CacheTTL5m() }
+func CacheTTL1h() CacheControl { return chat.CacheTTL1h() }
 
 func ToolChoiceAuto() ToolChoice                { return chat.ToolChoiceAuto() }
 func ToolChoiceNone() ToolChoice                { return chat.ToolChoiceNone() }
