@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -139,5 +140,36 @@ func TestCacheControlHelpers(t *testing.T) {
 	tool := WithToolCacheControl(FunctionTool("lookup", "desc", []byte(`{"type":"object"}`)), CacheTTL1h())
 	if tool.CacheControl == nil || tool.CacheControl.TTL != "1h" {
 		t.Fatalf("unexpected tool cache control: %#v", tool.CacheControl)
+	}
+}
+
+func TestUsageMarshalJSONOmitsEmptyCache(t *testing.T) {
+	data, err := json.Marshal(Usage{
+		InputTokens:  1,
+		OutputTokens: 2,
+		TotalTokens:  3,
+	})
+	if err != nil {
+		t.Fatalf("marshal usage: %v", err)
+	}
+	if strings.Contains(string(data), `"cache"`) {
+		t.Fatalf("expected empty cache to be omitted, got %s", string(data))
+	}
+}
+
+func TestUsageMarshalJSONIncludesCacheWhenPresent(t *testing.T) {
+	data, err := json.Marshal(Usage{
+		InputTokens:  1,
+		OutputTokens: 2,
+		TotalTokens:  3,
+		Cache: UsageCache{
+			CachedInputTokens: 5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal usage: %v", err)
+	}
+	if !strings.Contains(string(data), `"cache":{"cached_input_tokens":5}`) {
+		t.Fatalf("expected cache details in payload, got %s", string(data))
 	}
 }

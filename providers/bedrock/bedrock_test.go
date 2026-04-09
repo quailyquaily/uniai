@@ -1,6 +1,7 @@
 package bedrock
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
@@ -61,20 +62,28 @@ func TestValidateBedrockCacheControl(t *testing.T) {
 	}
 }
 
-func TestParseBedrockUsageReadsCacheMetrics(t *testing.T) {
-	raw := []byte(`{
-		"usage": {
-			"input_tokens": 100,
-			"output_tokens": 12,
-			"cache_read_input_tokens": 80,
-			"cache_creation_input_tokens": 40,
-			"cache_creation": {
-				"ephemeral_5m_input_tokens": 40
-			}
-		}
-	}`)
+func TestToBedrockContentRejectsEmptyCachedTextPart(t *testing.T) {
+	_, err := toBedrockContent(chat.UserParts(
+		chat.WithPartCacheControl(chat.TextPart(" "), chat.CacheTTL5m()),
+	))
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if got := err.Error(); !strings.Contains(got, "non-empty text part") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
-	usage := parseBedrockUsage(raw, bedrockUsage{})
+func TestParseBedrockUsageReadsCacheMetrics(t *testing.T) {
+	usage := parseBedrockUsage(bedrockUsage{
+		InputTokens:              100,
+		OutputTokens:             12,
+		CacheReadInputTokens:     80,
+		CacheCreationInputTokens: 40,
+		CacheCreation: map[string]int{
+			"ephemeral_5m_input_tokens": 40,
+		},
+	})
 	if usage.InputTokens != 100 || usage.OutputTokens != 12 || usage.TotalTokens != 112 {
 		t.Fatalf("unexpected usage: %#v", usage)
 	}

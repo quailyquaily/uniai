@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/lyricat/goutils/structs"
@@ -141,6 +142,31 @@ type UsageCache struct {
 	CachedInputTokens        int            `json:"cached_input_tokens,omitempty"`
 	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
 	Details                  map[string]int `json:"details,omitempty"`
+}
+
+func (u Usage) MarshalJSON() ([]byte, error) {
+	type usageJSON struct {
+		InputTokens  int         `json:"input_tokens"`
+		OutputTokens int         `json:"output_tokens"`
+		TotalTokens  int         `json:"total_tokens"`
+		Cache        *UsageCache `json:"cache,omitempty"`
+	}
+
+	var cache *UsageCache
+	if !u.Cache.isEmpty() {
+		cache = &u.Cache
+	}
+
+	return json.Marshal(usageJSON{
+		InputTokens:  u.InputTokens,
+		OutputTokens: u.OutputTokens,
+		TotalTokens:  u.TotalTokens,
+		Cache:        cache,
+	})
+}
+
+func (u UsageCache) isEmpty() bool {
+	return u.CachedInputTokens == 0 && u.CacheCreationInputTokens == 0 && len(u.Details) == 0
 }
 
 type Result struct {
