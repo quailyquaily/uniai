@@ -30,6 +30,20 @@ Recommended usage:
 - **ToolsEmulationFallback**: runs only when the request includes tools **and** the upstream response contains no `tool_calls`.
 - **ToolsEmulationForce**: runs whenever the request includes tools (no upstream tool-calling attempt).
 
+## Usage Semantics
+
+`Result.Usage` and `Result.Usage.Cost` represent the whole `Client.Chat()` call.
+
+That means tool emulation aggregates token usage across the internal LLM requests it performs:
+
+- the initial upstream attempt in `ToolsEmulationFallback`
+- the tool-decision request
+- the final text request when no tool call is produced
+
+If a final text response is streamed, the last `StreamEvent.Usage` uses the same aggregated semantics.
+
+Only the final text response streams. Internal tool-emulation requests do not emit user-visible stream events.
+
 ## Sequence Diagram
 
 ### ToolsEmulationFallback

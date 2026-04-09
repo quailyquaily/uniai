@@ -1,7 +1,10 @@
 package uniai
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -93,6 +96,228 @@ func TestEnforceToolChoice(t *testing.T) {
 	err = enforceToolChoice(&chat.ToolChoice{Mode: "function", FunctionName: "a"}, []emulatedToolCall{{Name: "b"}})
 	if err == nil {
 		t.Fatalf("expected error for tool_choice function mismatch")
+	}
+}
+
+func TestMergeChatUsageAggregatesFields(t *testing.T) {
+	usage := mergeChatUsage(
+		chat.Usage{
+			InputTokens:  10,
+			OutputTokens: 2,
+			TotalTokens:  12,
+			Cache: chat.UsageCache{
+				CachedInputTokens:        3,
+				CacheCreationInputTokens: 1,
+				Details: map[string]int{
+					"ephemeral_5m_input_tokens": 1,
+				},
+			},
+			Cost: &chat.UsageCost{Currency: "USD", Total: 1},
+		},
+		chat.Usage{
+			InputTokens:  7,
+			OutputTokens: 4,
+			TotalTokens:  11,
+			Cache: chat.UsageCache{
+				CachedInputTokens:        2,
+				CacheCreationInputTokens: 5,
+				Details: map[string]int{
+					"ephemeral_5m_input_tokens": 2,
+					"ephemeral_1h_input_tokens": 3,
+				},
+			},
+		},
+	)
+
+	if usage.InputTokens != 17 || usage.OutputTokens != 6 || usage.TotalTokens != 23 {
+		t.Fatalf("unexpected aggregate usage: %#v", usage)
+	}
+	if usage.Cache.CachedInputTokens != 5 || usage.Cache.CacheCreationInputTokens != 6 {
+		t.Fatalf("unexpected aggregate cache usage: %#v", usage.Cache)
+	}
+	if usage.Cache.Details["ephemeral_5m_input_tokens"] != 3 || usage.Cache.Details["ephemeral_1h_input_tokens"] != 3 {
+		t.Fatalf("unexpected aggregate cache details: %#v", usage.Cache.Details)
+	}
+	if usage.Cost != nil {
+		t.Fatalf("expected aggregate usage to clear cost, got %#v", usage.Cost)
+	}
+}
+
+func TestWrapPrefixedChatStreamUsageAggregatesBeforeCost(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai",
+		OpenAIModel: "gpt-5.2",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					Provider:            "openai",
+					Model:               "gpt-5.2",
+					InputUSDPerMillion:  1,
+					OutputUSDPerMillion: 2,
+				},
+			},
+		},
+	})
+	req := &chat.Request{Model: "gpt-5.2"}
+
+	var got *chat.Usage
+	onStream := client.wrapChatStreamCost("openai", req, func(ev chat.StreamEvent) error {
+		got = ev.Usage
+		return nil
+	})
+	wrapped := wrapPrefixedChatStreamUsage(chat.Usage{
+		InputTokens:  10,
+		OutputTokens: 2,
+		TotalTokens:  12,
+	}, onStream)
+
+	if err := wrapped(chat.StreamEvent{
+		Done: true,
+		Usage: &chat.Usage{
+			InputTokens:  5,
+			OutputTokens: 1,
+			TotalTokens:  6,
+		},
+	}); err != nil {
+		t.Fatalf("wrapped stream: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected usage on final event")
+	}
+	if got.InputTokens != 15 || got.OutputTokens != 3 || got.TotalTokens != 18 {
+		t.Fatalf("unexpected streamed aggregate usage: %#v", got)
+	}
+	if got.Cost == nil {
+		t.Fatal("expected aggregate streamed cost")
+	}
+	if got.Cost.Total != 0.000021 {
+		t.Fatalf("unexpected streamed aggregate cost: %#v", got.Cost)
+	}
+}
+
+func TestChatToolEmulationFallbackAggregatesUsageAcrossInternalCalls(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		switch callCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_native",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-4.1-mini",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "native path without tool call",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     10,
+					"completion_tokens": 2,
+					"total_tokens":      12,
+				},
+			})
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_decision",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-4.1-mini",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "JSON_BEGIN\n{\"tools\":[]}\nJSON_END",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     5,
+					"completion_tokens": 1,
+					"total_tokens":      6,
+				},
+			})
+		case 3:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_final",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-4.1-mini",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "final answer",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     7,
+					"completion_tokens": 3,
+					"total_tokens":      10,
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count: %d", callCount)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "openai",
+		OpenAIAPIKey:  "test-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "gpt-4.1-mini",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					Provider:            "openai",
+					Model:               "gpt-4.1-mini",
+					InputUSDPerMillion:  1,
+					OutputUSDPerMillion: 2,
+				},
+			},
+		},
+	})
+
+	resp, err := client.Chat(context.Background(),
+		WithMessages(chat.User("hello")),
+		WithTools([]Tool{
+			FunctionTool("get_weather", "Get weather", []byte(`{"type":"object"}`)),
+		}),
+		WithToolsEmulationMode(ToolsEmulationFallback),
+	)
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 internal calls, got %d", callCount)
+	}
+	if resp.Text != "final answer" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+	if resp.Usage.InputTokens != 22 || resp.Usage.OutputTokens != 6 || resp.Usage.TotalTokens != 28 {
+		t.Fatalf("unexpected aggregate usage: %#v", resp.Usage)
+	}
+	if resp.Usage.Cost == nil || resp.Usage.Cost.Total != 0.000034 {
+		t.Fatalf("unexpected aggregate cost: %#v", resp.Usage.Cost)
+	}
+	if len(resp.Warnings) == 0 || resp.Warnings[0] != "tool calls emulated" {
+		t.Fatalf("unexpected warnings: %#v", resp.Warnings)
 	}
 }
 

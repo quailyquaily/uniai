@@ -14,7 +14,7 @@ import (
 	"github.com/quailyquaily/uniai/internal/diag"
 )
 
-func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string, req *chat.Request) (*chat.Result, error) {
+func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string, req *chat.Request, priorUsage chat.Usage, userOnStream chat.OnStreamFunc) (*chat.Result, error) {
 	if len(req.Tools) == 0 {
 		return c.chatOnce(ctx, providerName, req)
 	}
@@ -35,6 +35,7 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		return nil, err
 	}
 	diag.LogText(c.cfg.Debug, debugFn, "tool_emulation.decision_response", decisionResp.Text)
+	usagePrefix := mergeChatUsage(priorUsage, decisionResp.Usage)
 
 	toolCalls, err := parseToolDecision(decisionResp.Text)
 	if err != nil {
@@ -52,8 +53,13 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		}
 		diag.LogText(c.cfg.Debug, debugFn, "tool_emulation.fallback", "no tool calls produced; returning final response")
 		finalReq := buildFinalRequest(req)
+		if userOnStream != nil {
+			onStream := c.wrapChatStreamCost(providerName, finalReq, userOnStream)
+			finalReq.Options.OnStream = wrapPrefixedChatStreamUsage(usagePrefix, onStream)
+		}
 		resp, err := c.chatOnce(ctx, providerName, finalReq)
 		if resp != nil {
+			resp.Usage = mergeChatUsage(usagePrefix, resp.Usage)
 			resp.Warnings = append(resp.Warnings, "tool calls emulated")
 			if dropped > 0 {
 				resp.Warnings = append(resp.Warnings, "unknown tool calls dropped")
@@ -82,7 +88,7 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 	resp := &chat.Result{
 		Model:     decisionResp.Model,
 		ToolCalls: calls,
-		Usage:     decisionResp.Usage,
+		Usage:     usagePrefix,
 		Raw:       decisionResp.Raw,
 		Warnings:  []string{"tool calls emulated"},
 	}

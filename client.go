@@ -81,15 +81,22 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if providerName == "" {
 		providerName = "openai"
 	}
-	if req.Options.OnStream != nil {
-		req.Options.OnStream = c.wrapChatStreamCost(providerName, req, req.Options.OnStream)
-	}
 	mode := req.Options.ToolsEmulationMode
 	if mode == "" {
 		mode = chat.ToolsEmulationOff
 	}
+	userOnStream := req.Options.OnStream
+	if userOnStream != nil {
+		if len(req.Tools) > 0 && mode != chat.ToolsEmulationOff {
+			// Tool emulation owns streaming so it can emit only the final text response
+			// and attach aggregated usage/cost for the whole Chat() call.
+			req.Options.OnStream = nil
+		} else {
+			req.Options.OnStream = c.wrapChatStreamCost(providerName, req, userOnStream)
+		}
+	}
 	if len(req.Tools) > 0 && mode == chat.ToolsEmulationForce {
-		resp, err := c.chatWithToolEmulation(ctx, providerName, req)
+		resp, err := c.chatWithToolEmulation(ctx, providerName, req, chat.Usage{}, userOnStream)
 		c.annotateChatResultCost(providerName, req, resp)
 		chat.EnsureResultParts(resp)
 		return resp, err
@@ -98,18 +105,22 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
-	c.annotateChatResultCost(providerName, req, resp)
-	chat.EnsureResultParts(resp)
 	if len(req.Tools) == 0 {
+		c.annotateChatResultCost(providerName, req, resp)
+		chat.EnsureResultParts(resp)
 		return resp, nil
 	}
 	if len(resp.ToolCalls) > 0 {
+		c.annotateChatResultCost(providerName, req, resp)
+		chat.EnsureResultParts(resp)
 		return resp, nil
 	}
 	if mode == chat.ToolsEmulationOff {
+		c.annotateChatResultCost(providerName, req, resp)
+		chat.EnsureResultParts(resp)
 		return resp, nil
 	}
-	resp, err = c.chatWithToolEmulation(ctx, providerName, req)
+	resp, err = c.chatWithToolEmulation(ctx, providerName, req, resp.Usage, userOnStream)
 	c.annotateChatResultCost(providerName, req, resp)
 	chat.EnsureResultParts(resp)
 	return resp, err
