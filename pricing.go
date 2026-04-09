@@ -154,6 +154,10 @@ func chatPricingRuleMatches(rule *ChatPricingRule, model string) bool {
 }
 
 func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool) {
+	if !hasPricableUsage(usage) {
+		return nil, false
+	}
+
 	baseInputTokens := usage.InputTokens - usage.Cache.CachedInputTokens - usage.Cache.CacheCreationInputTokens
 	if baseInputTokens < 0 {
 		baseInputTokens = 0
@@ -174,7 +178,7 @@ func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool)
 	if usage.Cache.CacheCreationInputTokens > 0 {
 		remaining := usage.Cache.CacheCreationInputTokens
 		for key, tokens := range usage.Cache.Details {
-			rate, ok := rule.CacheCreationInputDetailUSDPerMillion[normalizeDetailKey(key)]
+			rate, ok := findDetailRate(rule.CacheCreationInputDetailUSDPerMillion, key)
 			if !ok || tokens <= 0 {
 				continue
 			}
@@ -199,6 +203,29 @@ func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool)
 		Output:             roundUSD(outputCost),
 		Total:              roundUSD(total),
 	}, true
+}
+
+func hasPricableUsage(usage Usage) bool {
+	return usage.InputTokens > 0 ||
+		usage.OutputTokens > 0 ||
+		usage.Cache.CachedInputTokens > 0 ||
+		usage.Cache.CacheCreationInputTokens > 0
+}
+
+func findDetailRate(rates map[string]float64, key string) (float64, bool) {
+	normalized := normalizeDetailKey(key)
+	if normalized == "" || len(rates) == 0 {
+		return 0, false
+	}
+	if rate, ok := rates[normalized]; ok {
+		return rate, true
+	}
+	for rawKey, rate := range rates {
+		if normalizeDetailKey(rawKey) == normalized {
+			return rate, true
+		}
+	}
+	return 0, false
 }
 
 func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {

@@ -121,6 +121,61 @@ func TestPricingCatalogEstimateChatCostNoBuiltins(t *testing.T) {
 	}
 }
 
+func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				Provider:            "openai",
+				Model:               "gpt-5.2",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+		},
+	}
+
+	if cost, ok := catalog.EstimateChatCost("openai", "gpt-5.2", Usage{}); ok || cost != nil {
+		t.Fatalf("expected no cost for empty usage, got %#v ok=%v", cost, ok)
+	}
+}
+
+func TestPricingCatalogEstimateChatCostNormalizesDetailRateKeysAtLookup(t *testing.T) {
+	catalog, err := ParsePricingYAML([]byte(`
+version: uniai.pricing.v1
+chat:
+  - provider: anthropic
+    model: claude-sonnet-4-6
+    input_usd_per_million: 3
+    output_usd_per_million: 15
+    cached_input_usd_per_million: 0.30
+    cache_creation_input_usd_per_million: 3.75
+    cache_creation_input_detail_usd_per_million:
+      " Ephemeral_1H_Input_Tokens ": 6
+`))
+	if err != nil {
+		t.Fatalf("parse pricing yaml: %v", err)
+	}
+
+	cost, ok := catalog.EstimateChatCost("anthropic", "claude-sonnet-4-6", Usage{
+		InputTokens:  80,
+		OutputTokens: 10,
+		TotalTokens:  90,
+		Cache: UsageCache{
+			CacheCreationInputTokens: 20,
+			Details: map[string]int{
+				"ephemeral_1h_input_tokens": 20,
+			},
+		},
+	})
+	if !ok {
+		t.Fatal("expected cost estimate")
+	}
+
+	assertNearlyEqual(t, cost.Input, 60*3.0/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 20*6.0/1_000_000)
+	assertNearlyEqual(t, cost.Output, 10*15.0/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00045)
+}
+
 func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
@@ -342,6 +397,34 @@ func TestAnnotateChatResultCost(t *testing.T) {
 		t.Fatal("expected response usage cost")
 	}
 	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.000375)
+}
+
+func TestAnnotateChatResultCostWithoutUsageDoesNotAnnotate(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai",
+		OpenAIModel: "gpt-5.2",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					Provider:            "openai",
+					Model:               "gpt-5.2",
+					InputUSDPerMillion:  1.25,
+					OutputUSDPerMillion: 10,
+				},
+			},
+		},
+	})
+	req := &chat.Request{
+		Messages: []chat.Message{chat.User("hello")},
+	}
+	resp := &chat.Result{
+		Model: "gpt-5.2",
+	}
+
+	client.annotateChatResultCost("openai", req, resp)
+	if resp.Usage.Cost != nil {
+		t.Fatalf("expected no response usage cost for empty usage, got %#v", resp.Usage.Cost)
+	}
 }
 
 func assertNearlyEqual(t *testing.T, got, want float64) {
