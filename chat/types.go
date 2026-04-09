@@ -131,17 +131,40 @@ type Request struct {
 	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
 }
 
+// Usage reports token usage returned by the provider.
+//
+// Cache is an additional breakdown. It does not replace or redefine the top-level
+// input/output/total token counts.
 type Usage struct {
-	InputTokens  int        `json:"input_tokens"`
-	OutputTokens int        `json:"output_tokens"`
-	TotalTokens  int        `json:"total_tokens"`
-	Cache        UsageCache `json:"cache,omitempty"`
+	// InputTokens is the provider-reported total input token count.
+	InputTokens int `json:"input_tokens"`
+
+	// OutputTokens is the provider-reported total output token count.
+	OutputTokens int `json:"output_tokens"`
+
+	// TotalTokens is the provider-reported total token count when available, or the
+	// sum of input and output tokens when uniai derives it.
+	TotalTokens int `json:"total_tokens"`
+
+	// Cache contains cache-hit and cache-write breakdown data when the provider
+	// returns it.
+	Cache UsageCache `json:"cache,omitempty"`
 }
 
+// UsageCache contains cache-related token breakdowns.
 type UsageCache struct {
-	CachedInputTokens        int            `json:"cached_input_tokens,omitempty"`
-	CacheCreationInputTokens int            `json:"cache_creation_input_tokens,omitempty"`
-	Details                  map[string]int `json:"details,omitempty"`
+	// CachedInputTokens is the number of input tokens read from cache.
+	//
+	// This is additional breakdown data and should not be subtracted from
+	// Usage.InputTokens.
+	CachedInputTokens int `json:"cached_input_tokens,omitempty"`
+
+	// CacheCreationInputTokens is the number of input tokens written into cache for
+	// future reuse.
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+
+	// Details stores provider-specific cache breakdowns, such as TTL bucket counts.
+	Details map[string]int `json:"details,omitempty"`
 }
 
 func (u Usage) MarshalJSON() ([]byte, error) {
