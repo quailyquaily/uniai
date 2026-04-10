@@ -300,6 +300,50 @@ func TestToChatResultParsesFunctionCallAndSignature(t *testing.T) {
 	}
 }
 
+func TestToChatResultKeepsLaterParallelToolCallSignatureEmpty(t *testing.T) {
+	in := &geminiResponse{
+		Model: "gemini-3.1-pro-preview",
+		Candidates: []geminiCandidate{
+			{
+				Content: geminiContent{
+					Parts: []geminiPart{
+						{
+							ThoughtSignature: "sig_parallel",
+							FunctionCall: &geminiFunctionCall{
+								Name: "read_file",
+								Args: map[string]any{"path": "/tmp/a.txt"},
+							},
+						},
+						{
+							FunctionCall: &geminiFunctionCall{
+								Name: "read_file",
+								Args: map[string]any{"path": "/tmp/b.txt"},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	out, err := toChatResult(in, "", false)
+	if err != nil {
+		t.Fatalf("toChatResult: %v", err)
+	}
+	if len(out.ToolCalls) != 2 {
+		t.Fatalf("expected two tool calls, got %d", len(out.ToolCalls))
+	}
+	if out.ToolCalls[0].ThoughtSignature != "sig_parallel" {
+		t.Fatalf("first thought signature = %q, want %q", out.ToolCalls[0].ThoughtSignature, "sig_parallel")
+	}
+	if out.ToolCalls[1].ThoughtSignature != "" {
+		t.Fatalf("second thought signature = %q, want empty", out.ToolCalls[1].ThoughtSignature)
+	}
+	if out.ToolCalls[1].ID != "call_2" {
+		t.Fatalf("second tool call id = %q, want %q", out.ToolCalls[1].ID, "call_2")
+	}
+}
+
 func TestToChatResultSeparatesThoughtSummary(t *testing.T) {
 	in := &geminiResponse{
 		Model: "gemini-2.5-pro",
@@ -426,6 +470,63 @@ func TestBuildRequestRecoversThoughtSignatureFromToolCallID(t *testing.T) {
 	}
 	if resp["result"] != "ok" {
 		t.Fatalf("unexpected function response payload: %#v", resp)
+	}
+}
+
+func TestBuildRequestAllowsMissingThoughtSignatureOnLaterParallelToolCall(t *testing.T) {
+	toolResultA, err := chat.ToolResultValue("call_1", "a")
+	if err != nil {
+		t.Fatalf("tool result value a: %v", err)
+	}
+	toolResultB, err := chat.ToolResultValue("call_2", "b")
+	if err != nil {
+		t.Fatalf("tool result value b: %v", err)
+	}
+	req := &chat.Request{
+		Messages: []chat.Message{
+			chat.User("run tools"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+						ThoughtSignature: "sig_parallel",
+					},
+					{
+						ID:   "call_2",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/b.txt"}`,
+						},
+					},
+				},
+			},
+			toolResultA,
+			toolResultB,
+		},
+	}
+
+	out, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if len(out.Contents) < 3 {
+		t.Fatalf("expected assistant and tool response contents, got %d", len(out.Contents))
+	}
+	if len(out.Contents[1].Parts) != 2 {
+		t.Fatalf("expected two assistant functionCall parts, got %d", len(out.Contents[1].Parts))
+	}
+	if out.Contents[1].Parts[0].ThoughtSignature != "sig_parallel" {
+		t.Fatalf("first thought signature = %q, want %q", out.Contents[1].Parts[0].ThoughtSignature, "sig_parallel")
+	}
+	if out.Contents[1].Parts[1].ThoughtSignature != "" {
+		t.Fatalf("second thought signature = %q, want empty", out.Contents[1].Parts[1].ThoughtSignature)
 	}
 }
 

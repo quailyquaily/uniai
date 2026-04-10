@@ -43,6 +43,7 @@ Use the narrowest stable trigger available, prefer preserving provider metadata,
   - `AssistantToolCalls` replays the prior tool calls as-is
   - `ToolResultValue` keeps object JSON unchanged
   - non-object values are wrapped as `{"result": ...}`
+  - for parallel Gemini function calls in the same assistant turn, only the first call needs `thought_signature`
 - Recommended pattern:
 
 ```go

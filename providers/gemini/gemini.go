@@ -271,6 +271,7 @@ func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 					assistantParts = append(assistantParts, geminiPart{Text: part.Text})
 				}
 			}
+			seenFunctionCall := false
 			for _, call := range msg.ToolCalls {
 				if call.Type != "" && call.Type != "function" {
 					continue
@@ -288,7 +289,7 @@ func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 						normalizedCallID = normalizedID
 					}
 				}
-				if sig == "" {
+				if sig == "" && !seenFunctionCall {
 					return nil, fmt.Errorf("assistant tool call %q (id=%q) is missing thought_signature; preserve prior resp.ToolCalls as-is when sending tool results", call.Function.Name, call.ID)
 				}
 				args := parseFunctionArgs(call.Function.Arguments)
@@ -297,7 +298,9 @@ func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 						Name: call.Function.Name,
 						Args: args,
 					},
-					ThoughtSignature: sig,
+				}
+				if sig != "" {
+					part.ThoughtSignature = sig
 				}
 				if callID != "" {
 					callNameByID[callID] = call.Function.Name
@@ -306,6 +309,7 @@ func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 					callNameByID[normalizedCallID] = call.Function.Name
 				}
 				assistantParts = append(assistantParts, part)
+				seenFunctionCall = true
 			}
 			for _, part := range assistantParts {
 				appendContent(&contents, "model", part)
