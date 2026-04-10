@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -427,8 +428,20 @@ func SystemParts(parts ...Part) Message {
 	return Message{Role: RoleSystem, Parts: CloneParts(parts)}
 }
 
+func AssistantToolCalls(toolCalls ...ToolCall) Message {
+	return Message{Role: RoleAssistant, ToolCalls: CloneToolCalls(toolCalls)}
+}
+
 func ToolResult(toolCallID, content string) Message {
 	return Message{Role: RoleTool, Content: content, ToolCallID: toolCallID}
+}
+
+func ToolResultValue(toolCallID string, value any) (Message, error) {
+	content, err := marshalToolResultValue(value)
+	if err != nil {
+		return Message{}, err
+	}
+	return Message{Role: RoleTool, Content: content, ToolCallID: toolCallID}, nil
 }
 
 func TextPart(text string) Part {
@@ -470,4 +483,72 @@ func FunctionTool(name, description string, paramsJSON []byte) Tool {
 			ParametersJSONSchema: paramsJSON,
 		},
 	}
+}
+
+func CloneToolCalls(toolCalls []ToolCall) []ToolCall {
+	if len(toolCalls) == 0 {
+		return nil
+	}
+	out := make([]ToolCall, len(toolCalls))
+	copy(out, toolCalls)
+	return out
+}
+
+func marshalToolResultValue(value any) (string, error) {
+	objectJSON, wrapped, err := normalizeToolResultValue(value)
+	if err != nil {
+		return "", err
+	}
+	if objectJSON != "" {
+		return objectJSON, nil
+	}
+	data, err := json.Marshal(map[string]any{"result": wrapped})
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func normalizeToolResultValue(value any) (objectJSON string, wrapped any, err error) {
+	switch v := value.(type) {
+	case json.RawMessage:
+		return normalizeToolResultRawJSON([]byte(v), true)
+	case []byte:
+		return normalizeToolResultRawJSON(v, false)
+	default:
+		data, err := json.Marshal(value)
+		if err != nil {
+			return "", nil, err
+		}
+		return normalizeToolResultEncodedJSON(data)
+	}
+}
+
+func normalizeToolResultRawJSON(raw []byte, strict bool) (objectJSON string, wrapped any, err error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return "", "", nil
+	}
+	if !json.Valid(trimmed) {
+		if strict {
+			return "", nil, fmt.Errorf("tool result raw JSON is invalid")
+		}
+		return "", string(raw), nil
+	}
+	return normalizeToolResultEncodedJSON(trimmed)
+}
+
+func normalizeToolResultEncodedJSON(data []byte) (objectJSON string, wrapped any, err error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return "", "", nil
+	}
+	if trimmed[0] == '{' {
+		return string(trimmed), nil, nil
+	}
+	var decoded any
+	if err := json.Unmarshal(trimmed, &decoded); err != nil {
+		return "", nil, err
+	}
+	return "", decoded, nil
 }

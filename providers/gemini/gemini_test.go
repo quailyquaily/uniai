@@ -386,6 +386,10 @@ func TestNormalizeGeminiBaseStripsOpenAICompatSuffix(t *testing.T) {
 
 func TestBuildRequestRecoversThoughtSignatureFromToolCallID(t *testing.T) {
 	callID := encodeToolCallID("call_1", "sig_from_id")
+	toolResult, err := chat.ToolResultValue(callID, "ok")
+	if err != nil {
+		t.Fatalf("tool result value: %v", err)
+	}
 	req := &chat.Request{
 		Messages: []chat.Message{
 			chat.User("run tool"),
@@ -402,7 +406,7 @@ func TestBuildRequestRecoversThoughtSignatureFromToolCallID(t *testing.T) {
 					},
 				},
 			},
-			chat.ToolResult(callID, `{"content":"ok"}`),
+			toolResult,
 		},
 	}
 
@@ -415,6 +419,13 @@ func TestBuildRequestRecoversThoughtSignatureFromToolCallID(t *testing.T) {
 	}
 	if out.Contents[1].Parts[0].ThoughtSignature != "sig_from_id" {
 		t.Fatalf("expected thought signature decoded from id")
+	}
+	resp, ok := out.Contents[2].Parts[0].FunctionResponse.Response.(map[string]any)
+	if !ok {
+		t.Fatalf("expected function response object, got %#v", out.Contents[2].Parts[0].FunctionResponse.Response)
+	}
+	if resp["result"] != "ok" {
+		t.Fatalf("unexpected function response payload: %#v", resp)
 	}
 }
 

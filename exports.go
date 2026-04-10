@@ -107,15 +107,21 @@ func WithCloudflareOptions(opts structs.JSONMap) ChatOption {
 func WithTools(tools []Tool) ChatOption           { return chat.WithTools(tools) }
 func WithToolChoice(choice ToolChoice) ChatOption { return chat.WithToolChoice(choice) }
 
-func System(text string) Message                    { return chat.System(text) }
-func User(text string) Message                      { return chat.User(text) }
-func Assistant(text string) Message                 { return chat.Assistant(text) }
+func System(text string) Message    { return chat.System(text) }
+func User(text string) Message      { return chat.User(text) }
+func Assistant(text string) Message { return chat.Assistant(text) }
+func AssistantToolCalls(toolCalls ...ToolCall) Message {
+	return chat.AssistantToolCalls(toolCalls...)
+}
 func ToolResult(toolCallID, content string) Message { return chat.ToolResult(toolCallID, content) }
-func SystemParts(parts ...Part) Message             { return chat.SystemParts(parts...) }
-func UserParts(parts ...Part) Message               { return chat.UserParts(parts...) }
-func AssistantParts(parts ...Part) Message          { return chat.AssistantParts(parts...) }
-func TextPart(text string) Part                     { return chat.TextPart(text) }
-func ImageURLPart(url string) Part                  { return chat.ImageURLPart(url) }
+func ToolResultValue(toolCallID string, value any) (Message, error) {
+	return chat.ToolResultValue(toolCallID, value)
+}
+func SystemParts(parts ...Part) Message    { return chat.SystemParts(parts...) }
+func UserParts(parts ...Part) Message      { return chat.UserParts(parts...) }
+func AssistantParts(parts ...Part) Message { return chat.AssistantParts(parts...) }
+func TextPart(text string) Part            { return chat.TextPart(text) }
+func ImageURLPart(url string) Part         { return chat.ImageURLPart(url) }
 func ImageBase64Part(mimeType, dataBase64 string) Part {
 	return chat.ImageBase64Part(mimeType, dataBase64)
 }

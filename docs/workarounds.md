@@ -27,3 +27,51 @@ Use the narrowest stable trigger available, prefer preserving provider metadata,
   - shared in `internal/oaicompat` because multiple OpenAI-compatible paths use the same mapper
   - native Gemini is stricter and errors if `thought_signature` is missing
 - Tests: `providers/openai/openai_test.go`
+
+## Gemini Native Tool Replay
+
+- Paths:
+  - `chat/types.go`
+  - `providers/gemini/gemini.go`
+- Problem:
+  - replaying assistant tool calls must preserve Gemini `thought_signature`
+  - `function_response.response` is safest as a JSON object
+- Helpers:
+  - `chat.AssistantToolCalls(resp.ToolCalls...)`
+  - `chat.ToolResultValue(call.ID, value)`
+- Behavior:
+  - `AssistantToolCalls` replays the prior tool calls as-is
+  - `ToolResultValue` keeps object JSON unchanged
+  - non-object values are wrapped as `{"result": ...}`
+- Recommended pattern:
+
+```go
+resp, err := client.Chat(ctx, &chat.Request{
+	Messages: []chat.Message{chat.User("read README.md")},
+	Tools:    tools,
+})
+if err != nil {
+	return err
+}
+
+call := resp.ToolCalls[0]
+toolMsg, err := chat.ToolResultValue(call.ID, map[string]any{
+	"content": "...file text...",
+})
+if err != nil {
+	return err
+}
+
+_, err = client.Chat(ctx, &chat.Request{
+	Messages: []chat.Message{
+		chat.User("read README.md"),
+		chat.AssistantToolCalls(resp.ToolCalls...),
+		toolMsg,
+	},
+	Tools: tools,
+})
+```
+
+- Tests:
+  - `chat/types_test.go`
+  - `providers/gemini/gemini_test.go`

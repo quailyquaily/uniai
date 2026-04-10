@@ -143,6 +143,98 @@ func TestCacheControlHelpers(t *testing.T) {
 	}
 }
 
+func TestAssistantToolCallsClonesInput(t *testing.T) {
+	toolCalls := []ToolCall{
+		{
+			ID: "call_1",
+			Function: ToolCallFunction{
+				Name:      "lookup",
+				Arguments: `{"q":"hello"}`,
+			},
+			ThoughtSignature: "sig_1",
+		},
+	}
+
+	msg := AssistantToolCalls(toolCalls...)
+	toolCalls[0].Function.Name = "mutated"
+	toolCalls[0].ThoughtSignature = "mutated"
+
+	if msg.Role != RoleAssistant {
+		t.Fatalf("unexpected role: %q", msg.Role)
+	}
+	if len(msg.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %d", len(msg.ToolCalls))
+	}
+	if msg.ToolCalls[0].Function.Name != "lookup" {
+		t.Fatalf("assistant tool calls should clone input, got %#v", msg.ToolCalls[0])
+	}
+	if msg.ToolCalls[0].ThoughtSignature != "sig_1" {
+		t.Fatalf("unexpected thought signature: %#v", msg.ToolCalls[0])
+	}
+}
+
+func TestToolResultValuePreservesJSONObject(t *testing.T) {
+	msg, err := ToolResultValue("call_1", map[string]any{
+		"content": "hello",
+		"lines":   2,
+	})
+	if err != nil {
+		t.Fatalf("tool result value: %v", err)
+	}
+	if msg.Role != RoleTool || msg.ToolCallID != "call_1" {
+		t.Fatalf("unexpected tool result message: %#v", msg)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(msg.Content), &out); err != nil {
+		t.Fatalf("unmarshal content: %v", err)
+	}
+	if out["content"] != "hello" || out["lines"] != float64(2) {
+		t.Fatalf("unexpected content payload: %#v", out)
+	}
+	if _, exists := out["result"]; exists {
+		t.Fatalf("object payload should not be wrapped: %#v", out)
+	}
+}
+
+func TestToolResultValueWrapsScalarAsResultObject(t *testing.T) {
+	msg, err := ToolResultValue("call_1", "hello")
+	if err != nil {
+		t.Fatalf("tool result value: %v", err)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(msg.Content), &out); err != nil {
+		t.Fatalf("unmarshal content: %v", err)
+	}
+	if out["result"] != "hello" {
+		t.Fatalf("expected scalar payload to be wrapped, got %#v", out)
+	}
+}
+
+func TestToolResultValueWrapsJSONArrayAsResultObject(t *testing.T) {
+	msg, err := ToolResultValue("call_1", json.RawMessage(`[1,2,3]`))
+	if err != nil {
+		t.Fatalf("tool result value: %v", err)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal([]byte(msg.Content), &out); err != nil {
+		t.Fatalf("unmarshal content: %v", err)
+	}
+	result, ok := out["result"].([]any)
+	if !ok || len(result) != 3 {
+		t.Fatalf("expected array payload to be wrapped, got %#v", out)
+	}
+}
+
+func TestToolResultValueRejectsInvalidRawJSON(t *testing.T) {
+	_, err := ToolResultValue("call_1", json.RawMessage(`{`))
+	if err == nil {
+		t.Fatalf("expected invalid raw JSON error")
+	}
+}
+
 func TestUsageMarshalJSONOmitsEmptyCache(t *testing.T) {
 	data, err := json.Marshal(Usage{
 		InputTokens:  1,

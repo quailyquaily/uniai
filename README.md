@@ -237,58 +237,7 @@ messages := []uniai.Message{
 	uniai.User("Use the echo tool to repeat: hello"),
 }
 
-tools := []uniai.Tool{
-	uniai.FunctionTool("echo", "Echo text back", []byte(`{
-		"type":"object",
-		"properties":{"text":{"type":"string"}},
-		"required":["text"]
-	}`)),
-}
-
-for {
-	resp, err := client.Chat(ctx,
-		uniai.WithModel("gemini-2.5-pro"),
-		uniai.WithReplaceMessages(messages...),
-		uniai.WithTools(tools),
-		uniai.WithToolChoice(uniai.ToolChoiceAuto()),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// No tool call means final answer.
-	if len(resp.ToolCalls) == 0 {
-		log.Println(resp.Text)
-		break
-	}
-
-	// IMPORTANT: append assistant tool calls exactly as returned.
-	messages = append(messages, uniai.Message{
-		Role:      uniai.RoleAssistant,
-		Content:   resp.Text,
-		ToolCalls: resp.ToolCalls,
-	})
-
-	for _, tc := range resp.ToolCalls {
-		var in struct {
-			Text string `json:"text"`
-		}
-		result := map[string]any{"error": "invalid arguments"}
-		if err := json.Unmarshal([]byte(tc.Function.Arguments), &in); err == nil {
-			result = map[string]any{"text": in.Text}
-		}
-		b, _ := json.Marshal(result)
-
-		// IMPORTANT: use tc.ID as-is when sending tool results.
-		messages = append(messages, uniai.ToolResult(tc.ID, string(b)))
-	}
-}
-```
-
-Notes:
-- Do not rebuild tool calls manually (for example, `id: "call_1"`). Rebuilding can lose provider-specific metadata.
-- For Gemini native tool calling, missing tool-call metadata in follow-up rounds will cause request errors.
-- Some OpenAI-compatible backends also need provider/model-specific request shims. See [`docs/workarounds.md`](docs/workarounds.md).
+Gemini needs follow-up tool rounds to preserve provider-specific metadata, please see [`docs/workarounds.md`](docs/workarounds.md).
 
 ### Tool calling emulation
 
