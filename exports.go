@@ -110,10 +110,20 @@ func WithToolChoice(choice ToolChoice) ChatOption { return chat.WithToolChoice(c
 func System(text string) Message    { return chat.System(text) }
 func User(text string) Message      { return chat.User(text) }
 func Assistant(text string) Message { return chat.Assistant(text) }
+
+// AssistantToolCalls builds an assistant message that replays prior tool calls
+// as-is, preserving provider-specific metadata such as Gemini thought signatures.
 func AssistantToolCalls(toolCalls ...ToolCall) Message {
 	return chat.AssistantToolCalls(toolCalls...)
 }
+
 func ToolResult(toolCallID, content string) Message { return chat.ToolResult(toolCallID, content) }
+
+// ToolResultValue encodes a structured tool result as a tool message.
+//
+// JSON objects are preserved as-is. Non-object values such as strings, arrays,
+// numbers, booleans, or null are wrapped as {"result": ...} so providers such
+// as native Gemini receive an object payload.
 func ToolResultValue(toolCallID string, value any) (Message, error) {
 	return chat.ToolResultValue(toolCallID, value)
 }

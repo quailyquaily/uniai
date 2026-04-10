@@ -428,6 +428,8 @@ func SystemParts(parts ...Part) Message {
 	return Message{Role: RoleSystem, Parts: CloneParts(parts)}
 }
 
+// AssistantToolCalls builds an assistant message that replays prior tool calls
+// as-is, preserving provider-specific metadata such as Gemini thought signatures.
 func AssistantToolCalls(toolCalls ...ToolCall) Message {
 	return Message{Role: RoleAssistant, ToolCalls: CloneToolCalls(toolCalls)}
 }
@@ -436,6 +438,11 @@ func ToolResult(toolCallID, content string) Message {
 	return Message{Role: RoleTool, Content: content, ToolCallID: toolCallID}
 }
 
+// ToolResultValue encodes a structured tool result as a tool message.
+//
+// JSON objects are preserved as-is. Non-object values such as strings, arrays,
+// numbers, booleans, or null are wrapped as {"result": ...} so providers such
+// as native Gemini receive an object payload.
 func ToolResultValue(toolCallID string, value any) (Message, error) {
 	content, err := marshalToolResultValue(value)
 	if err != nil {
