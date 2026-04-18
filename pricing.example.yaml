@@ -1,6 +1,6 @@
 # Example pricing catalog for uniai.
 #
-# Checked against official pricing pages on 2026-04-09.
+# Checked against official pricing pages on 2026-04-18.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example intentionally keeps only the standard chat token rates that fit
@@ -15,7 +15,7 @@
 # Official sources used for this file:
 # - OpenAI: https://openai.com/api/pricing/
 # - Anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
-# - Anthropic announcements: https://www.anthropic.com/news/claude-opus-4-6
+# - Anthropic announcements: https://www.anthropic.com/news/claude-opus-4-7
 # - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
 # - Gemini: https://ai.google.dev/gemini-api/docs/pricing
 # - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing/
@@ -69,6 +69,15 @@ chat:
     output_usd_per_million: 1.25
 
   # Anthropic
+  - provider: anthropic
+    model: claude-opus-4-7
+    input_usd_per_million: 5.00
+    cached_input_usd_per_million: 0.50
+    cache_creation_input_usd_per_million: 6.25
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 6.25
+      ephemeral_1h_input_tokens: 10.00
+    output_usd_per_million: 25.00
   - provider: anthropic
     model: claude-opus-4-6
     input_usd_per_million: 5.00

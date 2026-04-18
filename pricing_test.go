@@ -258,6 +258,7 @@ func TestPricingExampleYAML(t *testing.T) {
 	}{
 		{provider: "openai", model: "gpt-5.4"},
 		{provider: "openai_resp", model: "gpt-5.4-mini"},
+		{provider: "anthropic", model: "claude-opus-4-7"},
 		{provider: "anthropic", model: "claude-opus-4-6"},
 		{provider: "anthropic", model: "claude-sonnet-4-6"},
 		{provider: "gemini", model: "gemini-3.1-pro-preview"},
