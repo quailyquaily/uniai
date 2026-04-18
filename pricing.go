@@ -10,7 +10,7 @@ import (
 
 const PricingCatalogVersionV1 = "uniai.pricing.v1"
 
-// PricingCatalog is the external price table used by uniai to derive Usage.Cost.
+// PricingCatalog is the price table used by uniai to derive Usage.Cost.
 //
 // v1 only covers chat cost estimation and uses USD per 1M tokens.
 type PricingCatalog struct {
@@ -20,13 +20,14 @@ type PricingCatalog struct {
 
 // ChatPricingRule defines one chat model price entry.
 //
-// Matching is exact on normalized provider and model strings. Aliases are optional
-// explicit alternate model names for the same price. Empty Provider means the rule
-// is provider-generic and is considered after provider-specific rules.
+// Matching is exact on normalized model strings only by default. Aliases are
+// optional explicit alternate model names for the same price. InferenceProvider
+// is optional metadata, and can be used as an explicit runtime hint via
+// EstimateChatCostWithInferenceProvider.
 type ChatPricingRule struct {
-	Provider string   `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model    string   `json:"model" yaml:"model"`
-	Aliases  []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	InferenceProvider string   `json:"inference_provider,omitempty" yaml:"inference_provider,omitempty"`
+	Model             string   `json:"model" yaml:"model"`
+	Aliases           []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
 
 	InputUSDPerMillion  float64 `json:"input_usd_per_million" yaml:"input_usd_per_million"`
 	OutputUSDPerMillion float64 `json:"output_usd_per_million" yaml:"output_usd_per_million"`
@@ -84,58 +85,89 @@ func (c *PricingCatalog) Validate() error {
 			return fmt.Errorf("chat[%d]: %w", i, err)
 		}
 	}
+	if err := validateUniqueChatPricingRuleModels(c.Chat); err != nil {
+		return err
+	}
 	return nil
 }
 
-// EstimateChatCost derives a cost estimate from the catalog, provider, model, and
-// usage. It returns false when no rule matches or when the matched rule does not
-// define all rates required by the usage payload.
-func (c *PricingCatalog) EstimateChatCost(provider, model string, usage Usage) (*UsageCost, bool) {
+// EstimateChatCost derives a cost estimate from the catalog, model, and usage.
+// It returns false when no rule matches or when the matched rule does not define
+// all rates required by the usage payload.
+func (c *PricingCatalog) EstimateChatCost(model string, usage Usage) (*UsageCost, bool) {
+	return c.EstimateChatCostWithInferenceProvider("", model, usage)
+}
+
+// EstimateChatCostWithInferenceProvider derives a cost estimate from the catalog,
+// inference provider hint, model, and usage.
+//
+// If inferenceProvider is empty, or if the catalog has no rule using that
+// inference provider, lookup falls back to model-only matching. If the hinted
+// provider exists in the catalog, lookup stays within that provider only.
+func (c *PricingCatalog) EstimateChatCostWithInferenceProvider(inferenceProvider, model string, usage Usage) (*UsageCost, bool) {
 	if c == nil {
 		return nil, false
 	}
 	if usage.Cost != nil {
 		return usage.Cost, true
 	}
-	rule := c.findChatPricingRule(provider, model)
+	rule := c.findChatPricingRuleWithInferenceProvider(inferenceProvider, model)
 	if rule == nil {
 		return nil, false
 	}
 	return estimateFixedChatCost(*rule, usage)
 }
 
-func (c *PricingCatalog) findChatPricingRule(provider, model string) *ChatPricingRule {
+func (c *PricingCatalog) findChatPricingRule(model string) *ChatPricingRule {
+	return c.findChatPricingRuleWithInferenceProvider("", model)
+}
+
+func (c *PricingCatalog) findChatPricingRuleWithInferenceProvider(inferenceProvider, model string) *ChatPricingRule {
 	if c == nil {
 		return nil
 	}
-	provider = normalizeProvider(provider)
-	model = normalizeModel(model)
-	if model == "" {
+	candidates := normalizeModelCandidates(model)
+	if len(candidates) == 0 {
+		return nil
+	}
+	inferenceProvider = normalizeInferenceProvider(inferenceProvider)
+
+	if inferenceProvider != "" && c.hasInferenceProvider(inferenceProvider) {
+		for _, candidate := range candidates {
+			for i := range c.Chat {
+				rule := &c.Chat[i]
+				if normalizeInferenceProvider(rule.InferenceProvider) != inferenceProvider {
+					continue
+				}
+				if chatPricingRuleMatches(rule, candidate) {
+					return rule
+				}
+			}
+		}
 		return nil
 	}
 
-	for i := range c.Chat {
-		rule := &c.Chat[i]
-		if normalizeProvider(rule.Provider) != provider {
-			continue
-		}
-		if chatPricingRuleMatches(rule, model) {
-			return rule
-		}
-	}
-	if provider == "" {
-		return nil
-	}
-	for i := range c.Chat {
-		rule := &c.Chat[i]
-		if normalizeProvider(rule.Provider) != "" {
-			continue
-		}
-		if chatPricingRuleMatches(rule, model) {
-			return rule
+	for _, candidate := range candidates {
+		for i := range c.Chat {
+			rule := &c.Chat[i]
+			if chatPricingRuleMatches(rule, candidate) {
+				return rule
+			}
 		}
 	}
 	return nil
+}
+
+func (c *PricingCatalog) hasInferenceProvider(inferenceProvider string) bool {
+	if c == nil || inferenceProvider == "" {
+		return false
+	}
+	for i := range c.Chat {
+		if normalizeInferenceProvider(c.Chat[i].InferenceProvider) == inferenceProvider {
+			return true
+		}
+	}
+	return false
 }
 
 func chatPricingRuleMatches(rule *ChatPricingRule, model string) bool {
@@ -246,7 +278,7 @@ func estimateCacheCreationCost(rule ChatPricingRule, cache UsageCache) (float64,
 
 func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {
 	out := ChatPricingRule{
-		Provider:            in.Provider,
+		InferenceProvider:   in.InferenceProvider,
 		Model:               in.Model,
 		InputUSDPerMillion:  in.InputUSDPerMillion,
 		OutputUSDPerMillion: in.OutputUSDPerMillion,
@@ -317,6 +349,29 @@ func validateChatPricingRule(rule ChatPricingRule) error {
 	return nil
 }
 
+func validateUniqueChatPricingRuleModels(rules []ChatPricingRule) error {
+	seen := make(map[string]int, len(rules))
+	for i, rule := range rules {
+		inferenceProvider := normalizeInferenceProvider(rule.InferenceProvider)
+		names := append([]string{rule.Model}, rule.Aliases...)
+		for _, name := range names {
+			normalized := normalizeModel(name)
+			if normalized == "" {
+				continue
+			}
+			key := inferenceProvider + "\x00" + normalized
+			if prev, ok := seen[key]; ok {
+				if inferenceProvider == "" {
+					return fmt.Errorf("chat[%d]: model or alias %q conflicts with chat[%d]", i, name, prev)
+				}
+				return fmt.Errorf("chat[%d]: model or alias %q conflicts with chat[%d] under inference_provider %q", i, name, prev, rule.InferenceProvider)
+			}
+			seen[key] = i
+		}
+	}
+	return nil
+}
+
 func validateFinitePrice(field string, value float64) error {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return fmt.Errorf("%s must be a finite number", field)
@@ -324,14 +379,30 @@ func validateFinitePrice(field string, value float64) error {
 	return nil
 }
 
-func normalizeProvider(provider string) string {
-	return strings.ToLower(strings.TrimSpace(provider))
+func normalizeInferenceProvider(inferenceProvider string) string {
+	return strings.ToLower(strings.TrimSpace(inferenceProvider))
 }
 
 func normalizeModel(model string) string {
 	model = strings.TrimSpace(strings.ToLower(model))
 	model = strings.TrimPrefix(model, "models/")
 	return model
+}
+
+func normalizeModelCandidates(model string) []string {
+	normalized := normalizeModel(model)
+	if normalized == "" {
+		return nil
+	}
+
+	candidates := []string{normalized}
+	if slash := strings.LastIndex(normalized, "/"); slash >= 0 && slash+1 < len(normalized) {
+		suffix := normalized[slash+1:]
+		if suffix != "" && suffix != normalized {
+			candidates = append(candidates, suffix)
+		}
+	}
+	return candidates
 }
 
 func normalizeDetailKey(key string) string {

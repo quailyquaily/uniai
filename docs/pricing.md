@@ -1,14 +1,19 @@
 # Pricing Catalog And Cost Estimation
 
-This document describes how to let `uniai` derive `Usage.Cost` from a caller-provided price table.
+This document describes how `uniai` derives `Usage.Cost` from its embedded default pricing catalog or from a caller-provided override.
 
 ## What This Feature Does
 
-`uniai` does not ship built-in model prices.
+`uniai` ships an embedded default pricing catalog for common chat models.
 
-If you provide a `PricingCatalog` through `Config.Pricing`, `uniai` can calculate a local cost estimate from:
+By default, `uniai` calculates a local cost estimate from:
 
-- provider
+- model
+- token usage attached to the `Client.Chat()` result
+- the embedded default price table
+
+If you provide a `PricingCatalog` through `Config.Pricing`, `uniai` uses your override instead:
+
 - model
 - token usage attached to the `Client.Chat()` result
 - your own price table
@@ -39,10 +44,21 @@ Relevant types and functions:
 
 - `uniai.PricingCatalog`
 - `uniai.ChatPricingRule`
+- `uniai.DefaultPricingCatalog()`
 - `uniai.ParsePricingYAML([]byte)`
+- `uniai.WithInferenceProvider(...)`
+- `(*uniai.PricingCatalog).EstimateChatCostWithInferenceProvider(...)`
 - `Config.Pricing`
 
 Example:
+
+```go
+client := uniai.New(uniai.Config{
+	Provider: "openai",
+})
+```
+
+Override example:
 
 ```go
 pricing, err := uniai.ParsePricingYAML(yamlBytes)
@@ -53,6 +69,15 @@ if err != nil {
 client := uniai.New(uniai.Config{
 	Provider: "openai",
 	Pricing:  pricing,
+})
+```
+
+Disable example:
+
+```go
+client := uniai.New(uniai.Config{
+	Provider: "openai",
+	Pricing:  &uniai.PricingCatalog{},
 })
 ```
 
@@ -70,13 +95,13 @@ Example:
 version: uniai.pricing.v1
 
 chat:
-  - provider: openai
+  - inference_provider: openai
     model: gpt-5.4
     input_usd_per_million: 2.50
     cached_input_usd_per_million: 0.25
     output_usd_per_million: 15.00
 
-  - provider: anthropic
+  - inference_provider: anthropic
     model: claude-sonnet-4-6
     input_usd_per_million: 3.00
     cached_input_usd_per_million: 0.30
@@ -87,13 +112,13 @@ chat:
     output_usd_per_million: 15.00
 ```
 
-See [`pricing.example.yaml`](../pricing.example.yaml) for a fuller example.
+See [`pricing.example.yaml`](../pricing.example.yaml) for the embedded default catalog source and a fuller example.
 
 ## Rule Fields
 
 Each `chat` entry supports these fields:
 
-- `provider`: optional provider name such as `openai`, `anthropic`, `gemini`
+- `inference_provider`: optional metadata for the underlying model vendor, such as `openai`, `anthropic`, `gemini`
 - `model`: required model name
 - `aliases`: optional extra model names that should reuse the same price
 - `input_usd_per_million`: required base input token price
@@ -108,37 +133,56 @@ All prices must be non-negative.
 
 Matching is conservative:
 
-1. provider is normalized and matched exactly
-2. model is normalized and matched exactly
-3. aliases are checked explicitly
-4. rules with empty `provider` are treated as provider-generic fallback
+1. model is normalized and matched exactly
+2. aliases are checked explicitly
+3. if you call `EstimateChatCostWithInferenceProvider(...)` and that `inference_provider` exists in the catalog, matching stays within that provider only
+4. if no provider hint is passed, or the hinted provider does not exist in the catalog, matching falls back to model-only lookup
+5. if the runtime model looks like `vendor/model`, lookup first tries the full name, then falls back to the suffix `model`
+6. model and alias names in YAML must be unique within the same `inference_provider`
+7. if multiple rules share the same model across different `inference_provider` values and no usable hint is provided, the first match in YAML order wins
 
 `uniai` does not guess prices from model family names.
 
 That means:
 
-- if the provider or model name is different, no cost is calculated
+- if the model name is different, no cost is calculated
 - if you use deployment names or custom aliases, add them explicitly
+
+If you need to pass an explicit model-vendor hint at runtime, use:
+
+```go
+cost, ok := pricing.EstimateChatCostWithInferenceProvider("openai", "gpt-5", usage)
+```
+
+For automatic `Client.Chat()` cost annotation, pass the same hint on the request:
+
+```go
+resp, err := client.Chat(ctx,
+	uniai.WithModel("gpt-5"),
+	uniai.WithInferenceProvider("openai"),
+	uniai.WithMessages(uniai.User("hello")),
+)
+```
 
 ## Go Construction Example
 
-You can build the catalog directly in Go instead of YAML:
+You can build an override catalog directly in Go instead of YAML:
 
 ```go
 pricing := &uniai.PricingCatalog{
 	Version: uniai.PricingCatalogVersionV1,
 	Chat: []uniai.ChatPricingRule{
 		{
-			Provider:                 "openai",
+			InferenceProvider:        "openai",
 			Model:                    "gpt-5.4-mini",
 			InputUSDPerMillion:       0.75,
 			CachedInputUSDPerMillion: ptr(0.075),
 			OutputUSDPerMillion:      4.50,
 		},
 		{
-			Provider:            "azure",
-			Model:               "my-gpt-5-4-deployment",
-			InputUSDPerMillion:  2.50,
+			InferenceProvider:  "openai",
+			Model:              "my-gpt-5-4-deployment",
+			InputUSDPerMillion: 2.50,
 			OutputUSDPerMillion: 15.00,
 		},
 	},
@@ -168,7 +212,7 @@ If `cache_creation_input_detail_usd_per_million` is present, matching detail cou
 pricing, err := uniai.ParsePricingYAML([]byte(`
 version: uniai.pricing.v1
 chat:
-  - provider: openai
+  - inference_provider: openai
     model: gpt-5.4-mini
     input_usd_per_million: 0.75
     cached_input_usd_per_million: 0.075
@@ -208,7 +252,7 @@ If your runtime model name is an Azure deployment name, price that deployment na
 
 ```yaml
 chat:
-  - provider: azure
+  - inference_provider: openai
     model: my-gpt-5-4-deployment
     input_usd_per_million: 2.50
     output_usd_per_million: 15.00
@@ -220,7 +264,7 @@ If your upstream returns a dated or custom alias, add it to `aliases`:
 
 ```yaml
 chat:
-  - provider: gemini
+  - inference_provider: gemini
     model: gemini-3.1-pro-preview
     aliases:
       - gemini-3.1-pro-preview-customtools
@@ -233,10 +277,10 @@ chat:
 
 `Usage.Cost` stays `nil` when:
 
-- `Config.Pricing` is `nil`
-- no rule matches the current provider and model
+- no rule matches the current model
 - usage contains cached-input tokens but the matched rule has no `cached_input_usd_per_million`
 - usage contains cache-creation tokens but the matched rule has no suitable cache-creation price
+- you explicitly pass an empty `Config.Pricing`, such as `&uniai.PricingCatalog{}`
 
 YAML parsing fails when:
 

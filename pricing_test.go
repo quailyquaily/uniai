@@ -12,8 +12,11 @@ import (
 func TestParsePricingYAML(t *testing.T) {
 	catalog, err := ParsePricingYAML([]byte(`
 version: uniai.pricing.v1
+pricing_references:
+  inference_providers:
+    openai: https://platform.openai.com/docs/pricing/
 chat:
-  - provider: openai
+  - inference_provider: openai
     model: gpt-5.2
     aliases:
       - gpt-5.2-20260401
@@ -31,7 +34,7 @@ chat:
 		t.Fatalf("unexpected chat rule count: %d", len(catalog.Chat))
 	}
 	rule := catalog.Chat[0]
-	if rule.Provider != "openai" || rule.Model != "gpt-5.2" {
+	if rule.InferenceProvider != "openai" || rule.Model != "gpt-5.2" {
 		t.Fatalf("unexpected rule: %#v", rule)
 	}
 	if len(rule.Aliases) != 1 || rule.Aliases[0] != "gpt-5.2-20260401" {
@@ -46,7 +49,7 @@ func TestPricingCatalogEstimateChatCost(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
 			{
-				Provider:                 "openai",
+				InferenceProvider:        "openai",
 				Model:                    "gpt-5.2",
 				InputUSDPerMillion:       1.25,
 				OutputUSDPerMillion:      10,
@@ -56,7 +59,7 @@ func TestPricingCatalogEstimateChatCost(t *testing.T) {
 		},
 	}
 
-	cost, ok := catalog.EstimateChatCost("openai", "gpt-5.2-20260401", Usage{
+	cost, ok := catalog.EstimateChatCost("gpt-5.2-20260401", Usage{
 		InputTokens:  100,
 		OutputTokens: 25,
 		TotalTokens:  125,
@@ -73,11 +76,146 @@ func TestPricingCatalogEstimateChatCost(t *testing.T) {
 	assertNearlyEqual(t, cost.Total, 0.00033)
 }
 
+func TestPricingCatalogEstimateChatCostWithInferenceProviderPrefersProviderMatch(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+			{
+				InferenceProvider:   "azure",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  2.00,
+				OutputUSDPerMillion: 12,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCostWithInferenceProvider("azure", "gpt-5", Usage{
+		InputTokens:  100,
+		OutputTokens: 25,
+		TotalTokens:  125,
+	})
+	if !ok {
+		t.Fatal("expected cost estimate")
+	}
+	assertNearlyEqual(t, cost.Input, 0.0002)
+	assertNearlyEqual(t, cost.Output, 0.0003)
+	assertNearlyEqual(t, cost.Total, 0.0005)
+}
+
+func TestPricingCatalogEstimateChatCostWithInferenceProviderFallsBackWhenProviderMissing(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCostWithInferenceProvider("anthropic", "gpt-5", Usage{
+		InputTokens:  100,
+		OutputTokens: 25,
+		TotalTokens:  125,
+	})
+	if !ok {
+		t.Fatal("expected fallback cost estimate")
+	}
+	assertNearlyEqual(t, cost.Input, 0.000125)
+	assertNearlyEqual(t, cost.Output, 0.00025)
+	assertNearlyEqual(t, cost.Total, 0.000375)
+}
+
+func TestPricingCatalogValidateAllowsDuplicateModelNamesAcrossInferenceProviders(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+			{
+				InferenceProvider:   "azure",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  2.00,
+				OutputUSDPerMillion: 12,
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("expected duplicate model names across inference providers to be valid: %v", err)
+	}
+}
+
+func TestPricingCatalogEstimateChatCostNormalizesVendorPrefixedModelName(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("ABC/gpt-5", Usage{
+		InputTokens:  100,
+		OutputTokens: 25,
+		TotalTokens:  125,
+	})
+	if !ok {
+		t.Fatal("expected vendor-prefixed model name to match")
+	}
+	assertNearlyEqual(t, cost.Input, 0.000125)
+	assertNearlyEqual(t, cost.Output, 0.00025)
+	assertNearlyEqual(t, cost.Total, 0.000375)
+}
+
+func TestPricingCatalogEstimateChatCostPrefersExactSlashModelMatch(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-oss-120b",
+				InputUSDPerMillion:  9,
+				OutputUSDPerMillion: 9,
+			},
+			{
+				InferenceProvider:   "openai",
+				Model:               "openai/gpt-oss-120b",
+				InputUSDPerMillion:  0.15,
+				OutputUSDPerMillion: 0.60,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("openai/gpt-oss-120b", Usage{
+		InputTokens:  100,
+		OutputTokens: 25,
+		TotalTokens:  125,
+	})
+	if !ok {
+		t.Fatal("expected exact slash model match")
+	}
+	assertNearlyEqual(t, cost.Input, 0.000015)
+	assertNearlyEqual(t, cost.Output, 0.000015)
+	assertNearlyEqual(t, cost.Total, 0.00003)
+}
+
 func TestPricingCatalogEstimateChatCostAnthropicCacheCreationDetails(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
 			{
-				Provider:                        "anthropic",
+				InferenceProvider:               "anthropic",
 				Model:                           "claude-sonnet-4-20250514",
 				InputUSDPerMillion:              3,
 				OutputUSDPerMillion:             15,
@@ -90,7 +228,7 @@ func TestPricingCatalogEstimateChatCostAnthropicCacheCreationDetails(t *testing.
 		},
 	}
 
-	cost, ok := catalog.EstimateChatCost("anthropic", "claude-sonnet-4-20250514", Usage{
+	cost, ok := catalog.EstimateChatCost("claude-sonnet-4-20250514", Usage{
 		InputTokens:  160,
 		OutputTokens: 10,
 		TotalTokens:  170,
@@ -114,7 +252,7 @@ func TestPricingCatalogEstimateChatCostAnthropicCacheCreationDetails(t *testing.
 
 func TestPricingCatalogEstimateChatCostNoBuiltins(t *testing.T) {
 	catalog := &PricingCatalog{}
-	if _, ok := catalog.EstimateChatCost("openai", "gpt-5.2", Usage{
+	if _, ok := catalog.EstimateChatCost("gpt-5.2", Usage{
 		InputTokens:  10,
 		OutputTokens: 5,
 		TotalTokens:  15,
@@ -123,11 +261,31 @@ func TestPricingCatalogEstimateChatCostNoBuiltins(t *testing.T) {
 	}
 }
 
+func TestDefaultPricingCatalog(t *testing.T) {
+	catalog := DefaultPricingCatalog()
+	if catalog == nil {
+		t.Fatal("expected embedded default pricing catalog")
+	}
+	if !catalogHasRule(catalog, "gpt-5.4") {
+		t.Fatal("expected embedded default pricing catalog to include gpt-5.4")
+	}
+
+	catalog.Chat = nil
+
+	again := DefaultPricingCatalog()
+	if again == nil {
+		t.Fatal("expected cloned embedded default pricing catalog")
+	}
+	if !catalogHasRule(again, "gpt-5.4") {
+		t.Fatal("expected embedded default pricing catalog clone to stay intact")
+	}
+}
+
 func TestParsePricingYAMLRejectsNonFinitePrices(t *testing.T) {
 	_, err := ParsePricingYAML([]byte(`
 version: uniai.pricing.v1
 chat:
-  - provider: openai
+  - inference_provider: openai
     model: gpt-5.4
     input_usd_per_million: .nan
     output_usd_per_million: 15
@@ -144,7 +302,7 @@ func TestPricingCatalogValidateRejectsNonFinitePointerAndDetailPrices(t *testing
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
 			{
-				Provider:                 "anthropic",
+				InferenceProvider:        "anthropic",
 				Model:                    "claude-sonnet-4-6",
 				InputUSDPerMillion:       3,
 				OutputUSDPerMillion:      15,
@@ -165,7 +323,7 @@ func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
 			{
-				Provider:            "openai",
+				InferenceProvider:   "openai",
 				Model:               "gpt-5.2",
 				InputUSDPerMillion:  1.25,
 				OutputUSDPerMillion: 10,
@@ -173,7 +331,7 @@ func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
 		},
 	}
 
-	if cost, ok := catalog.EstimateChatCost("openai", "gpt-5.2", Usage{}); ok || cost != nil {
+	if cost, ok := catalog.EstimateChatCost("gpt-5.2", Usage{}); ok || cost != nil {
 		t.Fatalf("expected no cost for empty usage, got %#v ok=%v", cost, ok)
 	}
 }
@@ -182,7 +340,7 @@ func TestPricingCatalogEstimateChatCostNormalizesDetailRateKeysAtLookup(t *testi
 	catalog, err := ParsePricingYAML([]byte(`
 version: uniai.pricing.v1
 chat:
-  - provider: anthropic
+  - inference_provider: anthropic
     model: claude-sonnet-4-6
     input_usd_per_million: 3
     output_usd_per_million: 15
@@ -195,7 +353,7 @@ chat:
 		t.Fatalf("parse pricing yaml: %v", err)
 	}
 
-	cost, ok := catalog.EstimateChatCost("anthropic", "claude-sonnet-4-6", Usage{
+	cost, ok := catalog.EstimateChatCost("claude-sonnet-4-6", Usage{
 		InputTokens:  80,
 		OutputTokens: 10,
 		TotalTokens:  90,
@@ -220,7 +378,7 @@ func TestPricingCatalogEstimateChatCostRejectsOverlappingCacheCreationDetails(t 
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
 			{
-				Provider:                        "anthropic",
+				InferenceProvider:               "anthropic",
 				Model:                           "claude-sonnet-4-6",
 				InputUSDPerMillion:              3,
 				OutputUSDPerMillion:             15,
@@ -233,7 +391,7 @@ func TestPricingCatalogEstimateChatCostRejectsOverlappingCacheCreationDetails(t 
 		},
 	}
 
-	if cost, ok := catalog.EstimateChatCost("anthropic", "claude-sonnet-4-6", Usage{
+	if cost, ok := catalog.EstimateChatCost("claude-sonnet-4-6", Usage{
 		InputTokens:  40,
 		OutputTokens: 10,
 		TotalTokens:  50,
@@ -249,45 +407,157 @@ func TestPricingCatalogEstimateChatCostRejectsOverlappingCacheCreationDetails(t 
 	}
 }
 
+func TestPricingCatalogValidateRejectsAmbiguousModelNamesWithinInferenceProvider(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5.2",
+				InputUSDPerMillion:  1.25,
+				OutputUSDPerMillion: 10,
+			},
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5.2",
+				InputUSDPerMillion:  1.75,
+				OutputUSDPerMillion: 14,
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected duplicate model validation error")
+	}
+}
+
 func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
-	mustHave := []struct {
-		provider string
-		model    string
-	}{
-		{provider: "openai", model: "gpt-5.4"},
-		{provider: "openai_resp", model: "gpt-5.4-mini"},
-		{provider: "anthropic", model: "claude-opus-4-7"},
-		{provider: "anthropic", model: "claude-opus-4-6"},
-		{provider: "anthropic", model: "claude-sonnet-4-6"},
-		{provider: "gemini", model: "gemini-3.1-pro-preview"},
-		{provider: "gemini", model: "gemini-3-flash-preview"},
+	mustHave := []string{
+		"gpt-5.2",
+		"gpt-5",
+		"gpt-4o",
+		"gpt-4o-mini",
+		"gpt-5.4-mini",
+		"gpt-5.4-nano",
+		"claude-opus-4-7",
+		"claude-opus-4-5",
+		"claude-opus-4-5-20250929",
+		"claude-opus-4-6",
+		"claude-sonnet-4-5",
+		"claude-sonnet-4-6-20260201",
+		"claude-sonnet-4-6",
+		"claude-haiku-4-5",
+		"gemini-3-pro-preview",
+		"gemini-3.0-pro",
+		"gemini-3-flash-preview",
+		"gemini-3.0-flash",
+		"gemini-2.5-pro",
+		"gemini-2.5-flash",
+		"mistral-large-2512",
+		"mistral-large-latest",
+		"mistral-medium-latest",
+		"mistral-small-2603",
+		"devstral-latest",
+		"command-a-03-2025",
+		"command-r7b-12-2024",
+		"command-r-08-2024",
+		"command-r-plus-08-2024",
+		"glm-5",
+		"glm-4.5-air",
+		"kimi-k2.5",
+		"kimi-k2-0905-preview",
+		"MiniMax-M2.7",
+		"MiniMax-M2.5-highspeed",
 	}
-	for _, tc := range mustHave {
-		if !catalogHasRule(catalog, tc.provider, tc.model) {
-			t.Fatalf("pricing.example.yaml missing rule %s/%s", tc.provider, tc.model)
+	for _, model := range mustHave {
+		if !catalogHasRule(catalog, model) {
+			t.Fatalf("pricing.example.yaml missing rule %s", model)
 		}
 	}
 
-	mustNotHave := []struct {
-		provider string
-		model    string
-	}{
-		{provider: "openai", model: "gpt-5-pro"},
-		{provider: "openai_resp", model: "gpt-5-pro"},
-		{provider: "anthropic", model: "claude-sonnet-4-20250514"},
-		{provider: "anthropic", model: "claude-3-7-sonnet-20250219"},
-		{provider: "anthropic", model: "claude-3-5-haiku-20241022"},
-		{provider: "gemini", model: "gemini-2.5-pro"},
-		{provider: "gemini", model: "gemini-2.5-flash"},
-		{provider: "gemini", model: "gemini-3.1-flash-lite-preview"},
+	mustNotHave := []string{
+		"gpt-5-pro",
+		"claude-sonnet-4-20250514",
+		"claude-3-7-sonnet-20250219",
+		"claude-3-5-haiku-20241022",
+		"gemini-3.1-flash-lite-preview",
+		"gemini-2.5-flash-lite",
 	}
-	for _, tc := range mustNotHave {
-		if catalogHasRule(catalog, tc.provider, tc.model) {
-			t.Fatalf("pricing.example.yaml should not contain rule %s/%s", tc.provider, tc.model)
+	for _, model := range mustNotHave {
+		if catalogHasRule(catalog, model) {
+			t.Fatalf("pricing.example.yaml should not contain rule %s", model)
 		}
 	}
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGPT52PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.2", usage)
+	if !ok {
+		t.Fatal("expected cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*1.75/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.175/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*14.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.005635)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("kimi-k2.5", usage)
+	if !ok {
+		t.Fatal("expected model-based cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*0.60/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.10/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*3.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.0014)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+	}
+
+	cost, ok := catalog.EstimateChatCost("mistral-large-latest", usage)
+	if !ok {
+		t.Fatal("expected mistral alias cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 1000*0.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 0)
+	assertNearlyEqual(t, cost.Output, 300*1.50/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.00095)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesOpenAIPriceMath(t *testing.T) {
@@ -302,7 +572,7 @@ func TestPricingExampleYAMLEstimateChatCostMatchesOpenAIPriceMath(t *testing.T) 
 		},
 	}
 
-	cost, ok := catalog.EstimateChatCost("openai", "gpt-5.4-mini", usage)
+	cost, ok := catalog.EstimateChatCost("gpt-5.4-mini", usage)
 	if !ok {
 		t.Fatal("expected cost estimate from pricing.example.yaml")
 	}
@@ -363,10 +633,45 @@ func TestPricingExampleYAMLAnnotateChatResultCostMatchesAnthropicPriceMath(t *te
 	}
 }
 
-func TestWrapChatStreamCostWithoutPricingDoesNotAnnotate(t *testing.T) {
+func TestWrapChatStreamCostUsesEmbeddedDefaultPricing(t *testing.T) {
 	client := New(Config{
 		Provider:    "openai",
-		OpenAIModel: "gpt-5.2",
+		OpenAIModel: "gpt-5.4",
+	})
+	req := &chat.Request{
+		Messages: []chat.Message{chat.User("hello")},
+	}
+
+	var got *Usage
+	wrapped := client.wrapChatStreamCost("openai", req, func(ev chat.StreamEvent) error {
+		got = ev.Usage
+		return nil
+	})
+
+	if err := wrapped(chat.StreamEvent{
+		Done: true,
+		Usage: &Usage{
+			InputTokens:  100,
+			OutputTokens: 25,
+			TotalTokens:  125,
+		},
+	}); err != nil {
+		t.Fatalf("wrapped stream: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected usage")
+	}
+	if got.Cost == nil {
+		t.Fatalf("expected embedded default pricing to annotate usage, got %#v", got)
+	}
+	assertNearlyEqual(t, got.Cost.Total, 0.000625)
+}
+
+func TestWrapChatStreamCostEmptyCatalogDisablesDefaultPricing(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai",
+		OpenAIModel: "gpt-5.4",
+		Pricing:     &PricingCatalog{},
 	})
 	req := &chat.Request{
 		Messages: []chat.Message{chat.User("hello")},
@@ -392,7 +697,7 @@ func TestWrapChatStreamCostWithoutPricingDoesNotAnnotate(t *testing.T) {
 		t.Fatal("expected usage")
 	}
 	if got.Cost != nil {
-		t.Fatalf("expected no cost without pricing, got %#v", got.Cost)
+		t.Fatalf("expected empty catalog to disable default pricing, got %#v", got.Cost)
 	}
 }
 
@@ -403,7 +708,7 @@ func TestWrapChatStreamCostAnnotatesFinalUsage(t *testing.T) {
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					Provider:                 "openai",
+					InferenceProvider:        "openai",
 					Model:                    "gpt-5.2",
 					InputUSDPerMillion:       1.25,
 					OutputUSDPerMillion:      10,
@@ -445,7 +750,7 @@ func TestAnnotateChatResultCost(t *testing.T) {
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					Provider:                 "openai",
+					InferenceProvider:        "openai",
 					Model:                    "gpt-5.2",
 					InputUSDPerMillion:       1.25,
 					OutputUSDPerMillion:      10,
@@ -473,6 +778,136 @@ func TestAnnotateChatResultCost(t *testing.T) {
 	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.000375)
 }
 
+func TestAnnotateChatResultCostUsesRequestInferenceProvider(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai",
+		OpenAIModel: "gpt-5",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					InferenceProvider:   "openai",
+					Model:               "gpt-5",
+					InputUSDPerMillion:  1.25,
+					OutputUSDPerMillion: 10,
+				},
+				{
+					InferenceProvider:   "azure",
+					Model:               "gpt-5",
+					InputUSDPerMillion:  2.00,
+					OutputUSDPerMillion: 12,
+				},
+			},
+		},
+	})
+	req := &chat.Request{
+		Model:             "gpt-5",
+		InferenceProvider: "azure",
+		Messages:          []chat.Message{chat.User("hello")},
+	}
+	resp := &chat.Result{
+		Model: "gpt-5",
+		Usage: chat.Usage{
+			InputTokens:  100,
+			OutputTokens: 25,
+			TotalTokens:  125,
+		},
+	}
+
+	client.annotateChatResultCost("openai", req, resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected response usage cost")
+	}
+	assertNearlyEqual(t, resp.Usage.Cost.Input, 0.0002)
+	assertNearlyEqual(t, resp.Usage.Cost.Output, 0.0003)
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.0005)
+}
+
+func TestAnnotateChatResultCostIgnoresDriverProvider(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai_resp",
+		OpenAIModel: "gpt-5.2",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					InferenceProvider:        "openai",
+					Model:                    "gpt-5.2",
+					InputUSDPerMillion:       1.25,
+					OutputUSDPerMillion:      10,
+					CachedInputUSDPerMillion: float64Ptr(0.125),
+				},
+			},
+		},
+	})
+	req := &chat.Request{
+		Messages: []chat.Message{chat.User("hello")},
+	}
+	resp := &chat.Result{
+		Model: "gpt-5.2",
+		Usage: chat.Usage{
+			InputTokens:  100,
+			OutputTokens: 25,
+			TotalTokens:  125,
+		},
+	}
+
+	client.annotateChatResultCost("openai_resp", req, resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected response usage cost")
+	}
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.000375)
+}
+
+func TestWrapChatStreamCostUsesRequestInferenceProvider(t *testing.T) {
+	client := New(Config{
+		Provider:    "openai",
+		OpenAIModel: "gpt-5",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					InferenceProvider:   "openai",
+					Model:               "gpt-5",
+					InputUSDPerMillion:  1.25,
+					OutputUSDPerMillion: 10,
+				},
+				{
+					InferenceProvider:   "azure",
+					Model:               "gpt-5",
+					InputUSDPerMillion:  2.00,
+					OutputUSDPerMillion: 12,
+				},
+			},
+		},
+	})
+	req := &chat.Request{
+		Model:             "gpt-5",
+		InferenceProvider: "azure",
+		Messages:          []chat.Message{chat.User("hello")},
+	}
+
+	var got *Usage
+	wrapped := client.wrapChatStreamCost("openai", req, func(ev chat.StreamEvent) error {
+		got = ev.Usage
+		return nil
+	})
+
+	if err := wrapped(chat.StreamEvent{
+		Done: true,
+		Usage: &Usage{
+			InputTokens:  100,
+			OutputTokens: 25,
+			TotalTokens:  125,
+		},
+	}); err != nil {
+		t.Fatalf("wrapped stream: %v", err)
+	}
+	if got == nil || got.Cost == nil {
+		t.Fatalf("expected priced final usage, got %#v", got)
+	}
+	assertNearlyEqual(t, got.Cost.Input, 0.0002)
+	assertNearlyEqual(t, got.Cost.Output, 0.0003)
+	assertNearlyEqual(t, got.Cost.Total, 0.0005)
+}
+
 func TestAnnotateChatResultCostWithoutUsageDoesNotAnnotate(t *testing.T) {
 	client := New(Config{
 		Provider:    "openai",
@@ -480,7 +915,7 @@ func TestAnnotateChatResultCostWithoutUsageDoesNotAnnotate(t *testing.T) {
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					Provider:            "openai",
+					InferenceProvider:   "openai",
 					Model:               "gpt-5.2",
 					InputUSDPerMillion:  1.25,
 					OutputUSDPerMillion: 10,
@@ -532,17 +967,9 @@ func loadExamplePricingCatalog(t *testing.T) *PricingCatalog {
 	return catalog
 }
 
-func catalogHasRule(catalog *PricingCatalog, provider, model string) bool {
+func catalogHasRule(catalog *PricingCatalog, model string) bool {
 	if catalog == nil {
 		return false
 	}
-	for _, rule := range catalog.Chat {
-		if normalizeProvider(rule.Provider) != normalizeProvider(provider) {
-			continue
-		}
-		if normalizeModel(rule.Model) == normalizeModel(model) {
-			return true
-		}
-	}
-	return false
+	return catalog.findChatPricingRule(model) != nil
 }

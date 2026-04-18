@@ -131,7 +131,11 @@ func (c *Client) annotateChatResultCost(providerName string, req *chat.Request, 
 		return
 	}
 	model := c.resolveChatCostModel(providerName, req, resp)
-	if cost, ok := c.cfg.Pricing.EstimateChatCost(providerName, model, resp.Usage); ok {
+	inferenceProvider := ""
+	if req != nil {
+		inferenceProvider = req.InferenceProvider
+	}
+	if cost, ok := c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, resp.Usage); ok {
 		resp.Usage.Cost = cost
 	}
 }
@@ -141,10 +145,14 @@ func (c *Client) wrapChatStreamCost(providerName string, req *chat.Request, onSt
 		return nil
 	}
 	model := c.resolveChatRequestedModel(providerName, req)
+	inferenceProvider := ""
+	if req != nil {
+		inferenceProvider = req.InferenceProvider
+	}
 	return func(ev chat.StreamEvent) error {
 		if ev.Done && ev.Usage != nil && ev.Usage.Cost == nil && c.cfg.Pricing != nil {
 			usage := *ev.Usage
-			if cost, ok := c.cfg.Pricing.EstimateChatCost(providerName, model, usage); ok {
+			if cost, ok := c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, usage); ok {
 				usage.Cost = cost
 				ev.Usage = &usage
 			}

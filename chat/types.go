@@ -124,12 +124,13 @@ type Options struct {
 }
 
 type Request struct {
-	Provider   string      `json:"provider,omitempty"`
-	Model      string      `json:"model,omitempty"`
-	Messages   []Message   `json:"messages"`
-	Options    Options     `json:"options,omitempty"`
-	Tools      []Tool      `json:"tools,omitempty"`
-	ToolChoice *ToolChoice `json:"tool_choice,omitempty"`
+	Provider          string      `json:"provider,omitempty"`
+	InferenceProvider string      `json:"inference_provider,omitempty"`
+	Model             string      `json:"model,omitempty"`
+	Messages          []Message   `json:"messages"`
+	Options           Options     `json:"options,omitempty"`
+	Tools             []Tool      `json:"tools,omitempty"`
+	ToolChoice        *ToolChoice `json:"tool_choice,omitempty"`
 }
 
 // Usage reports token usage for a Chat operation.
@@ -157,9 +158,8 @@ type Usage struct {
 	// returns it.
 	Cache UsageCache `json:"cache,omitempty"`
 
-	// Cost is a uniai-estimated cost breakdown derived from an external pricing
-	// catalog and the reported usage. It is omitted when pricing is not configured
-	// or no rule matches.
+	// Cost is a uniai-estimated cost breakdown derived from the active pricing
+	// catalog and the reported usage. It is omitted when no rule matches.
 	Cost *UsageCost `json:"cost,omitempty"`
 }
 
@@ -179,7 +179,7 @@ type UsageCache struct {
 	Details map[string]int `json:"details,omitempty"`
 }
 
-// UsageCost is a local cost estimate derived from Usage and an external pricing
+// UsageCost is a local cost estimate derived from Usage and the active pricing
 // catalog. It is not a verbatim upstream billing record.
 type UsageCost struct {
 	Currency string `json:"currency"`
@@ -306,6 +306,10 @@ func WithModel(model string) Option {
 
 func WithProvider(provider string) Option {
 	return func(r *Request) { r.Provider = provider }
+}
+
+func WithInferenceProvider(inferenceProvider string) Option {
+	return func(r *Request) { r.InferenceProvider = inferenceProvider }
 }
 
 func WithMessages(msgs ...Message) Option {

@@ -66,8 +66,11 @@ const (
 	ToolsEmulationForce    = chat.ToolsEmulationForce
 )
 
-func WithModel(model string) ChatOption              { return chat.WithModel(model) }
-func WithProvider(provider string) ChatOption        { return chat.WithProvider(provider) }
+func WithModel(model string) ChatOption       { return chat.WithModel(model) }
+func WithProvider(provider string) ChatOption { return chat.WithProvider(provider) }
+func WithInferenceProvider(inferenceProvider string) ChatOption {
+	return chat.WithInferenceProvider(inferenceProvider)
+}
 func WithMessages(msgs ...Message) ChatOption        { return chat.WithMessages(msgs...) }
 func WithMessage(msg Message) ChatOption             { return chat.WithMessage(msg) }
 func WithReplaceMessages(msgs ...Message) ChatOption { return chat.WithReplaceMessages(msgs...) }

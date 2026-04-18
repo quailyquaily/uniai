@@ -64,6 +64,7 @@ func TestWithReplaceMessages(t *testing.T) {
 func TestOptions(t *testing.T) {
 	req, err := BuildRequest(
 		WithMessages(User("hi")),
+		WithInferenceProvider("openai"),
 		WithTemperature(0.7),
 		WithTopP(0.9),
 		WithMaxTokens(123),
@@ -74,6 +75,9 @@ func TestOptions(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if req.InferenceProvider != "openai" {
+		t.Fatalf("inference provider not set")
 	}
 	if req.Options.Temperature == nil || *req.Options.Temperature != 0.7 {
 		t.Fatalf("temperature not set")

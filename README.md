@@ -306,37 +306,30 @@ Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deeps
 
 When combined with tool emulation (`WithToolsEmulationMode`), only the final text response streams. The final `Usage` / `Usage.Cost` values reflect the whole `Client.Chat()` call, including internal tool-emulation requests.
 
+Prompt-caching usage, explicit cache control, and provider support notes live in [`docs/cache.md`](docs/cache.md).
+
 ## Cost estimation
 
-`uniai` does not ship built-in model pricing.
+`uniai` ships an embedded default pricing catalog for common chat models.
 
-If you provide a pricing catalog via `Config.Pricing`, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when a rule matches the current provider/model. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
+By default, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when the current model matches the embedded catalog. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
 
-A maintained example catalog lives in `pricing.example.yaml`.
+The embedded default catalog is sourced from `pricing.example.yaml`.
+
+Set `Config.Pricing` to override the default catalog. Pass `&uniai.PricingCatalog{}` if you want to disable automatic cost estimation.
+
+If the same model name appears under multiple `inference_provider` values in your catalog, pass `uniai.WithInferenceProvider(...)` on the request to select the intended rule. If you do not pass it, pricing falls back to model-only matching.
 
 Detailed usage notes live in [`docs/pricing.md`](docs/pricing.md).
 
 ```go
-pricing, err := uniai.ParsePricingYAML([]byte(`
-version: uniai.pricing.v1
-chat:
-  - provider: openai
-    model: gpt-5.4
-    input_usd_per_million: 2.50
-    output_usd_per_million: 15
-    cached_input_usd_per_million: 0.25
-`))
-if err != nil {
-    log.Fatal(err)
-}
-
 client := uniai.New(uniai.Config{
     Provider: "openai",
-    Pricing:  pricing,
 })
 
 resp, err := client.Chat(ctx,
     uniai.WithModel("gpt-5.4"),
+    uniai.WithInferenceProvider("openai"),
     uniai.WithMessages(uniai.User("hello")),
 )
 if err != nil {
@@ -347,23 +340,30 @@ if resp.Usage.Cost != nil {
 }
 ```
 
-You can also build the catalog directly in Go:
+To override the default catalog, parse YAML or build one directly in Go:
 
 ```go
-pricing := &uniai.PricingCatalog{
-    Version: uniai.PricingCatalogVersionV1,
-    Chat: []uniai.ChatPricingRule{
-        {
-            Provider:            "azure",
-            Model:               "my-gpt-5-deployment",
-            InputUSDPerMillion:  1.75,
-            OutputUSDPerMillion: 14,
-        },
-    },
+pricing, err := uniai.ParsePricingYAML(yamlBytes)
+if err != nil {
+    log.Fatal(err)
 }
+
+client := uniai.New(uniai.Config{
+	Provider: "openai",
+	Pricing:  pricing,
+})
 ```
 
-`Usage.Cost` is a local estimate derived from token counts and your price table. It is not a verbatim upstream billing record.
+To disable automatic cost estimation explicitly:
+
+```go
+client := uniai.New(uniai.Config{
+	Provider: "openai",
+	Pricing:  &uniai.PricingCatalog{},
+})
+```
+
+`Usage.Cost` is a local estimate derived from token counts and the active price table. It is not a verbatim upstream billing record.
 
 ## Embeddings
 
@@ -444,7 +444,7 @@ func example(ctx context.Context) error {
 
 All configuration is provided via `uniai.Config`. Only the fields required for the providers you use need to be set.
 
-- Chat defaults: `Provider`, `Debug`, `ChatHeaders`, `Pricing` (`ChatHeaders` apply to chat provider HTTP requests only; `Pricing` is an optional external pricing catalog for `Usage.Cost`)
+- Chat defaults: `Provider`, `Debug`, `ChatHeaders`, `Pricing` (`ChatHeaders` apply to chat provider HTTP requests only; `Pricing` overrides the embedded default pricing catalog used for `Usage.Cost`)
 - OpenAI/OpenAI-compatible: `OpenAIAPIKey`, `OpenAIAPIBase`, `OpenAIModel`
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
 - Anthropic: `AnthropicAPIKey`, `AnthropicModel`

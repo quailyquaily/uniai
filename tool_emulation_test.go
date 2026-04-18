@@ -150,7 +150,7 @@ func TestWrapPrefixedChatStreamUsageAggregatesBeforeCost(t *testing.T) {
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					Provider:            "openai",
+					InferenceProvider:   "openai",
 					Model:               "gpt-5.2",
 					InputUSDPerMillion:  1,
 					OutputUSDPerMillion: 2,
@@ -285,7 +285,7 @@ func TestChatToolEmulationFallbackAggregatesUsageAcrossInternalCalls(t *testing.
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					Provider:            "openai",
+					InferenceProvider:   "openai",
 					Model:               "gpt-4.1-mini",
 					InputUSDPerMillion:  1,
 					OutputUSDPerMillion: 2,

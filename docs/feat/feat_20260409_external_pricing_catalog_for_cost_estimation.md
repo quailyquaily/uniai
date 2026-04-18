@@ -1,24 +1,24 @@
-# External Pricing Catalog For Cost Estimation (2026-04-09)
+# Pricing Catalog For Cost Estimation (2026-04-09)
 
 ## Status
 
 - Proposal
 - Scope: `chat` API only
 - Target areas:
-  - external pricing catalog shape
+  - pricing catalog shape
   - YAML contract for pricing input
-  - client-side `Usage.Cost` derivation from caller-provided prices
+  - client-side `Usage.Cost` derivation from the active price table
 
 ## Goal
 
-Let third-party callers provide their own model pricing, then let `uniai` derive `Usage.Cost` from:
+Let `uniai` derive `Usage.Cost` from its embedded default catalog or from a caller-provided override, using:
 
-1. provider
-2. model
-3. reported `Usage`
-4. caller-provided price rules
+1. model
+2. reported `Usage`
+3. the active price table
+4. an optional runtime `inference_provider` hint
 
-`uniai` should not ship built-in model prices.
+The matching logic must stay explicit and deterministic.
 
 ## Why This Shape
 
@@ -33,7 +33,8 @@ If `uniai` embeds prices, it will either go stale or guess wrong.
 So the safer boundary is:
 
 - `uniai` owns the usage-to-cost math
-- the caller owns the price table
+- `uniai` ships a maintained default catalog
+- the caller can still override the price table
 
 ## Public API
 
@@ -57,9 +58,9 @@ type PricingCatalog struct {
 }
 
 type ChatPricingRule struct {
-	Provider string   `json:"provider,omitempty" yaml:"provider,omitempty"`
-	Model    string   `json:"model" yaml:"model"`
-	Aliases  []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	InferenceProvider string   `json:"inference_provider,omitempty" yaml:"inference_provider,omitempty"`
+	Model             string   `json:"model" yaml:"model"`
+	Aliases           []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
 
 	InputUSDPerMillion  float64 `json:"input_usd_per_million" yaml:"input_usd_per_million"`
 	OutputUSDPerMillion float64 `json:"output_usd_per_million" yaml:"output_usd_per_million"`
@@ -81,7 +82,15 @@ Add catalog helpers:
 ```go
 func (c *PricingCatalog) Validate() error
 func (c *PricingCatalog) Clone() *PricingCatalog
-func (c *PricingCatalog) EstimateChatCost(provider, model string, usage Usage) (*UsageCost, bool)
+func (c *PricingCatalog) EstimateChatCost(model string, usage Usage) (*UsageCost, bool)
+func (c *PricingCatalog) EstimateChatCostWithInferenceProvider(inferenceProvider, model string, usage Usage) (*UsageCost, bool)
+```
+
+Allow callers to pass a request-scoped hint for automatic `Usage.Cost`
+annotation:
+
+```go
+func WithInferenceProvider(inferenceProvider string) ChatOption
 ```
 
 ## YAML Contract
@@ -91,7 +100,7 @@ Example:
 ```yaml
 version: uniai.pricing.v1
 chat:
-  - provider: openai
+  - inference_provider: openai
     model: gpt-5.2
     aliases:
       - gpt-5.2-20260401
@@ -99,7 +108,7 @@ chat:
     output_usd_per_million: 10
     cached_input_usd_per_million: 0.125
 
-  - provider: anthropic
+  - inference_provider: anthropic
     model: claude-sonnet-4-20250514
     input_usd_per_million: 3
     output_usd_per_million: 15
@@ -114,12 +123,13 @@ chat:
 
 First pass keeps matching simple and explicit:
 
-1. normalize `provider` to lowercase + trim spaces
-2. normalize `model` to lowercase + trim spaces
-3. strip a leading `models/` prefix from model names
-4. try provider-specific rules first, in YAML order
-5. if none match, try provider-empty rules, in YAML order
-6. a rule matches when the normalized model equals `model` or one of `aliases`
+1. normalize `model` to lowercase + trim spaces
+2. strip a leading `models/` prefix from model names
+3. if the normalized runtime model contains `/`, also keep the suffix after the last `/` as a fallback candidate
+4. `EstimateChatCostWithInferenceProvider(...)` prefers rules whose `inference_provider` matches the provided hint, but falls back to model-only lookup when that provider is absent in the catalog
+5. a rule matches when the normalized model equals `model` or one of `aliases`
+6. model and alias names must be unique within the same `inference_provider`
+7. if multiple rules share the same model across different `inference_provider` values and no usable hint is provided, the first matching rule in YAML order wins
 
 No regex matching.
 No prefix matching.
@@ -148,7 +158,7 @@ Important:
 
 When `Config.Pricing == nil`:
 
-- `uniai` does not populate `Usage.Cost`
+- `uniai` uses the embedded default pricing catalog
 
 When `Config.Pricing != nil`:
 
@@ -178,6 +188,7 @@ client := uniai.New(uniai.Config{
 
 resp, err := client.Chat(ctx,
 	uniai.WithModel("gpt-5.2"),
+	uniai.WithInferenceProvider("openai"),
 	uniai.WithMessages(uniai.User("hello")),
 )
 if err != nil {
