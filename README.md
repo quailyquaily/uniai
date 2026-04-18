@@ -314,6 +314,8 @@ Prompt-caching usage, explicit cache control, and provider support notes live in
 
 By default, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when the current model matches the embedded catalog. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
 
+For models with long-context pricing tiers, `uniai` selects the tier from each upstream request's raw `input_tokens` count before any tool-emulation aggregation happens.
+
 The embedded default catalog is sourced from `pricing.example.yaml`.
 
 Set `Config.Pricing` to override the default catalog. Pass `&uniai.PricingCatalog{}` if you want to disable automatic cost estimation.

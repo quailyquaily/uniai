@@ -11,7 +11,6 @@ import (
 
 func TestParsePricingYAML(t *testing.T) {
 	catalog, err := ParsePricingYAML([]byte(`
-version: uniai.pricing.v1
 pricing_references:
   inference_providers:
     openai: https://platform.openai.com/docs/pricing/
@@ -27,9 +26,6 @@ chat:
 	if err != nil {
 		t.Fatalf("parse pricing yaml: %v", err)
 	}
-	if catalog.Version != PricingCatalogVersionV1 {
-		t.Fatalf("unexpected version: %q", catalog.Version)
-	}
 	if len(catalog.Chat) != 1 {
 		t.Fatalf("unexpected chat rule count: %d", len(catalog.Chat))
 	}
@@ -42,6 +38,41 @@ chat:
 	}
 	if rule.CachedInputUSDPerMillion == nil || *rule.CachedInputUSDPerMillion != 0.125 {
 		t.Fatalf("unexpected cached input price: %#v", rule.CachedInputUSDPerMillion)
+	}
+	if len(rule.Tiers) != 0 {
+		t.Fatalf("unexpected tiers: %#v", rule.Tiers)
+	}
+}
+
+func TestParsePricingYAMLWithTiers(t *testing.T) {
+	catalog, err := ParsePricingYAML([]byte(`
+chat:
+  - inference_provider: openai
+    model: gpt-5.4
+    tiers:
+      - max_input_tokens: 270000
+        input_usd_per_million: 2.5
+        cached_input_usd_per_million: 0.25
+        output_usd_per_million: 15
+      - input_usd_per_million: 5
+        cached_input_usd_per_million: 0.5
+        output_usd_per_million: 22.5
+`))
+	if err != nil {
+		t.Fatalf("parse pricing yaml: %v", err)
+	}
+	if len(catalog.Chat) != 1 {
+		t.Fatalf("unexpected chat rule count: %d", len(catalog.Chat))
+	}
+	rule := catalog.Chat[0]
+	if len(rule.Tiers) != 2 {
+		t.Fatalf("unexpected tier count: %#v", rule.Tiers)
+	}
+	if rule.Tiers[0].MaxInputTokens == nil || *rule.Tiers[0].MaxInputTokens != 270000 {
+		t.Fatalf("unexpected first tier max_input_tokens: %#v", rule.Tiers[0].MaxInputTokens)
+	}
+	if rule.Tiers[1].MaxInputTokens != nil {
+		t.Fatalf("unexpected second tier max_input_tokens: %#v", rule.Tiers[1].MaxInputTokens)
 	}
 }
 
@@ -74,6 +105,86 @@ func TestPricingCatalogEstimateChatCost(t *testing.T) {
 	assertNearlyEqual(t, cost.CachedInput, 0.000005)
 	assertNearlyEqual(t, cost.Output, 0.00025)
 	assertNearlyEqual(t, cost.Total, 0.00033)
+}
+
+func TestPricingCatalogEstimateChatCostUsesShortTierAtBoundary(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider: "openai",
+				Model:             "gpt-5.4",
+				Tiers: []ChatPricingTier{
+					{
+						MaxInputTokens:           intPtr(270000),
+						InputUSDPerMillion:       2.50,
+						CachedInputUSDPerMillion: float64Ptr(0.25),
+						OutputUSDPerMillion:      15.00,
+					},
+					{
+						InputUSDPerMillion:       5.00,
+						CachedInputUSDPerMillion: float64Ptr(0.50),
+						OutputUSDPerMillion:      22.50,
+					},
+				},
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.4", Usage{
+		InputTokens:  270000,
+		OutputTokens: 1000,
+		TotalTokens:  271000,
+		Cache: UsageCache{
+			CachedInputTokens: 1000,
+		},
+	})
+	if !ok {
+		t.Fatal("expected short-tier cost estimate")
+	}
+	assertNearlyEqual(t, cost.Input, 269000*2.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 1000*0.25/1_000_000)
+	assertNearlyEqual(t, cost.Output, 1000*15.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.68775)
+}
+
+func TestPricingCatalogEstimateChatCostUsesLongTierFromRawInputTokens(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider: "openai",
+				Model:             "gpt-5.4",
+				Tiers: []ChatPricingTier{
+					{
+						MaxInputTokens:           intPtr(270000),
+						InputUSDPerMillion:       2.50,
+						CachedInputUSDPerMillion: float64Ptr(0.25),
+						OutputUSDPerMillion:      15.00,
+					},
+					{
+						InputUSDPerMillion:       5.00,
+						CachedInputUSDPerMillion: float64Ptr(0.50),
+						OutputUSDPerMillion:      22.50,
+					},
+				},
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.4", Usage{
+		InputTokens:  270001,
+		OutputTokens: 1000,
+		TotalTokens:  271001,
+		Cache: UsageCache{
+			CachedInputTokens: 1000,
+		},
+	})
+	if !ok {
+		t.Fatal("expected long-tier cost estimate")
+	}
+	assertNearlyEqual(t, cost.Input, 269001*5.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 1000*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Output, 1000*22.50/1_000_000)
+	assertNearlyEqual(t, cost.Total, 1.368005)
 }
 
 func TestPricingCatalogEstimateChatCostWithInferenceProviderPrefersProviderMatch(t *testing.T) {
@@ -283,7 +394,6 @@ func TestDefaultPricingCatalog(t *testing.T) {
 
 func TestParsePricingYAMLRejectsNonFinitePrices(t *testing.T) {
 	_, err := ParsePricingYAML([]byte(`
-version: uniai.pricing.v1
 chat:
   - inference_provider: openai
     model: gpt-5.4
@@ -319,6 +429,57 @@ func TestPricingCatalogValidateRejectsNonFinitePointerAndDetailPrices(t *testing
 	}
 }
 
+func TestPricingCatalogValidateRejectsMixedFlatRatesAndTiers(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "openai",
+				Model:               "gpt-5.4",
+				InputUSDPerMillion:  2.50,
+				OutputUSDPerMillion: 15.00,
+				Tiers: []ChatPricingTier{
+					{
+						MaxInputTokens:      intPtr(270000),
+						InputUSDPerMillion:  2.50,
+						OutputUSDPerMillion: 15.00,
+					},
+				},
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected validation error for mixed flat rates and tiers")
+	}
+}
+
+func TestPricingCatalogValidateRejectsInvalidTierOrder(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider: "openai",
+				Model:             "gpt-5.4",
+				Tiers: []ChatPricingTier{
+					{
+						MaxInputTokens:      intPtr(300000),
+						InputUSDPerMillion:  2.50,
+						OutputUSDPerMillion: 15.00,
+					},
+					{
+						MaxInputTokens:      intPtr(270000),
+						InputUSDPerMillion:  5.00,
+						OutputUSDPerMillion: 22.50,
+					},
+				},
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected validation error for decreasing tier max_input_tokens")
+	}
+}
+
 func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
@@ -338,7 +499,6 @@ func TestPricingCatalogEstimateChatCostWithoutUsageReturnsNoCost(t *testing.T) {
 
 func TestPricingCatalogEstimateChatCostNormalizesDetailRateKeysAtLookup(t *testing.T) {
 	catalog, err := ParsePricingYAML([]byte(`
-version: uniai.pricing.v1
 chat:
   - inference_provider: anthropic
     model: claude-sonnet-4-6
@@ -434,6 +594,8 @@ func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	mustHave := []string{
+		"gpt-5.4",
+		"gpt-5.4-pro",
 		"gpt-5.2",
 		"gpt-5",
 		"gpt-4o",
@@ -588,6 +750,52 @@ func TestPricingExampleYAMLEstimateChatCostMatchesOpenAIPriceMath(t *testing.T) 
 	if !cost.Estimated {
 		t.Fatal("expected estimated cost")
 	}
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesOpenAILongContextTier(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  270001,
+		OutputTokens: 300,
+		TotalTokens:  270301,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.4", usage)
+	if !ok {
+		t.Fatal("expected tiered cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 269801*5.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*22.50/1_000_000)
+	assertNearlyEqual(t, cost.Total, 1.355855)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGeminiLongContextTier(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  200001,
+		OutputTokens: 300,
+		TotalTokens:  200301,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gemini-2.5-pro", usage)
+	if !ok {
+		t.Fatal("expected tiered gemini cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 199801*2.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.25/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*15.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.5040525)
 }
 
 func TestPricingExampleYAMLAnnotateChatResultCostMatchesAnthropicPriceMath(t *testing.T) {
@@ -949,6 +1157,10 @@ func assertNearlyEqual(t *testing.T, got, want float64) {
 }
 
 func float64Ptr(v float64) *float64 {
+	return &v
+}
+
+func intPtr(v int) *int {
 	return &v
 }
 

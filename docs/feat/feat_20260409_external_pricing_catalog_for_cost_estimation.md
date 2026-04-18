@@ -50,10 +50,7 @@ type Config struct {
 Define the shared Go structure:
 
 ```go
-const PricingCatalogVersionV1 = "uniai.pricing.v1"
-
 type PricingCatalog struct {
-	Version string            `json:"version,omitempty" yaml:"version,omitempty"`
 	Chat    []ChatPricingRule `json:"chat,omitempty" yaml:"chat,omitempty"`
 }
 
@@ -98,7 +95,6 @@ func WithInferenceProvider(inferenceProvider string) ChatOption
 Example:
 
 ```yaml
-version: uniai.pricing.v1
 chat:
   - inference_provider: openai
     model: gpt-5.2

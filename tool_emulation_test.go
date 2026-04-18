@@ -143,40 +143,54 @@ func TestMergeChatUsageAggregatesFields(t *testing.T) {
 	}
 }
 
-func TestWrapPrefixedChatStreamUsageAggregatesBeforeCost(t *testing.T) {
+func TestWrapPrefixedChatStreamUsageMergesPrefixCostAfterFinalRequestPricing(t *testing.T) {
 	client := New(Config{
 		Provider:    "openai",
-		OpenAIModel: "gpt-5.2",
+		OpenAIModel: "gpt-5.4",
 		Pricing: &PricingCatalog{
 			Chat: []ChatPricingRule{
 				{
-					InferenceProvider:   "openai",
-					Model:               "gpt-5.2",
-					InputUSDPerMillion:  1,
-					OutputUSDPerMillion: 2,
+					InferenceProvider: "openai",
+					Model:             "gpt-5.4",
+					Tiers: []ChatPricingTier{
+						{
+							MaxInputTokens:      intPtr(270000),
+							InputUSDPerMillion:  2.50,
+							OutputUSDPerMillion: 15.00,
+						},
+						{
+							InputUSDPerMillion:  5.00,
+							OutputUSDPerMillion: 22.50,
+						},
+					},
 				},
 			},
 		},
 	})
-	req := &chat.Request{Model: "gpt-5.2"}
+	req := &chat.Request{Model: "gpt-5.4"}
 
 	var got *chat.Usage
-	onStream := client.wrapChatStreamCost("openai", req, func(ev chat.StreamEvent) error {
+	onStream := wrapPrefixedChatStreamUsage(chat.Usage{
+		InputTokens: 200000,
+		TotalTokens: 200000,
+		Cost: &chat.UsageCost{
+			Currency:  "USD",
+			Estimated: true,
+			Input:     0.5,
+			Total:     0.5,
+		},
+	}, true, func(ev chat.StreamEvent) error {
 		got = ev.Usage
 		return nil
 	})
-	wrapped := wrapPrefixedChatStreamUsage(chat.Usage{
-		InputTokens:  10,
-		OutputTokens: 2,
-		TotalTokens:  12,
-	}, onStream)
+	wrapped := client.wrapChatStreamCost("openai", req, onStream)
 
 	if err := wrapped(chat.StreamEvent{
 		Done: true,
 		Usage: &chat.Usage{
-			InputTokens:  5,
-			OutputTokens: 1,
-			TotalTokens:  6,
+			InputTokens:  100000,
+			OutputTokens: 0,
+			TotalTokens:  100000,
 		},
 	}); err != nil {
 		t.Fatalf("wrapped stream: %v", err)
@@ -184,13 +198,13 @@ func TestWrapPrefixedChatStreamUsageAggregatesBeforeCost(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected usage on final event")
 	}
-	if got.InputTokens != 15 || got.OutputTokens != 3 || got.TotalTokens != 18 {
+	if got.InputTokens != 300000 || got.OutputTokens != 0 || got.TotalTokens != 300000 {
 		t.Fatalf("unexpected streamed aggregate usage: %#v", got)
 	}
 	if got.Cost == nil {
 		t.Fatal("expected aggregate streamed cost")
 	}
-	if got.Cost.Total != 0.000021 {
+	if got.Cost.Total != 0.75 {
 		t.Fatalf("unexpected streamed aggregate cost: %#v", got.Cost)
 	}
 }
@@ -318,6 +332,250 @@ func TestChatToolEmulationFallbackAggregatesUsageAcrossInternalCalls(t *testing.
 	}
 	if len(resp.Warnings) == 0 || resp.Warnings[0] != "tool calls emulated" {
 		t.Fatalf("unexpected warnings: %#v", resp.Warnings)
+	}
+}
+
+func TestChatToolEmulationFallbackKeepsTierSelectionPerInternalRequest(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch callCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_native",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.4",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "native path without tool call",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     200000,
+					"completion_tokens": 0,
+					"total_tokens":      200000,
+				},
+			})
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_decision",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.4",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "JSON_BEGIN\n{\"tools\":[]}\nJSON_END",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     100000,
+					"completion_tokens": 0,
+					"total_tokens":      100000,
+				},
+			})
+		case 3:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_final",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.4",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "final answer",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     1,
+					"completion_tokens": 1,
+					"total_tokens":      2,
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count: %d", callCount)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "openai",
+		OpenAIAPIKey:  "test-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "gpt-5.4",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					InferenceProvider: "openai",
+					Model:             "gpt-5.4",
+					Tiers: []ChatPricingTier{
+						{
+							MaxInputTokens:      intPtr(270000),
+							InputUSDPerMillion:  2.50,
+							OutputUSDPerMillion: 15.00,
+						},
+						{
+							InputUSDPerMillion:  5.00,
+							OutputUSDPerMillion: 22.50,
+						},
+					},
+				},
+			},
+		},
+	})
+
+	resp, err := client.Chat(context.Background(),
+		WithMessages(chat.User("hello")),
+		WithTools([]Tool{
+			FunctionTool("get_weather", "Get weather", []byte(`{"type":"object"}`)),
+		}),
+		WithToolsEmulationMode(ToolsEmulationFallback),
+	)
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 internal calls, got %d", callCount)
+	}
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected aggregate cost")
+	}
+	if resp.Usage.InputTokens != 300001 || resp.Usage.OutputTokens != 1 {
+		t.Fatalf("unexpected aggregate usage: %#v", resp.Usage)
+	}
+	assertNearlyEqual(t, resp.Usage.Cost.Input, 0.7500025)
+	assertNearlyEqual(t, resp.Usage.Cost.Output, 0.000015)
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.7500175)
+}
+
+func TestChatToolEmulationFallbackLeavesAggregateCostNilWhenOneInternalRequestCannotBePriced(t *testing.T) {
+	var callCount int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.Header().Set("Content-Type", "application/json")
+		switch callCount {
+		case 1:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_native",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.2",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "native path without tool call",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     10,
+					"completion_tokens": 1,
+					"total_tokens":      11,
+				},
+			})
+		case 2:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_decision",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.2",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "JSON_BEGIN\n{\"tools\":[]}\nJSON_END",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     5,
+					"completion_tokens": 1,
+					"total_tokens":      6,
+					"prompt_tokens_details": map[string]any{
+						"cached_tokens": 2,
+					},
+				},
+			})
+		case 3:
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id":      "chatcmpl_final",
+				"object":  "chat.completion",
+				"created": 0,
+				"model":   "gpt-5.2",
+				"choices": []map[string]any{
+					{
+						"index": 0,
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "final answer",
+						},
+						"finish_reason": "stop",
+					},
+				},
+				"usage": map[string]any{
+					"prompt_tokens":     7,
+					"completion_tokens": 1,
+					"total_tokens":      8,
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count: %d", callCount)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "openai",
+		OpenAIAPIKey:  "test-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "gpt-5.2",
+		Pricing: &PricingCatalog{
+			Chat: []ChatPricingRule{
+				{
+					InferenceProvider:   "openai",
+					Model:               "gpt-5.2",
+					InputUSDPerMillion:  1.25,
+					OutputUSDPerMillion: 10.00,
+				},
+			},
+		},
+	})
+
+	resp, err := client.Chat(context.Background(),
+		WithMessages(chat.User("hello")),
+		WithTools([]Tool{
+			FunctionTool("get_weather", "Get weather", []byte(`{"type":"object"}`)),
+		}),
+		WithToolsEmulationMode(ToolsEmulationFallback),
+	)
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 internal calls, got %d", callCount)
+	}
+	if resp.Usage.Cost != nil {
+		t.Fatalf("expected aggregate cost to stay nil, got %#v", resp.Usage.Cost)
 	}
 }
 

@@ -8,14 +8,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const PricingCatalogVersionV1 = "uniai.pricing.v1"
-
 // PricingCatalog is the price table used by uniai to derive Usage.Cost.
-//
-// v1 only covers chat cost estimation and uses USD per 1M tokens.
 type PricingCatalog struct {
-	Version string            `json:"version,omitempty" yaml:"version,omitempty"`
-	Chat    []ChatPricingRule `json:"chat,omitempty" yaml:"chat,omitempty"`
+	Chat []ChatPricingRule `json:"chat,omitempty" yaml:"chat,omitempty"`
 }
 
 // ChatPricingRule defines one chat model price entry.
@@ -29,6 +24,27 @@ type ChatPricingRule struct {
 	Model             string   `json:"model" yaml:"model"`
 	Aliases           []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
 
+	InputUSDPerMillion  float64 `json:"input_usd_per_million,omitempty" yaml:"input_usd_per_million,omitempty"`
+	OutputUSDPerMillion float64 `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+
+	CachedInputUSDPerMillion        *float64 `json:"cached_input_usd_per_million,omitempty" yaml:"cached_input_usd_per_million,omitempty"`
+	CacheCreationInputUSDPerMillion *float64 `json:"cache_creation_input_usd_per_million,omitempty" yaml:"cache_creation_input_usd_per_million,omitempty"`
+
+	// CacheCreationInputDetailUSDPerMillion maps provider-specific cache creation
+	// counters, such as "ephemeral_5m_input_tokens", to their USD per 1M token rate.
+	CacheCreationInputDetailUSDPerMillion map[string]float64 `json:"cache_creation_input_detail_usd_per_million,omitempty" yaml:"cache_creation_input_detail_usd_per_million,omitempty"`
+
+	// Tiers optionally overrides the flat rates above when a model's price depends
+	// on the input token count of a single upstream request.
+	Tiers []ChatPricingTier `json:"tiers,omitempty" yaml:"tiers,omitempty"`
+}
+
+// ChatPricingTier defines one request-level pricing tier for a chat model.
+type ChatPricingTier struct {
+	// MaxInputTokens is the inclusive upper bound for this tier.
+	// Nil means "and above".
+	MaxInputTokens *int `json:"max_input_tokens,omitempty" yaml:"max_input_tokens,omitempty"`
+
 	InputUSDPerMillion  float64 `json:"input_usd_per_million" yaml:"input_usd_per_million"`
 	OutputUSDPerMillion float64 `json:"output_usd_per_million" yaml:"output_usd_per_million"`
 
@@ -38,6 +54,16 @@ type ChatPricingRule struct {
 	// CacheCreationInputDetailUSDPerMillion maps provider-specific cache creation
 	// counters, such as "ephemeral_5m_input_tokens", to their USD per 1M token rate.
 	CacheCreationInputDetailUSDPerMillion map[string]float64 `json:"cache_creation_input_detail_usd_per_million,omitempty" yaml:"cache_creation_input_detail_usd_per_million,omitempty"`
+}
+
+type chatPricingRates struct {
+	InputUSDPerMillion  float64
+	OutputUSDPerMillion float64
+
+	CachedInputUSDPerMillion        *float64
+	CacheCreationInputUSDPerMillion *float64
+
+	CacheCreationInputDetailUSDPerMillion map[string]float64
 }
 
 // ParsePricingYAML decodes a pricing YAML document into a PricingCatalog and
@@ -58,9 +84,7 @@ func (c *PricingCatalog) Clone() *PricingCatalog {
 	if c == nil {
 		return nil
 	}
-	out := &PricingCatalog{
-		Version: c.Version,
-	}
+	out := &PricingCatalog{}
 	if len(c.Chat) > 0 {
 		out.Chat = make([]ChatPricingRule, len(c.Chat))
 		for i := range c.Chat {
@@ -70,15 +94,11 @@ func (c *PricingCatalog) Clone() *PricingCatalog {
 	return out
 }
 
-// Validate checks that the catalog uses the supported schema and that numeric
-// prices are non-negative.
+// Validate checks that numeric prices are non-negative and rule names are not
+// ambiguous within the same inference provider.
 func (c *PricingCatalog) Validate() error {
 	if c == nil {
 		return nil
-	}
-	version := strings.TrimSpace(c.Version)
-	if version != "" && version != PricingCatalogVersionV1 {
-		return fmt.Errorf("unsupported pricing catalog version %q", c.Version)
 	}
 	for i, rule := range c.Chat {
 		if err := validateChatPricingRule(rule); err != nil {
@@ -115,7 +135,7 @@ func (c *PricingCatalog) EstimateChatCostWithInferenceProvider(inferenceProvider
 	if rule == nil {
 		return nil, false
 	}
-	return estimateFixedChatCost(*rule, usage)
+	return estimateChatCostForRule(*rule, usage)
 }
 
 func (c *PricingCatalog) findChatPricingRule(model string) *ChatPricingRule {
@@ -185,7 +205,41 @@ func chatPricingRuleMatches(rule *ChatPricingRule, model string) bool {
 	return false
 }
 
-func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool) {
+func estimateChatCostForRule(rule ChatPricingRule, usage Usage) (*UsageCost, bool) {
+	rates, ok := resolveChatPricingRates(rule, usage)
+	if !ok {
+		return nil, false
+	}
+	return estimateChatCostForRates(rates, usage)
+}
+
+func resolveChatPricingRates(rule ChatPricingRule, usage Usage) (chatPricingRates, bool) {
+	if len(rule.Tiers) == 0 {
+		return chatPricingRates{
+			InputUSDPerMillion:                    rule.InputUSDPerMillion,
+			OutputUSDPerMillion:                   rule.OutputUSDPerMillion,
+			CachedInputUSDPerMillion:              rule.CachedInputUSDPerMillion,
+			CacheCreationInputUSDPerMillion:       rule.CacheCreationInputUSDPerMillion,
+			CacheCreationInputDetailUSDPerMillion: rule.CacheCreationInputDetailUSDPerMillion,
+		}, true
+	}
+
+	for _, tier := range rule.Tiers {
+		if tier.MaxInputTokens == nil || usage.InputTokens <= *tier.MaxInputTokens {
+			return chatPricingRates{
+				InputUSDPerMillion:                    tier.InputUSDPerMillion,
+				OutputUSDPerMillion:                   tier.OutputUSDPerMillion,
+				CachedInputUSDPerMillion:              tier.CachedInputUSDPerMillion,
+				CacheCreationInputUSDPerMillion:       tier.CacheCreationInputUSDPerMillion,
+				CacheCreationInputDetailUSDPerMillion: tier.CacheCreationInputDetailUSDPerMillion,
+			}, true
+		}
+	}
+
+	return chatPricingRates{}, false
+}
+
+func estimateChatCostForRates(rates chatPricingRates, usage Usage) (*UsageCost, bool) {
 	if !hasPricableUsage(usage) {
 		return nil, false
 	}
@@ -195,21 +249,21 @@ func estimateFixedChatCost(rule ChatPricingRule, usage Usage) (*UsageCost, bool)
 		baseInputTokens = 0
 	}
 
-	inputCost := tokensCost(baseInputTokens, rule.InputUSDPerMillion)
-	outputCost := tokensCost(usage.OutputTokens, rule.OutputUSDPerMillion)
+	inputCost := tokensCost(baseInputTokens, rates.InputUSDPerMillion)
+	outputCost := tokensCost(usage.OutputTokens, rates.OutputUSDPerMillion)
 	cachedInputCost := 0.0
 	cacheCreationCost := 0.0
 
 	if usage.Cache.CachedInputTokens > 0 {
-		if rule.CachedInputUSDPerMillion == nil {
+		if rates.CachedInputUSDPerMillion == nil {
 			return nil, false
 		}
-		cachedInputCost = tokensCost(usage.Cache.CachedInputTokens, *rule.CachedInputUSDPerMillion)
+		cachedInputCost = tokensCost(usage.Cache.CachedInputTokens, *rates.CachedInputUSDPerMillion)
 	}
 
 	if usage.Cache.CacheCreationInputTokens > 0 {
 		var ok bool
-		cacheCreationCost, ok = estimateCacheCreationCost(rule, usage.Cache)
+		cacheCreationCost, ok = estimateCacheCreationCost(rates, usage.Cache)
 		if !ok {
 			return nil, false
 		}
@@ -250,12 +304,12 @@ func findDetailRate(rates map[string]float64, key string) (float64, bool) {
 	return 0, false
 }
 
-func estimateCacheCreationCost(rule ChatPricingRule, cache UsageCache) (float64, bool) {
+func estimateCacheCreationCost(rates chatPricingRates, cache UsageCache) (float64, bool) {
 	remaining := cache.CacheCreationInputTokens
 	cost := 0.0
 
 	for key, tokens := range cache.Details {
-		rate, ok := findDetailRate(rule.CacheCreationInputDetailUSDPerMillion, key)
+		rate, ok := findDetailRate(rates.CacheCreationInputDetailUSDPerMillion, key)
 		if !ok || tokens <= 0 {
 			continue
 		}
@@ -267,10 +321,10 @@ func estimateCacheCreationCost(rule ChatPricingRule, cache UsageCache) (float64,
 	}
 
 	if remaining > 0 {
-		if rule.CacheCreationInputUSDPerMillion == nil {
+		if rates.CacheCreationInputUSDPerMillion == nil {
 			return 0, false
 		}
-		cost += tokensCost(remaining, *rule.CacheCreationInputUSDPerMillion)
+		cost += tokensCost(remaining, *rates.CacheCreationInputUSDPerMillion)
 	}
 
 	return cost, true
@@ -300,6 +354,38 @@ func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {
 			out.CacheCreationInputDetailUSDPerMillion[normalizeDetailKey(key)] = value
 		}
 	}
+	if len(in.Tiers) > 0 {
+		out.Tiers = make([]ChatPricingTier, len(in.Tiers))
+		for i := range in.Tiers {
+			out.Tiers[i] = cloneChatPricingTier(in.Tiers[i])
+		}
+	}
+	return out
+}
+
+func cloneChatPricingTier(in ChatPricingTier) ChatPricingTier {
+	out := ChatPricingTier{
+		InputUSDPerMillion:  in.InputUSDPerMillion,
+		OutputUSDPerMillion: in.OutputUSDPerMillion,
+	}
+	if in.MaxInputTokens != nil {
+		v := *in.MaxInputTokens
+		out.MaxInputTokens = &v
+	}
+	if in.CachedInputUSDPerMillion != nil {
+		v := *in.CachedInputUSDPerMillion
+		out.CachedInputUSDPerMillion = &v
+	}
+	if in.CacheCreationInputUSDPerMillion != nil {
+		v := *in.CacheCreationInputUSDPerMillion
+		out.CacheCreationInputUSDPerMillion = &v
+	}
+	if len(in.CacheCreationInputDetailUSDPerMillion) > 0 {
+		out.CacheCreationInputDetailUSDPerMillion = make(map[string]float64, len(in.CacheCreationInputDetailUSDPerMillion))
+		for key, value := range in.CacheCreationInputDetailUSDPerMillion {
+			out.CacheCreationInputDetailUSDPerMillion[normalizeDetailKey(key)] = value
+		}
+	}
 	return out
 }
 
@@ -307,43 +393,104 @@ func validateChatPricingRule(rule ChatPricingRule) error {
 	if strings.TrimSpace(rule.Model) == "" {
 		return fmt.Errorf("model is required")
 	}
-	if err := validateFinitePrice("input_usd_per_million", rule.InputUSDPerMillion); err != nil {
-		return err
+	if len(rule.Tiers) > 0 {
+		if hasFlatChatPricingFields(rule) {
+			return fmt.Errorf("flat price fields and tiers cannot be mixed")
+		}
+		return validateChatPricingTiers(rule.Tiers)
 	}
-	if err := validateFinitePrice("output_usd_per_million", rule.OutputUSDPerMillion); err != nil {
-		return err
+	return validateChatPricingRates("", chatPricingRates{
+		InputUSDPerMillion:                    rule.InputUSDPerMillion,
+		OutputUSDPerMillion:                   rule.OutputUSDPerMillion,
+		CachedInputUSDPerMillion:              rule.CachedInputUSDPerMillion,
+		CacheCreationInputUSDPerMillion:       rule.CacheCreationInputUSDPerMillion,
+		CacheCreationInputDetailUSDPerMillion: rule.CacheCreationInputDetailUSDPerMillion,
+	})
+}
+
+func hasFlatChatPricingFields(rule ChatPricingRule) bool {
+	return rule.InputUSDPerMillion != 0 ||
+		rule.OutputUSDPerMillion != 0 ||
+		rule.CachedInputUSDPerMillion != nil ||
+		rule.CacheCreationInputUSDPerMillion != nil ||
+		len(rule.CacheCreationInputDetailUSDPerMillion) > 0
+}
+
+func validateChatPricingTiers(tiers []ChatPricingTier) error {
+	if len(tiers) == 0 {
+		return fmt.Errorf("tiers must not be empty")
 	}
-	if rule.InputUSDPerMillion < 0 {
-		return fmt.Errorf("input_usd_per_million must be >= 0")
-	}
-	if rule.OutputUSDPerMillion < 0 {
-		return fmt.Errorf("output_usd_per_million must be >= 0")
-	}
-	if rule.CachedInputUSDPerMillion != nil {
-		if err := validateFinitePrice("cached_input_usd_per_million", *rule.CachedInputUSDPerMillion); err != nil {
+
+	var prevMax *int
+	for i, tier := range tiers {
+		prefix := fmt.Sprintf("tiers[%d].", i)
+		if err := validateChatPricingRates(prefix, chatPricingRates{
+			InputUSDPerMillion:                    tier.InputUSDPerMillion,
+			OutputUSDPerMillion:                   tier.OutputUSDPerMillion,
+			CachedInputUSDPerMillion:              tier.CachedInputUSDPerMillion,
+			CacheCreationInputUSDPerMillion:       tier.CacheCreationInputUSDPerMillion,
+			CacheCreationInputDetailUSDPerMillion: tier.CacheCreationInputDetailUSDPerMillion,
+		}); err != nil {
 			return err
 		}
-		if *rule.CachedInputUSDPerMillion < 0 {
-			return fmt.Errorf("cached_input_usd_per_million must be >= 0")
+
+		if tier.MaxInputTokens == nil {
+			if i != len(tiers)-1 {
+				return fmt.Errorf("tiers[%d].max_input_tokens: open-ended tier must be last", i)
+			}
+			continue
 		}
+		if *tier.MaxInputTokens < 0 {
+			return fmt.Errorf("tiers[%d].max_input_tokens must be >= 0", i)
+		}
+		if prevMax != nil && *tier.MaxInputTokens <= *prevMax {
+			return fmt.Errorf("tiers[%d].max_input_tokens must be strictly increasing", i)
+		}
+		v := *tier.MaxInputTokens
+		prevMax = &v
 	}
-	if rule.CacheCreationInputUSDPerMillion != nil {
-		if err := validateFinitePrice("cache_creation_input_usd_per_million", *rule.CacheCreationInputUSDPerMillion); err != nil {
+
+	return nil
+}
+
+func validateChatPricingRates(prefix string, rates chatPricingRates) error {
+	if err := validateFinitePrice(prefix+"input_usd_per_million", rates.InputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice(prefix+"output_usd_per_million", rates.OutputUSDPerMillion); err != nil {
+		return err
+	}
+	if rates.InputUSDPerMillion < 0 {
+		return fmt.Errorf("%sinput_usd_per_million must be >= 0", prefix)
+	}
+	if rates.OutputUSDPerMillion < 0 {
+		return fmt.Errorf("%soutput_usd_per_million must be >= 0", prefix)
+	}
+	if rates.CachedInputUSDPerMillion != nil {
+		if err := validateFinitePrice(prefix+"cached_input_usd_per_million", *rates.CachedInputUSDPerMillion); err != nil {
 			return err
 		}
-		if *rule.CacheCreationInputUSDPerMillion < 0 {
-			return fmt.Errorf("cache_creation_input_usd_per_million must be >= 0")
+		if *rates.CachedInputUSDPerMillion < 0 {
+			return fmt.Errorf("%scached_input_usd_per_million must be >= 0", prefix)
 		}
 	}
-	for key, value := range rule.CacheCreationInputDetailUSDPerMillion {
+	if rates.CacheCreationInputUSDPerMillion != nil {
+		if err := validateFinitePrice(prefix+"cache_creation_input_usd_per_million", *rates.CacheCreationInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rates.CacheCreationInputUSDPerMillion < 0 {
+			return fmt.Errorf("%scache_creation_input_usd_per_million must be >= 0", prefix)
+		}
+	}
+	for key, value := range rates.CacheCreationInputDetailUSDPerMillion {
 		if strings.TrimSpace(key) == "" {
-			return fmt.Errorf("cache_creation_input_detail_usd_per_million key is required")
+			return fmt.Errorf("%scache_creation_input_detail_usd_per_million key is required", prefix)
 		}
-		if err := validateFinitePrice(fmt.Sprintf("cache_creation_input_detail_usd_per_million[%q]", key), value); err != nil {
+		if err := validateFinitePrice(fmt.Sprintf("%scache_creation_input_detail_usd_per_million[%q]", prefix, key), value); err != nil {
 			return err
 		}
 		if value < 0 {
-			return fmt.Errorf("cache_creation_input_detail_usd_per_million[%q] must be >= 0", key)
+			return fmt.Errorf("%scache_creation_input_detail_usd_per_million[%q] must be >= 0", prefix, key)
 		}
 	}
 	return nil

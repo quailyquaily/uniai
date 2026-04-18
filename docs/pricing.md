@@ -83,23 +83,20 @@ client := uniai.New(uniai.Config{
 
 ## YAML Format
 
-The supported schema version is:
-
-```yaml
-version: uniai.pricing.v1
-```
-
 Example:
 
 ```yaml
-version: uniai.pricing.v1
-
 chat:
   - inference_provider: openai
     model: gpt-5.4
-    input_usd_per_million: 2.50
-    cached_input_usd_per_million: 0.25
-    output_usd_per_million: 15.00
+    tiers:
+      - max_input_tokens: 270000
+        input_usd_per_million: 2.50
+        cached_input_usd_per_million: 0.25
+        output_usd_per_million: 15.00
+      - input_usd_per_million: 5.00
+        cached_input_usd_per_million: 0.50
+        output_usd_per_million: 22.50
 
   - inference_provider: anthropic
     model: claude-sonnet-4-6
@@ -121,13 +118,14 @@ Each `chat` entry supports these fields:
 - `inference_provider`: optional metadata for the underlying model vendor, such as `openai`, `anthropic`, `gemini`
 - `model`: required model name
 - `aliases`: optional extra model names that should reuse the same price
-- `input_usd_per_million`: required base input token price
-- `output_usd_per_million`: required output token price
+- `input_usd_per_million`: base input token price for flat rules
+- `output_usd_per_million`: output token price for flat rules
 - `cached_input_usd_per_million`: optional cached-input token price
 - `cache_creation_input_usd_per_million`: optional cache-write token price
 - `cache_creation_input_detail_usd_per_million`: optional per-counter override map for provider-specific cache-write counters
+- `tiers`: optional request-level price tiers for models whose rates depend on the raw `input_tokens` count of one upstream request
 
-All prices must be non-negative.
+Each rule must use either flat price fields or `tiers`, not both. All prices must be non-negative.
 
 ## Matching Rules
 
@@ -170,7 +168,6 @@ You can build an override catalog directly in Go instead of YAML:
 
 ```go
 pricing := &uniai.PricingCatalog{
-	Version: uniai.PricingCatalogVersionV1,
 	Chat: []uniai.ChatPricingRule{
 		{
 			InferenceProvider:        "openai",
@@ -210,7 +207,6 @@ If `cache_creation_input_detail_usd_per_million` is present, matching detail cou
 
 ```go
 pricing, err := uniai.ParsePricingYAML([]byte(`
-version: uniai.pricing.v1
 chat:
   - inference_provider: openai
     model: gpt-5.4-mini
@@ -284,7 +280,6 @@ chat:
 
 YAML parsing fails when:
 
-- schema version is unsupported
 - required fields are missing
 - a numeric price is negative
 

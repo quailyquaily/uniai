@@ -96,7 +96,7 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 		}
 	}
 	if len(req.Tools) > 0 && mode == chat.ToolsEmulationForce {
-		resp, err := c.chatWithToolEmulation(ctx, providerName, req, chat.Usage{}, userOnStream)
+		resp, err := c.chatWithToolEmulation(ctx, providerName, req, nil, userOnStream)
 		c.annotateChatResultCost(providerName, req, resp)
 		chat.EnsureResultParts(resp)
 		return resp, err
@@ -120,7 +120,7 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 		chat.EnsureResultParts(resp)
 		return resp, nil
 	}
-	resp, err = c.chatWithToolEmulation(ctx, providerName, req, resp.Usage, userOnStream)
+	resp, err = c.chatWithToolEmulation(ctx, providerName, req, resp, userOnStream)
 	c.annotateChatResultCost(providerName, req, resp)
 	chat.EnsureResultParts(resp)
 	return resp, err
@@ -131,11 +131,7 @@ func (c *Client) annotateChatResultCost(providerName string, req *chat.Request, 
 		return
 	}
 	model := c.resolveChatCostModel(providerName, req, resp)
-	inferenceProvider := ""
-	if req != nil {
-		inferenceProvider = req.InferenceProvider
-	}
-	if cost, ok := c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, resp.Usage); ok {
+	if cost, ok := c.estimateChatUsageCost(providerName, req, model, resp.Usage); ok {
 		resp.Usage.Cost = cost
 	}
 }
@@ -145,20 +141,33 @@ func (c *Client) wrapChatStreamCost(providerName string, req *chat.Request, onSt
 		return nil
 	}
 	model := c.resolveChatRequestedModel(providerName, req)
-	inferenceProvider := ""
-	if req != nil {
-		inferenceProvider = req.InferenceProvider
-	}
 	return func(ev chat.StreamEvent) error {
 		if ev.Done && ev.Usage != nil && ev.Usage.Cost == nil && c.cfg.Pricing != nil {
 			usage := *ev.Usage
-			if cost, ok := c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, usage); ok {
+			if cost, ok := c.estimateChatUsageCost(providerName, req, model, usage); ok {
 				usage.Cost = cost
 				ev.Usage = &usage
 			}
 		}
 		return onStream(ev)
 	}
+}
+
+func (c *Client) estimateChatUsageCost(providerName string, req *chat.Request, model string, usage chat.Usage) (*chat.UsageCost, bool) {
+	if c.cfg.Pricing == nil {
+		return nil, false
+	}
+	if usage.Cost != nil {
+		return usage.Cost, true
+	}
+	if model == "" {
+		model = c.resolveChatRequestedModel(providerName, req)
+	}
+	inferenceProvider := ""
+	if req != nil {
+		inferenceProvider = req.InferenceProvider
+	}
+	return c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, usage)
 }
 
 func (c *Client) resolveChatCostModel(providerName string, req *chat.Request, resp *chat.Result) string {

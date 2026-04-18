@@ -3,13 +3,12 @@
 # Checked against official pricing pages on 2026-04-18.
 # Prices may change later. Re-check the official pages before using this in production.
 #
-# This example intentionally keeps only the standard chat token rates that fit
-# PricingCatalog v1.
+# This example intentionally keeps only chat token rates that fit the current
+# PricingCatalog schema.
 # It does not encode:
 # - Batch / Flex / Priority variants
 # - tool invocation fees
 # - storage fees for cache/context caching
-# - context-length-dependent higher tiers above provider thresholds
 # - image / audio specific token prices
 #
 # Official sources used for this file:
@@ -32,10 +31,12 @@
 #
 # Notes:
 # - This example includes current GPT-5 / GPT-5.2 / GPT-4o text pricing and keeps
-#   the existing `gpt-5.4*` compatibility entries.
+#   the current `gpt-5.4*` entries, including long-context tiers where applicable.
 # - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
 #   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
-# - Gemini 3 Pro and 2.5 Pro below use the standard <=200k prompt tier.
+# - OpenAI `gpt-5.4*` long-context tiers below use `>270000` input tokens.
+# - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
+#   `>200000` input tokens.
 # - Gemini Flash entries below use the text / image / video tier.
 # - Runtime price lookup matches by `model` / `aliases` by default, not by the
 #   client's driver/provider name. Callers can optionally pass an explicit
@@ -43,8 +44,6 @@
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
 # - Mistral entries below use explicit dated model IDs to avoid guessing where a
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
-
-version: uniai.pricing.v1
 
 # Informational metadata for humans. ParsePricingYAML ignores unknown top-level
 # fields, so this section does not affect runtime pricing lookup.
@@ -69,9 +68,22 @@ chat:
   # OpenAI
   - inference_provider: openai
     model: gpt-5.4
-    input_usd_per_million: 2.50
-    cached_input_usd_per_million: 0.25
-    output_usd_per_million: 15.00
+    tiers:
+      - max_input_tokens: 270000
+        input_usd_per_million: 2.50
+        cached_input_usd_per_million: 0.25
+        output_usd_per_million: 15.00
+      - input_usd_per_million: 5.00
+        cached_input_usd_per_million: 0.50
+        output_usd_per_million: 22.50
+  - inference_provider: openai
+    model: gpt-5.4-pro
+    tiers:
+      - max_input_tokens: 270000
+        input_usd_per_million: 30.00
+        output_usd_per_million: 180.00
+      - input_usd_per_million: 60.00
+        output_usd_per_million: 270.00
   - inference_provider: openai
     model: gpt-5.4-mini
     input_usd_per_million: 0.75
@@ -182,9 +194,14 @@ chat:
       - gemini-3.0-pro
       - gemini-3.1-pro-preview
       - gemini-3.1-pro-preview-customtools
-    input_usd_per_million: 2.00
-    cached_input_usd_per_million: 0.20
-    output_usd_per_million: 12.00
+    tiers:
+      - max_input_tokens: 200000
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.20
+        output_usd_per_million: 12.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 0.40
+        output_usd_per_million: 18.00
   - inference_provider: gemini
     model: gemini-3-flash-preview
     aliases:
@@ -194,9 +211,14 @@ chat:
     output_usd_per_million: 3.00
   - inference_provider: gemini
     model: gemini-2.5-pro
-    input_usd_per_million: 1.25
-    cached_input_usd_per_million: 0.125
-    output_usd_per_million: 10.00
+    tiers:
+      - max_input_tokens: 200000
+        input_usd_per_million: 1.25
+        cached_input_usd_per_million: 0.125
+        output_usd_per_million: 10.00
+      - input_usd_per_million: 2.50
+        cached_input_usd_per_million: 0.25
+        output_usd_per_million: 15.00
   - inference_provider: gemini
     model: gemini-2.5-flash
     aliases:

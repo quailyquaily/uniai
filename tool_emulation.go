@@ -14,7 +14,7 @@ import (
 	"github.com/quailyquaily/uniai/internal/diag"
 )
 
-func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string, req *chat.Request, priorUsage chat.Usage, userOnStream chat.OnStreamFunc) (*chat.Result, error) {
+func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string, req *chat.Request, priorResp *chat.Result, userOnStream chat.OnStreamFunc) (*chat.Result, error) {
 	if len(req.Tools) == 0 {
 		return c.chatOnce(ctx, providerName, req)
 	}
@@ -30,12 +30,26 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		return nil, err
 	}
 	diag.LogJSON(c.cfg.Debug, debugFn, "tool_emulation.decision_request", decisionReq)
+
+	var usagePrefix chat.Usage
+	var prefixCost *chat.UsageCost
+	prefixCostComplete := true
+	accumulatePrefix := func(pricingReq *chat.Request, resp *chat.Result) {
+		if resp == nil {
+			return
+		}
+		addChatUsage(&usagePrefix, resp.Usage)
+		cost, ok := c.estimateChatUsageCost(providerName, pricingReq, c.resolveChatCostModel(providerName, pricingReq, resp), resp.Usage)
+		accumulateChatUsageCost(&prefixCost, &prefixCostComplete, resp.Usage, cost, ok)
+	}
+	accumulatePrefix(req, priorResp)
+
 	decisionResp, err := c.chatOnce(ctx, providerName, decisionReq)
 	if err != nil {
 		return nil, err
 	}
 	diag.LogText(c.cfg.Debug, debugFn, "tool_emulation.decision_response", decisionResp.Text)
-	usagePrefix := mergeChatUsage(priorUsage, decisionResp.Usage)
+	accumulatePrefix(decisionReq, decisionResp)
 
 	toolCalls, err := parseToolDecision(decisionResp.Text)
 	if err != nil {
@@ -54,12 +68,18 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		diag.LogText(c.cfg.Debug, debugFn, "tool_emulation.fallback", "no tool calls produced; returning final response")
 		finalReq := buildFinalRequest(req)
 		if userOnStream != nil {
-			onStream := c.wrapChatStreamCost(providerName, finalReq, userOnStream)
-			finalReq.Options.OnStream = wrapPrefixedChatStreamUsage(usagePrefix, onStream)
+			prefixUsage := withAggregatedChatCost(usagePrefix, prefixCost, prefixCostComplete)
+			onStream := wrapPrefixedChatStreamUsage(prefixUsage, prefixCostComplete, userOnStream)
+			finalReq.Options.OnStream = c.wrapChatStreamCost(providerName, finalReq, onStream)
 		}
 		resp, err := c.chatOnce(ctx, providerName, finalReq)
 		if resp != nil {
-			resp.Usage = mergeChatUsage(usagePrefix, resp.Usage)
+			usage := mergeChatUsage(usagePrefix, resp.Usage)
+			finalCost, ok := c.estimateChatUsageCost(providerName, finalReq, c.resolveChatCostModel(providerName, finalReq, resp), resp.Usage)
+			if prefixCostComplete && (finalCost != nil || !hasPricableUsage(resp.Usage)) && (ok || !hasPricableUsage(resp.Usage)) {
+				usage.Cost = mergeChatUsageCost(prefixCost, finalCost)
+			}
+			resp.Usage = usage
 			resp.Warnings = append(resp.Warnings, "tool calls emulated")
 			if dropped > 0 {
 				resp.Warnings = append(resp.Warnings, "unknown tool calls dropped")
@@ -88,7 +108,7 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 	resp := &chat.Result{
 		Model:     decisionResp.Model,
 		ToolCalls: calls,
-		Usage:     usagePrefix,
+		Usage:     withAggregatedChatCost(usagePrefix, prefixCost, prefixCostComplete),
 		Raw:       decisionResp.Raw,
 		Warnings:  []string{"tool calls emulated"},
 	}
@@ -96,6 +116,26 @@ func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string,
 		resp.Warnings = append(resp.Warnings, "unknown tool calls dropped")
 	}
 	return resp, nil
+}
+
+func accumulateChatUsageCost(dst **chat.UsageCost, complete *bool, usage chat.Usage, cost *chat.UsageCost, ok bool) {
+	if complete == nil || !*complete || !hasPricableUsage(usage) {
+		return
+	}
+	if !ok || cost == nil {
+		*dst = nil
+		*complete = false
+		return
+	}
+	*dst = mergeChatUsageCost(*dst, cost)
+}
+
+func withAggregatedChatCost(usage chat.Usage, cost *chat.UsageCost, complete bool) chat.Usage {
+	usage.Cost = nil
+	if complete {
+		usage.Cost = cloneChatUsageCost(cost)
+	}
+	return usage
 }
 
 func buildToolDecisionRequest(req *chat.Request) (*chat.Request, error) {
