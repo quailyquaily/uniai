@@ -484,7 +484,7 @@ func buildClientConfig(providerRaw, modelRaw string) (uniai.Config, string, erro
 		cfg.AzureOpenAIAPIVersion = envOrDefault("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
 		return cfg, deployment, nil
 	case "anthropic":
-		apiKey, err := requireAnyEnv("ANTHROPIC_API_KEY")
+		apiKey, err := requireAnyEnv("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 		if err != nil {
 			return uniai.Config{}, "", fmt.Errorf("anthropic provider: %w", err)
 		}

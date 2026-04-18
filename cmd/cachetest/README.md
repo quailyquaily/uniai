@@ -57,7 +57,7 @@ Azure:
 
 Anthropic:
 
-- `ANTHROPIC_API_KEY`
+- `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY`
 - `ANTHROPIC_MODEL` (optional fallback when `MODEL` is empty)
 
 Bedrock:

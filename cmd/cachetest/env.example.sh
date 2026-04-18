@@ -27,6 +27,7 @@ export TIMEOUT_SECONDS=180
 
 # Anthropic
 # export ANTHROPIC_API_KEY=
+# export CLAUDE_API_KEY=
 # export ANTHROPIC_MODEL=
 
 # Bedrock
