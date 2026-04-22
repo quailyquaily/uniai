@@ -175,21 +175,12 @@ func toResult(resp *openai.ChatCompletion) *chat.Result {
 		parts = append(parts, chat.TextPart(text))
 	}
 
-	usage := chat.Usage{
-		InputTokens:  int(resp.Usage.PromptTokens),
-		OutputTokens: int(resp.Usage.CompletionTokens),
-		TotalTokens:  int(resp.Usage.TotalTokens),
-	}
-	if cached := int(resp.Usage.PromptTokensDetails.CachedTokens); cached > 0 {
-		usage.Cache.CachedInputTokens = cached
-	}
-
 	return &chat.Result{
 		Text:      text,
 		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
-		Usage:     usage,
+		Usage:     oaicompat.ChatCompletionUsageToChatUsage(resp.Usage),
 		Raw:       resp,
 	}
 }

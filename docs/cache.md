@@ -180,6 +180,15 @@ resp, err := client.Chat(ctx,
 For these providers, `uniai` standardizes usage reporting, but it does not try to
 emulate inline cache boundaries inside the message list.
 
+For Chat Completions-compatible backends, `uniai` reads cache-hit usage from the
+standard `prompt_tokens_details.cached_tokens` field. If a compatible backend
+instead returns a top-level `usage.cached_tokens`, `uniai` uses that as a
+fallback.
+
+For streaming Chat Completions requests on the shared OpenAI-compatible path,
+`uniai` enables `stream_options.include_usage=true` so the final stream event can
+carry usage when the upstream backend supports it.
+
 ## Provider Support
 
 Current support is:

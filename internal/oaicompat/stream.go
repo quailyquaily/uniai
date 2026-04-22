@@ -16,12 +16,18 @@ func ChatStream(
 	params openai.ChatCompletionNewParams,
 	onStream chat.OnStreamFunc,
 ) (*chat.Result, error) {
+	ensureChatCompletionStreamIncludesUsage(&params)
 	stream := client.Chat.Completions.NewStreaming(ctx, params)
 	acc := openai.ChatCompletionAccumulator{}
+	var finalUsage *chat.Usage
 
 	for stream.Next() {
 		chunk := stream.Current()
 		acc.AddChunk(chunk)
+		if chunk.JSON.Usage.Valid() {
+			usage := ChatCompletionUsageToChatUsage(chunk.Usage)
+			finalUsage = &usage
+		}
 
 		if len(chunk.Choices) == 0 {
 			continue
@@ -56,22 +62,19 @@ func ChatStream(
 	}
 
 	completion := acc.ChatCompletion
+	result := accumulatedToResult(&completion)
+	if finalUsage != nil {
+		result.Usage = *finalUsage
+	}
 
 	if err := onStream(chat.StreamEvent{
-		Done: true,
-		Usage: &chat.Usage{
-			InputTokens:  int(completion.Usage.PromptTokens),
-			OutputTokens: int(completion.Usage.CompletionTokens),
-			TotalTokens:  int(completion.Usage.TotalTokens),
-			Cache: chat.UsageCache{
-				CachedInputTokens: int(completion.Usage.PromptTokensDetails.CachedTokens),
-			},
-		},
+		Done:  true,
+		Usage: &result.Usage,
 	}); err != nil {
 		return nil, err
 	}
 
-	return accumulatedToResult(&completion), nil
+	return result, nil
 }
 
 func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
@@ -90,20 +93,19 @@ func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
 	if text != "" {
 		parts = append(parts, chat.TextPart(text))
 	}
-	usage := chat.Usage{
-		InputTokens:  int(resp.Usage.PromptTokens),
-		OutputTokens: int(resp.Usage.CompletionTokens),
-		TotalTokens:  int(resp.Usage.TotalTokens),
-		Cache: chat.UsageCache{
-			CachedInputTokens: int(resp.Usage.PromptTokensDetails.CachedTokens),
-		},
-	}
 	return &chat.Result{
 		Text:      text,
 		Parts:     parts,
 		Model:     resp.Model,
 		ToolCalls: toolCalls,
-		Usage:     usage,
+		Usage:     ChatCompletionUsageToChatUsage(resp.Usage),
 		Raw:       resp,
 	}
+}
+
+func ensureChatCompletionStreamIncludesUsage(params *openai.ChatCompletionNewParams) {
+	if params == nil {
+		return
+	}
+	params.StreamOptions.IncludeUsage = openai.Bool(true)
 }

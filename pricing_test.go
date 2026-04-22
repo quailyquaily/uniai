@@ -627,6 +627,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"command-r-plus-08-2024",
 		"glm-5",
 		"glm-4.5-air",
+		"kimi-k2.6",
 		"kimi-k2.5",
 		"kimi-k2-0905-preview",
 		"MiniMax-M2.7",
@@ -699,6 +700,30 @@ func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotPriceMath(t *testing.T
 	assertNearlyEqual(t, cost.Output, 300*3.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.0014)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotK26PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("kimi-k2.6", usage)
+	if !ok {
+		t.Fatal("expected model-based cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*0.95/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.16/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*4.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.001992)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {

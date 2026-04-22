@@ -299,6 +299,65 @@ func TestToResultAddsTextPart(t *testing.T) {
 	}
 }
 
+func TestToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
+	var resp openai.ChatCompletion
+	if err := json.Unmarshal([]byte(`{
+		"model": "kimi-k2.6",
+		"choices": [
+			{
+				"message": {
+					"role": "assistant",
+					"content": "hello"
+				}
+			}
+		],
+		"usage": {
+			"prompt_tokens": 10,
+			"completion_tokens": 3,
+			"total_tokens": 13,
+			"cached_tokens": 6
+		}
+	}`), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	out := toResult(&resp)
+	if out.Usage.Cache.CachedInputTokens != 6 {
+		t.Fatalf("unexpected cache usage: %#v", out.Usage.Cache)
+	}
+}
+
+func TestToResultPrefersPromptTokensDetailsCachedTokensOverTopLevelFallback(t *testing.T) {
+	var resp openai.ChatCompletion
+	if err := json.Unmarshal([]byte(`{
+		"model": "kimi-k2.6",
+		"choices": [
+			{
+				"message": {
+					"role": "assistant",
+					"content": "hello"
+				}
+			}
+		],
+		"usage": {
+			"prompt_tokens": 10,
+			"completion_tokens": 3,
+			"total_tokens": 13,
+			"cached_tokens": 6,
+			"prompt_tokens_details": {
+				"cached_tokens": 4
+			}
+		}
+	}`), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	out := toResult(&resp)
+	if out.Usage.Cache.CachedInputTokens != 4 {
+		t.Fatalf("unexpected cache usage: %#v", out.Usage.Cache)
+	}
+}
+
 func TestChatAppliesCustomHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

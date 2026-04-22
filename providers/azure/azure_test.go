@@ -49,3 +49,31 @@ func TestToResultReadsCachedInputTokens(t *testing.T) {
 		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
 	}
 }
+
+func TestToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
+	var resp openai.ChatCompletion
+	if err := json.Unmarshal([]byte(`{
+		"model": "deployment",
+		"choices": [
+			{
+				"message": {
+					"role": "assistant",
+					"content": "hello"
+				}
+			}
+		],
+		"usage": {
+			"prompt_tokens": 10,
+			"completion_tokens": 3,
+			"total_tokens": 13,
+			"cached_tokens": 5
+		}
+	}`), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	result := toResult(&resp)
+	if result.Usage.Cache.CachedInputTokens != 5 {
+		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
+	}
+}

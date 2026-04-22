@@ -1,6 +1,7 @@
 # Example pricing catalog for uniai.
 #
 # Checked against official pricing pages on 2026-04-18.
+# Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example intentionally keeps only chat token rates that fit the current
@@ -317,6 +318,11 @@ chat:
     output_usd_per_million: 4.50
 
   # Moonshot Kimi
+  - inference_provider: moonshot
+    model: kimi-k2.6
+    input_usd_per_million: 0.95
+    cached_input_usd_per_million: 0.16
+    output_usd_per_million: 4.00
   - inference_provider: moonshot
     model: kimi-k2.5
     input_usd_per_million: 0.60
