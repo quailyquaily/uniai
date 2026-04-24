@@ -781,6 +781,9 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	if strings.Join(textDeltas, "") != "Hello" {
 		t.Fatalf("unexpected text deltas: %#v", textDeltas)
 	}
+	if state.text.String() != "Hello" {
+		t.Fatalf("unexpected accumulated stream text: %q", state.text.String())
+	}
 	if len(toolDeltas) != 2 {
 		t.Fatalf("unexpected tool deltas: %#v", toolDeltas)
 	}
@@ -792,6 +795,51 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	}
 	if state.completed == nil || state.completed.ID != "resp_456" {
 		t.Fatalf("expected completed response, got %#v", state.completed)
+	}
+}
+
+func TestFinalizeStreamResultFallsBackToAccumulatedTextDelta(t *testing.T) {
+	state := &responseStreamState{
+		toolCalls: map[int]streamToolCallState{},
+		completed: mustDecodeResponse(t, map[string]any{
+			"id":                  "resp_789",
+			"model":               "gpt-5.4",
+			"object":              "response",
+			"parallel_tool_calls": true,
+			"temperature":         1,
+			"tool_choice":         "auto",
+			"tools":               []any{},
+			"top_p":               1,
+			"status":              "completed",
+			"output":              []any{},
+			"usage": map[string]any{
+				"input_tokens":         8,
+				"input_tokens_details": map[string]any{},
+				"output_tokens":        3,
+				"output_tokens_details": map[string]any{
+					"reasoning_tokens": 0,
+				},
+				"total_tokens": 11,
+			},
+			"text": map[string]any{
+				"format": map[string]any{"type": "text"},
+			},
+		}),
+	}
+	state.text.WriteString(`{"ok":true}`)
+
+	result, err := finalizeStreamResult(state)
+	if err != nil {
+		t.Fatalf("finalizeStreamResult: %v", err)
+	}
+	if result.Text != `{"ok":true}` {
+		t.Fatalf("unexpected fallback text: %q", result.Text)
+	}
+	if len(result.Parts) != 1 || result.Parts[0].Text != `{"ok":true}` {
+		t.Fatalf("unexpected fallback parts: %#v", result.Parts)
+	}
+	if result.Usage.TotalTokens != 11 {
+		t.Fatalf("unexpected usage: %#v", result.Usage)
 	}
 }
 

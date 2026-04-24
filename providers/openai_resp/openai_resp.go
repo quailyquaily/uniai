@@ -897,6 +897,7 @@ type streamToolCallState struct {
 type responseStreamState struct {
 	toolCalls map[int]streamToolCallState
 	completed *responses.Response
+	text      strings.Builder
 }
 
 func streamChat(
@@ -920,14 +921,10 @@ func streamChat(
 	if err := stream.Err(); err != nil {
 		return nil, err
 	}
-	if state.completed == nil {
-		return nil, fmt.Errorf("openai responses stream ended without a completed response")
-	}
-	if err := responseStatusError(state.completed); err != nil {
+	result, err := finalizeStreamResult(state)
+	if err != nil {
 		return nil, err
 	}
-
-	result := toResult(state.completed)
 	if err := onStream(chat.StreamEvent{
 		Done:  true,
 		Usage: &result.Usage,
@@ -946,6 +943,9 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 	case responses.ResponseTextDeltaEvent:
 		if event.Delta == "" {
 			return nil
+		}
+		if state != nil {
+			state.text.WriteString(event.Delta)
 		}
 		return onStream(chat.StreamEvent{Delta: event.Delta})
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
@@ -991,6 +991,22 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		state.completed = &event.Response
 	}
 	return nil
+}
+
+func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {
+	if state == nil || state.completed == nil {
+		return nil, fmt.Errorf("openai responses stream ended without a completed response")
+	}
+	if err := responseStatusError(state.completed); err != nil {
+		return nil, err
+	}
+
+	result := toResult(state.completed)
+	if strings.TrimSpace(result.Text) == "" && state.text.Len() > 0 {
+		result.Text = state.text.String()
+		chat.EnsureResultParts(result)
+	}
+	return result, nil
 }
 
 func registerStreamOutputItem(item responses.ResponseOutputItemUnion, outputIndex int, state *responseStreamState) {
