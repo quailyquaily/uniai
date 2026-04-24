@@ -793,6 +793,9 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	if toolDeltas[1].ID != "call_1" || toolDeltas[1].Name != "get_weather" {
 		t.Fatalf("unexpected done tool delta: %#v", toolDeltas[1])
 	}
+	if got := state.toolCalls[0].Arguments; got != `{"city":"Tokyo"}` {
+		t.Fatalf("unexpected accumulated tool call arguments: %q", got)
+	}
 	if state.completed == nil || state.completed.ID != "resp_456" {
 		t.Fatalf("expected completed response, got %#v", state.completed)
 	}
@@ -840,6 +843,57 @@ func TestFinalizeStreamResultFallsBackToAccumulatedTextDelta(t *testing.T) {
 	}
 	if result.Usage.TotalTokens != 11 {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
+	}
+}
+
+func TestFinalizeStreamResultFallsBackToAccumulatedToolCalls(t *testing.T) {
+	state := &responseStreamState{
+		toolCalls: map[int]streamToolCallState{
+			0: {
+				CallID:    "call_1",
+				ItemID:    "fc_1",
+				Name:      "get_weather",
+				Arguments: `{"city":"Tokyo"}`,
+			},
+		},
+		completed: mustDecodeResponse(t, map[string]any{
+			"id":                  "resp_790",
+			"model":               "gpt-5.4",
+			"object":              "response",
+			"parallel_tool_calls": true,
+			"temperature":         1,
+			"tool_choice":         "auto",
+			"tools":               []any{},
+			"top_p":               1,
+			"status":              "completed",
+			"output":              []any{},
+			"usage": map[string]any{
+				"input_tokens":         8,
+				"input_tokens_details": map[string]any{},
+				"output_tokens":        0,
+				"output_tokens_details": map[string]any{
+					"reasoning_tokens": 0,
+				},
+				"total_tokens": 8,
+			},
+			"text": map[string]any{
+				"format": map[string]any{"type": "text"},
+			},
+		}),
+	}
+
+	result, err := finalizeStreamResult(state)
+	if err != nil {
+		t.Fatalf("finalizeStreamResult: %v", err)
+	}
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("unexpected fallback tool calls: %#v", result.ToolCalls)
+	}
+	if result.ToolCalls[0].ID != "call_1" || result.ToolCalls[0].Function.Name != "get_weather" || result.ToolCalls[0].Function.Arguments != `{"city":"Tokyo"}` {
+		t.Fatalf("unexpected fallback tool call: %#v", result.ToolCalls[0])
+	}
+	if len(result.Messages) != 1 || len(result.Messages[0].ToolCalls) != 1 {
+		t.Fatalf("unexpected fallback messages: %#v", result.Messages)
 	}
 }
 

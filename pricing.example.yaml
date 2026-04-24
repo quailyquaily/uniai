@@ -1,7 +1,8 @@
 # Example pricing catalog for uniai.
 #
-# Checked against official pricing pages on 2026-04-18.
+# Checked against official pricing pages on 2026-04-24.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
+# OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example intentionally keeps only chat token rates that fit the current
@@ -14,6 +15,7 @@
 #
 # Official sources used for this file:
 # - OpenAI: https://openai.com/api/pricing/
+# - OpenAI GPT-5.5 availability note: https://help.openai.com/en/articles/11909943-gpt-53-and-gpt-54-in-chatgpt
 # - Anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
 # - Anthropic announcements: https://www.anthropic.com/news/claude-opus-4-7
 # - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
@@ -31,8 +33,12 @@
 # - Cloudflare: https://developers.cloudflare.com/workers-ai/platform/pricing/
 #
 # Notes:
-# - This example includes current GPT-5 / GPT-5.2 / GPT-4o text pricing and keeps
+# - This example includes current GPT-5.5 / GPT-5 / GPT-5.2 / GPT-4o text pricing and keeps
 #   the current `gpt-5.4*` entries, including long-context tiers where applicable.
+# - OpenAI's public pricing page lists `gpt-5.5` standard rates, but OpenAI's help center says
+#   `gpt-5.5` is not in the API yet as of 2026-04-24. The current API docs do not yet publish
+#   model IDs or long-context surcharge details for `gpt-5.5`, so this file encodes only the
+#   published standard token rates.
 # - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
 #   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
 # - OpenAI `gpt-5.4*` long-context tiers below use `>270000` input tokens.
@@ -67,6 +73,11 @@ pricing_references:
 
 chat:
   # OpenAI
+  - inference_provider: openai
+    model: gpt-5.5
+    input_usd_per_million: 5.00
+    cached_input_usd_per_million: 0.50
+    output_usd_per_million: 30.00
   - inference_provider: openai
     model: gpt-5.4
     tiers:

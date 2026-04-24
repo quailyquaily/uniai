@@ -139,6 +139,8 @@ Matching is conservative:
 6. model and alias names in YAML must be unique within the same `inference_provider`
 7. if multiple rules share the same model across different `inference_provider` values and no usable hint is provided, the first match in YAML order wins
 
+Normalization lowercases names, strips a leading `models/`, and treats `.` between digits as `-`. This lets `grok-4.1-fast-reasoning` match a `grok-4-1-fast-reasoning` rule.
+
 `uniai` does not guess prices from model family names.
 
 That means:

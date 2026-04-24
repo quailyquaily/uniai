@@ -889,9 +889,10 @@ func responseStatusError(resp *responses.Response) error {
 }
 
 type streamToolCallState struct {
-	CallID string
-	ItemID string
-	Name   string
+	CallID    string
+	ItemID    string
+	Name      string
+	Arguments string
 }
 
 type responseStreamState struct {
@@ -957,6 +958,8 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		if id == "" {
 			id = strings.TrimSpace(event.ItemID)
 		}
+		meta.Arguments += event.Delta
+		state.toolCalls[int(event.OutputIndex)] = meta
 		return onStream(chat.StreamEvent{
 			ToolCallDelta: &chat.ToolCallDelta{
 				Index:     int(event.OutputIndex),
@@ -970,6 +973,9 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		meta.Name = firstNonEmptyString(strings.TrimSpace(event.Name), meta.Name)
 		if meta.ItemID == "" {
 			meta.ItemID = strings.TrimSpace(event.ItemID)
+		}
+		if args := strings.TrimSpace(event.Arguments); args != "" {
+			meta.Arguments = args
 		}
 		state.toolCalls[int(event.OutputIndex)] = meta
 		id := strings.TrimSpace(meta.CallID)
@@ -1006,7 +1012,80 @@ func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {
 		result.Text = state.text.String()
 		chat.EnsureResultParts(result)
 	}
+	if fallback := accumulatedStreamToolCalls(state); len(fallback) > 0 {
+		result.ToolCalls = mergeStreamToolCalls(result.ToolCalls, fallback)
+		ensureResultToolCallMessage(result)
+	}
 	return result, nil
+}
+
+func accumulatedStreamToolCalls(state *responseStreamState) []chat.ToolCall {
+	if state == nil || len(state.toolCalls) == 0 {
+		return nil
+	}
+
+	indexes := make([]int, 0, len(state.toolCalls))
+	for index := range state.toolCalls {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+
+	out := make([]chat.ToolCall, 0, len(indexes))
+	for _, index := range indexes {
+		meta := state.toolCalls[index]
+		id := firstNonEmptyString(meta.CallID, meta.ItemID)
+		if id == "" && meta.Name == "" && meta.Arguments == "" {
+			continue
+		}
+		out = append(out, chat.ToolCall{
+			ID:   id,
+			Type: "function",
+			Function: chat.ToolCallFunction{
+				Name:      meta.Name,
+				Arguments: meta.Arguments,
+			},
+		})
+	}
+	return out
+}
+
+func mergeStreamToolCalls(current, fallback []chat.ToolCall) []chat.ToolCall {
+	if len(fallback) == 0 {
+		return current
+	}
+	if len(current) == 0 {
+		return append([]chat.ToolCall{}, fallback...)
+	}
+
+	out := append([]chat.ToolCall{}, current...)
+	for i, tc := range fallback {
+		if i >= len(out) {
+			out = append(out, tc)
+			continue
+		}
+		out[i].ID = firstNonEmptyString(out[i].ID, tc.ID)
+		out[i].Type = firstNonEmptyString(out[i].Type, tc.Type)
+		out[i].Function.Name = firstNonEmptyString(out[i].Function.Name, tc.Function.Name)
+		out[i].Function.Arguments = firstNonEmptyString(out[i].Function.Arguments, tc.Function.Arguments)
+	}
+	return out
+}
+
+func ensureResultToolCallMessage(result *chat.Result) {
+	if result == nil || len(result.ToolCalls) == 0 {
+		return
+	}
+	for i := range result.Messages {
+		if len(result.Messages[i].ToolCalls) == 0 {
+			continue
+		}
+		result.Messages[i].ToolCalls = mergeStreamToolCalls(result.Messages[i].ToolCalls, result.ToolCalls)
+		return
+	}
+	result.Messages = append(result.Messages, chat.Message{
+		Role:      chat.RoleAssistant,
+		ToolCalls: append([]chat.ToolCall{}, result.ToolCalls...),
+	})
 }
 
 func registerStreamOutputItem(item responses.ResponseOutputItemUnion, outputIndex int, state *responseStreamState) {
@@ -1017,11 +1096,14 @@ func registerStreamOutputItem(item responses.ResponseOutputItemUnion, outputInde
 	if !ok {
 		return
 	}
-	state.toolCalls[outputIndex] = streamToolCallState{
-		CallID: strings.TrimSpace(call.CallID),
-		ItemID: strings.TrimSpace(call.ID),
-		Name:   strings.TrimSpace(call.Name),
+	meta := state.toolCalls[outputIndex]
+	meta.CallID = firstNonEmptyString(strings.TrimSpace(call.CallID), meta.CallID)
+	meta.ItemID = firstNonEmptyString(strings.TrimSpace(call.ID), meta.ItemID)
+	meta.Name = firstNonEmptyString(strings.TrimSpace(call.Name), meta.Name)
+	if args := strings.TrimSpace(call.Arguments); args != "" {
+		meta.Arguments = args
 	}
+	state.toolCalls[outputIndex] = meta
 }
 
 func firstNonEmptyString(vals ...string) string {

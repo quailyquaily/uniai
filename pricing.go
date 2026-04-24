@@ -508,6 +508,9 @@ func validateUniqueChatPricingRuleModels(rules []ChatPricingRule) error {
 			}
 			key := inferenceProvider + "\x00" + normalized
 			if prev, ok := seen[key]; ok {
+				if prev == i {
+					continue
+				}
 				if inferenceProvider == "" {
 					return fmt.Errorf("chat[%d]: model or alias %q conflicts with chat[%d]", i, name, prev)
 				}
@@ -533,7 +536,7 @@ func normalizeInferenceProvider(inferenceProvider string) string {
 func normalizeModel(model string) string {
 	model = strings.TrimSpace(strings.ToLower(model))
 	model = strings.TrimPrefix(model, "models/")
-	return model
+	return normalizeNumericVersionDots(model)
 }
 
 func normalizeModelCandidates(model string) []string {
@@ -550,6 +553,28 @@ func normalizeModelCandidates(model string) []string {
 		}
 	}
 	return candidates
+}
+
+func normalizeNumericVersionDots(model string) string {
+	if !strings.Contains(model, ".") {
+		return model
+	}
+
+	var b strings.Builder
+	b.Grow(len(model))
+	for i := 0; i < len(model); i++ {
+		ch := model[i]
+		if ch == '.' && i > 0 && i+1 < len(model) && isASCIIDigit(model[i-1]) && isASCIIDigit(model[i+1]) {
+			b.WriteByte('-')
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func isASCIIDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
 }
 
 func normalizeDetailKey(key string) string {

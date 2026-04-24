@@ -291,6 +291,31 @@ func TestPricingCatalogEstimateChatCostNormalizesVendorPrefixedModelName(t *test
 	assertNearlyEqual(t, cost.Total, 0.000375)
 }
 
+func TestPricingCatalogEstimateChatCostNormalizesNumericVersionDots(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "xai",
+				Model:               "grok-4-1-fast-reasoning",
+				InputUSDPerMillion:  0.20,
+				OutputUSDPerMillion: 0.50,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.1-fast-reasoning", Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+	})
+	if !ok {
+		t.Fatal("expected numeric version dot model name to match")
+	}
+	assertNearlyEqual(t, cost.Input, 0.0002)
+	assertNearlyEqual(t, cost.Output, 0.00015)
+	assertNearlyEqual(t, cost.Total, 0.00035)
+}
+
 func TestPricingCatalogEstimateChatCostPrefersExactSlashModelMatch(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
@@ -377,8 +402,8 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	if catalog == nil {
 		t.Fatal("expected embedded default pricing catalog")
 	}
-	if !catalogHasRule(catalog, "gpt-5.4") {
-		t.Fatal("expected embedded default pricing catalog to include gpt-5.4")
+	if !catalogHasRule(catalog, "gpt-5.5") {
+		t.Fatal("expected embedded default pricing catalog to include gpt-5.5")
 	}
 
 	catalog.Chat = nil
@@ -387,7 +412,7 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	if again == nil {
 		t.Fatal("expected cloned embedded default pricing catalog")
 	}
-	if !catalogHasRule(again, "gpt-5.4") {
+	if !catalogHasRule(again, "gpt-5.5") {
 		t.Fatal("expected embedded default pricing catalog clone to stay intact")
 	}
 }
@@ -590,10 +615,52 @@ func TestPricingCatalogValidateRejectsAmbiguousModelNamesWithinInferenceProvider
 	}
 }
 
+func TestPricingCatalogValidateAllowsSameRuleAliasAfterNormalization(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "anthropic",
+				Model:               "claude-opus-4-7",
+				Aliases:             []string{"claude-opus-4.7"},
+				InputUSDPerMillion:  5,
+				OutputUSDPerMillion: 25,
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("expected same-rule normalized alias to be valid: %v", err)
+	}
+}
+
+func TestPricingCatalogValidateRejectsAmbiguousNumericVersionSeparators(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				InferenceProvider:   "xai",
+				Model:               "grok-4.1-fast-reasoning",
+				InputUSDPerMillion:  0.20,
+				OutputUSDPerMillion: 0.50,
+			},
+			{
+				InferenceProvider:   "xai",
+				Model:               "grok-4-1-fast-reasoning",
+				InputUSDPerMillion:  0.20,
+				OutputUSDPerMillion: 0.50,
+			},
+		},
+	}
+
+	if err := catalog.Validate(); err == nil {
+		t.Fatal("expected numeric version separator validation error")
+	}
+}
+
 func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	mustHave := []string{
+		"gpt-5.5",
 		"gpt-5.4",
 		"gpt-5.4-pro",
 		"gpt-5.2",
@@ -632,6 +699,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"kimi-k2-0905-preview",
 		"MiniMax-M2.7",
 		"MiniMax-M2.5-highspeed",
+		"grok-4.1-fast-reasoning",
+		"grok-4-1-fast-reasoning",
 	}
 	for _, model := range mustHave {
 		if !catalogHasRule(catalog, model) {
@@ -676,6 +745,30 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT52PriceMath(t *testing.T) {
 	assertNearlyEqual(t, cost.Output, 300*14.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.005635)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGPT55PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.5", usage)
+	if !ok {
+		t.Fatal("expected cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*5.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*30.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.0131)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotPriceMath(t *testing.T) {
@@ -724,6 +817,25 @@ func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotK26PriceMath(t *testin
 	assertNearlyEqual(t, cost.Output, 300*4.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.001992)
+}
+
+func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.1-fast-reasoning", usage)
+	if !ok {
+		t.Fatal("expected xAI version separator cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 1000*0.20/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00035)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {
