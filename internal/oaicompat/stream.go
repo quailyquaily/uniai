@@ -4,6 +4,7 @@ import (
 	"context"
 
 	openai "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/quailyquaily/uniai/chat"
 )
 
@@ -15,14 +16,17 @@ func ChatStream(
 	client *openai.Client,
 	params openai.ChatCompletionNewParams,
 	onStream chat.OnStreamFunc,
+	opts ...option.RequestOption,
 ) (*chat.Result, error) {
 	ensureChatCompletionStreamIncludesUsage(&params)
-	stream := client.Chat.Completions.NewStreaming(ctx, params)
+	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
 	acc := openai.ChatCompletionAccumulator{}
 	var finalUsage *chat.Usage
+	rawChunks := make([]openai.ChatCompletionChunk, 0)
 
 	for stream.Next() {
 		chunk := stream.Current()
+		rawChunks = append(rawChunks, chunk)
 		acc.AddChunk(chunk)
 		if chunk.JSON.Usage.Valid() {
 			usage := ChatCompletionUsageToChatUsage(chunk.Usage)
@@ -36,7 +40,10 @@ func ChatStream(
 		delta := chunk.Choices[0].Delta.Content
 
 		if delta != "" {
-			if err := onStream(chat.StreamEvent{Delta: delta}); err != nil {
+			if err := onStream(chat.StreamEvent{
+				Delta: delta,
+				Raw:   chunk,
+			}); err != nil {
 				stream.Close()
 				return nil, err
 			}
@@ -50,6 +57,7 @@ func ChatStream(
 					Name:      tc.Function.Name,
 					ArgsChunk: tc.Function.Arguments,
 				},
+				Raw: chunk,
 			}); err != nil {
 				stream.Close()
 				return nil, err
@@ -66,10 +74,12 @@ func ChatStream(
 	if finalUsage != nil {
 		result.Usage = *finalUsage
 	}
+	result.Raw = rawChunks
 
 	if err := onStream(chat.StreamEvent{
 		Done:  true,
 		Usage: &result.Usage,
+		Raw:   rawChunks,
 	}); err != nil {
 		return nil, err
 	}

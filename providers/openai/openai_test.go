@@ -665,6 +665,81 @@ func TestBuildParamsNonGeminiDoesNotInjectThoughtSignature(t *testing.T) {
 	}
 }
 
+func TestChatStreamLogsRawHTTPOnDecodeError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		if _, err := w.Write([]byte("data: {\n\n")); err != nil {
+			t.Fatalf("write response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	provider, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL + "/v1",
+		DefaultModel: "gpt-test",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	debug := map[string]string{}
+	_, err = provider.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{chat.User("hello")},
+		Options: chat.Options{
+			DebugFn: func(label, payload string) {
+				debug[label] = payload
+			},
+			OnStream: func(chat.StreamEvent) error { return nil },
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected stream decode error")
+	}
+
+	rawPayload := debug["openai.chat.stream.raw_error"]
+	if rawPayload == "" {
+		t.Fatalf("missing raw stream debug payload; debug=%#v", debug)
+	}
+	if strings.Contains(rawPayload, "test-key") {
+		t.Fatalf("raw stream debug leaked api key: %s", rawPayload)
+	}
+
+	var payload struct {
+		Error    string `json:"error"`
+		Attempts int    `json:"attempts"`
+		Response struct {
+			StatusCode int `json:"status_code"`
+		} `json:"response"`
+		Body struct {
+			BytesRead     int64  `json:"bytes_read"`
+			CapturedBytes int    `json:"captured_bytes"`
+			Truncated     bool   `json:"truncated"`
+			Preview       string `json:"preview"`
+			PreviewBase64 string `json:"preview_base64"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal([]byte(rawPayload), &payload); err != nil {
+		t.Fatalf("raw stream debug payload is not JSON: %v\n%s", err, rawPayload)
+	}
+	if !strings.Contains(payload.Error, "unexpected end of JSON input") {
+		t.Fatalf("unexpected error in payload: %#v", payload)
+	}
+	if payload.Attempts != 1 || payload.Response.StatusCode != http.StatusOK {
+		t.Fatalf("unexpected response metadata: %#v", payload)
+	}
+	if payload.Body.BytesRead != int64(len("data: {\n\n")) ||
+		payload.Body.CapturedBytes != len("data: {\n\n") ||
+		payload.Body.Truncated ||
+		payload.Body.Preview != "data: {\n\n" ||
+		payload.Body.PreviewBase64 == "" {
+		t.Fatalf("unexpected body capture: %#v", payload.Body)
+	}
+}
+
 func readThoughtSignatureFromAssistantToolCallParam(t *testing.T, call *openai.ChatCompletionMessageFunctionToolCallParam) string {
 	t.Helper()
 	if call == nil {

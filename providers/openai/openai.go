@@ -59,8 +59,14 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogJSON(p.debug, debugFn, "openai.chat.request", params)
 
 	if req.Options.OnStream != nil {
-		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream)
+		streamDebug := newStreamRawErrorDebug(p.debug, debugFn, "openai.chat.stream.raw_error")
+		var opts []option.RequestOption
+		if streamDebug != nil {
+			opts = append(opts, streamDebug.Option())
+		}
+		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream, opts...)
 		if err != nil {
+			streamDebug.Emit(err)
 			diag.LogError(p.debug, debugFn, "openai.chat.response", err)
 			return nil, err
 		}

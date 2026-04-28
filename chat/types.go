@@ -255,6 +255,7 @@ type StreamEvent struct {
 	Delta         string
 	ToolCallDelta *ToolCallDelta
 	Usage         *Usage
+	Raw           any
 	Done          bool
 }
 

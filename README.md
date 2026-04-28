@@ -277,6 +277,7 @@ resp, err := client.Chat(ctx,
     uniai.WithOnStream(func(ev uniai.StreamEvent) error {
         if ev.Done {
             // stream finished; ev.Usage contains final token counts and, when known, cost
+            // ev.Raw contains provider-specific raw stream data when available
             return nil
         }
         if ev.Delta != "" {
@@ -298,11 +299,14 @@ resp, err := client.Chat(ctx,
 | `Delta` | Incremental text content |
 | `ToolCallDelta` | Incremental tool call update (`Index`, `ID`, `Name`, `ArgsChunk`) |
 | `Usage` | Token usage, populated on the final event |
+| `Raw` | Provider-specific raw stream event or raw stream response when available |
 | `Done` | `true` for the last event |
 
 Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
 
 Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
+
+For OpenAI Chat Completions streaming providers (`openai`, OpenAI-compatible providers, and Azure), `StreamEvent.Raw` is the current SDK chunk on delta events. On the final `Done` event, `StreamEvent.Raw` and the returned `Result.Raw` contain the complete `[]openai.ChatCompletionChunk` stream.
 
 When combined with tool emulation (`WithToolsEmulationMode`), only the final text response streams. The final `Usage` / `Usage.Cost` values reflect the whole `Client.Chat()` call, including internal tool-emulation requests.
 
