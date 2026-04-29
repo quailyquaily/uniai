@@ -282,12 +282,13 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 
 	case "bedrock":
 		p := bedrock.New(bedrock.Config{
-			AwsKey:    c.cfg.AwsKey,
-			AwsSecret: c.cfg.AwsSecret,
-			AwsRegion: c.cfg.AwsRegion,
-			ModelArn:  c.cfg.AwsBedrockModelArn,
-			Headers:   c.cfg.ChatHeaders,
-			Debug:     c.cfg.Debug,
+			AwsKey:          c.cfg.AwsKey,
+			AwsSecret:       c.cfg.AwsSecret,
+			AwsSessionToken: c.cfg.AwsSessionToken,
+			AwsRegion:       c.cfg.AwsRegion,
+			ModelArn:        c.cfg.AwsBedrockModelArn,
+			Headers:         c.cfg.ChatHeaders,
+			Debug:           c.cfg.Debug,
 		})
 		return p.Chat(ctx, req)
 
