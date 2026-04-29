@@ -34,6 +34,7 @@ type Config struct {
 	// AWS Bedrock
 	AwsKey             string
 	AwsSecret          string
+	AwsSessionToken    string
 	AwsRegion          string
 	AwsBedrockModelArn string
 

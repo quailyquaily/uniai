@@ -19,12 +19,13 @@ import (
 )
 
 type Config struct {
-	AwsKey    string
-	AwsSecret string
-	AwsRegion string
-	ModelArn  string
-	Headers   map[string]string
-	Debug     bool
+	AwsKey          string
+	AwsSecret       string
+	AwsSessionToken string
+	AwsRegion       string
+	ModelArn        string
+	Headers         map[string]string
+	Debug           bool
 }
 
 type Provider struct {
@@ -41,7 +42,7 @@ func New(cfg Config) *Provider {
 	}
 	sess := session.Must(session.NewSession(&aws.Config{
 		Region:      aws.String(region),
-		Credentials: credentials.NewStaticCredentials(cfg.AwsKey, cfg.AwsSecret, ""),
+		Credentials: credentials.NewStaticCredentials(cfg.AwsKey, cfg.AwsSecret, cfg.AwsSessionToken),
 	}))
 	return &Provider{
 		client:   bedrockruntime.New(sess),
