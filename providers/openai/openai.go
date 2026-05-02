@@ -103,6 +103,7 @@ func buildParams(req *chat.Request, defaultModel string, baseURL ...string) (ope
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider model %q: %w", model, err)
 	}
 	applyKimiReasoningContentWorkaround(messages, model, firstNonEmpty(baseURL...))
+	applyByteDanceEmptyContentWorkaround(messages, model, firstNonEmpty(baseURL...))
 
 	params := openai.ChatCompletionNewParams{
 		Model:    openai.ChatModel(model),
@@ -240,4 +241,53 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// applyByteDanceEmptyContentWorkaround fills empty message content for ByteDance
+// ARK-compatible endpoints, which reject requests when messages.content is empty.
+//
+// Assistant messages with no text are padded with a single space.
+// Tool messages with no output are padded with "(no output)".
+func applyByteDanceEmptyContentWorkaround(messages []openai.ChatCompletionMessageParamUnion, model, baseURL string) {
+	if !shouldApplyByteDanceEmptyContentWorkaround(model, baseURL) {
+		return
+	}
+	for i := range messages {
+		if assistant := messages[i].OfAssistant; assistant != nil {
+			if !assistant.Content.OfString.Valid() || strings.TrimSpace(assistant.Content.OfString.Value) == "" {
+				assistant.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
+					OfString: openai.String(" "),
+				}
+			}
+			continue
+		}
+		if tool := messages[i].OfTool; tool != nil {
+			if !tool.Content.OfString.Valid() || strings.TrimSpace(tool.Content.OfString.Value) == "" {
+				tool.Content = openai.ChatCompletionToolMessageParamContentUnion{
+					OfString: openai.String("(no output)"),
+				}
+			}
+		}
+	}
+}
+
+func shouldApplyByteDanceEmptyContentWorkaround(model, baseURL string) bool {
+	normalizedModel := strings.ToLower(strings.TrimSpace(model))
+	normalizedModel = strings.TrimPrefix(normalizedModel, "models/")
+	if strings.HasPrefix(normalizedModel, "doubao-") || strings.HasPrefix(normalizedModel, "ep-") {
+		return true
+	}
+	return isByteDanceCompatibleBaseURL(baseURL)
+}
+
+func isByteDanceCompatibleBaseURL(baseURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(parsed.Scheme, "https") {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return strings.HasSuffix(host, ".volces.com") || strings.Contains(host, "ark")
 }

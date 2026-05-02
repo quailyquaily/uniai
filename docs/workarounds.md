@@ -28,6 +28,20 @@ Use the narrowest stable trigger available, prefer preserving provider metadata,
   - native Gemini is stricter and errors if `thought_signature` is missing
 - Tests: `providers/openai/openai_test.go`
 
+## ByteDance / Volces ARK
+
+- Path: `providers/openai/openai.go`
+- Trigger:
+  - model starts with `doubao-` or `ep-`
+  - or base URL host ends with `.volces.com` or contains `ark`
+- Behavior:
+  - assistant messages with empty `content` are padded with a single space `" "`
+  - tool messages with empty `content` are padded with `"(no output)"`
+- Notes:
+  - only applies to the `openai` provider path
+  - ARK rejects chat completion requests when any message has an empty `content` field
+- Tests: `providers/openai/openai_test.go`
+
 ## Gemini Native Tool Replay
 
 - Paths:

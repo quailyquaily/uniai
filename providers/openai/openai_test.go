@@ -514,6 +514,143 @@ func TestBuildParamsNonKimiDoesNotInjectReasoningContent(t *testing.T) {
 	}
 }
 
+func TestBuildParamsByteDanceWorkaroundByModel(t *testing.T) {
+	req := &chat.Request{
+		Model: "doubao-pro-32k",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", ""),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Assistant message with empty text should get a space
+	assistantContent := params.Messages[1].OfAssistant.Content.OfString.Value
+	if assistantContent != " " {
+		t.Fatalf("expected assistant content workaround ' ', got %q", assistantContent)
+	}
+
+	// Tool message with empty content should get "(no output)"
+	toolContent := params.Messages[2].OfTool.Content.OfString.Value
+	if toolContent != "(no output)" {
+		t.Fatalf("expected tool content workaround '(no output)', got %q", toolContent)
+	}
+}
+
+func TestBuildParamsByteDanceWorkaroundByBaseURL(t *testing.T) {
+	req := &chat.Request{
+		Model: "custom-model",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", ""),
+		},
+	}
+
+	params, err := buildParams(req, "", "https://ark.cn-beijing.volces.com/api/v3")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	assistantContent := params.Messages[1].OfAssistant.Content.OfString.Value
+	if assistantContent != " " {
+		t.Fatalf("expected assistant content workaround ' ', got %q", assistantContent)
+	}
+
+	toolContent := params.Messages[2].OfTool.Content.OfString.Value
+	if toolContent != "(no output)" {
+		t.Fatalf("expected tool content workaround '(no output)', got %q", toolContent)
+	}
+}
+
+func TestBuildParamsNonByteDanceDoesNotInjectContent(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-4.1-mini",
+		Messages: []chat.Message{
+			chat.User("run tool"),
+			{
+				Role: chat.RoleAssistant,
+				ToolCalls: []chat.ToolCall{
+					{
+						ID:   "call_1",
+						Type: "function",
+						Function: chat.ToolCallFunction{
+							Name:      "read_file",
+							Arguments: `{"path":"/tmp/a.txt"}`,
+						},
+					},
+				},
+			},
+			chat.ToolResult("call_1", ""),
+		},
+	}
+
+	params, err := buildParams(req, "", "https://api.openai.com/v1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Assistant message should not have content injected
+	if params.Messages[1].OfAssistant.Content.OfString.Valid() {
+		t.Fatalf("non-bytedance request should not inject assistant content")
+	}
+
+	// Tool message should remain empty
+	if params.Messages[2].OfTool.Content.OfString.Valid() && params.Messages[2].OfTool.Content.OfString.Value != "" {
+		t.Fatalf("non-bytedance request should not inject tool content, got %q", params.Messages[2].OfTool.Content.OfString.Value)
+	}
+}
+
+func TestShouldApplyByteDanceEmptyContentWorkaround(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   string
+		baseURL string
+		want    bool
+	}{
+		{name: "doubao model", model: "doubao-pro-32k", want: true},
+		{name: "ep model", model: "ep-20240101-xxxxx", want: true},
+		{name: "volces base", model: "custom-model", baseURL: "https://ark.cn-beijing.volces.com/api/v3", want: true},
+		{name: "ark subdomain", model: "custom-model", baseURL: "https://ark.example.com/api/v3", want: true},
+		{name: "non bytedance", model: "gpt-4.1-mini", baseURL: "https://api.openai.com/v1", want: false},
+	}
+
+	for _, tc := range tests {
+		if got := shouldApplyByteDanceEmptyContentWorkaround(tc.model, tc.baseURL); got != tc.want {
+			t.Fatalf("%s: expected %v, got %v", tc.name, tc.want, got)
+		}
+	}
+}
+
 func TestShouldApplyKimiReasoningContentWorkaround(t *testing.T) {
 	tests := []struct {
 		name    string
