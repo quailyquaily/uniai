@@ -2,6 +2,7 @@ package oaicompat
 
 import (
 	"context"
+	"strings"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -22,6 +23,7 @@ func ChatStream(
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
 	acc := openai.ChatCompletionAccumulator{}
 	var finalUsage *chat.Usage
+	var reasoningContent strings.Builder
 	rawChunks := make([]openai.ChatCompletionChunk, 0)
 
 	for stream.Next() {
@@ -35,6 +37,10 @@ func ChatStream(
 
 		if len(chunk.Choices) == 0 {
 			continue
+		}
+
+		if content := reasoningContentFromRawJSON(chunk.Choices[0].Delta.RawJSON()); content != "" {
+			reasoningContent.WriteString(content)
 		}
 
 		delta := chunk.Choices[0].Delta.Content
@@ -71,6 +77,7 @@ func ChatStream(
 
 	completion := acc.ChatCompletion
 	result := accumulatedToResult(&completion)
+	applyReasoningContentToResult(result, reasoningContent.String())
 	if finalUsage != nil {
 		result.Usage = *finalUsage
 	}
@@ -88,29 +95,7 @@ func ChatStream(
 }
 
 func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
-	if resp == nil {
-		return &chat.Result{Warnings: []string{"response is nil"}}
-	}
-	text := ""
-	parts := make([]chat.Part, 0, 1)
-	var toolCalls []chat.ToolCall
-	for _, choice := range resp.Choices {
-		text += choice.Message.Content
-		if len(choice.Message.ToolCalls) > 0 && len(toolCalls) == 0 {
-			toolCalls = ToToolCalls(choice.Message.ToolCalls)
-		}
-	}
-	if text != "" {
-		parts = append(parts, chat.TextPart(text))
-	}
-	return &chat.Result{
-		Text:      text,
-		Parts:     parts,
-		Model:     resp.Model,
-		ToolCalls: toolCalls,
-		Usage:     ChatCompletionUsageToChatUsage(resp.Usage),
-		Raw:       resp,
-	}
+	return ChatCompletionToResult(resp)
 }
 
 func ensureChatCompletionStreamIncludesUsage(params *openai.ChatCompletionNewParams) {

@@ -137,3 +137,31 @@ func TestToChatOptionsReadsThoughtSignatureFromExtraContent(t *testing.T) {
 		t.Fatalf("unexpected thought signature: %q", got)
 	}
 }
+
+func TestToChatOptionsReadsAssistantReasoningContent(t *testing.T) {
+	assistant := openai.ChatCompletionAssistantMessageParam{}
+	assistant.SetExtraFields(map[string]any{
+		"reasoning_content": "real reasoning",
+	})
+	req := openai.ChatCompletionNewParams{
+		Model: openai.ChatModel("custom-thinking-model"),
+		Messages: []openai.ChatCompletionMessageParamUnion{
+			{OfAssistant: &assistant},
+		},
+	}
+
+	opts, err := toChatOptions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	chatReq, err := chat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if len(chatReq.Messages) != 1 {
+		t.Fatalf("expected one message, got %d", len(chatReq.Messages))
+	}
+	if chatReq.Messages[0].ReasoningContent != "real reasoning" {
+		t.Fatalf("unexpected reasoning_content: %q", chatReq.Messages[0].ReasoningContent)
+	}
+}

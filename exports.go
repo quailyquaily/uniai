@@ -120,6 +120,12 @@ func AssistantToolCalls(toolCalls ...ToolCall) Message {
 	return chat.AssistantToolCalls(toolCalls...)
 }
 
+// AssistantReplayMessages returns assistant messages that should be appended to
+// conversation history before tool results or the next user turn.
+func AssistantReplayMessages(result *ChatResult) []Message {
+	return chat.AssistantReplayMessages(result)
+}
+
 func ToolResult(toolCallID, content string) Message { return chat.ToolResult(toolCallID, content) }
 
 // ToolResultValue encodes a structured tool result as a tool message.

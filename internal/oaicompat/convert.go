@@ -59,6 +59,11 @@ func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMess
 			if len(m.ToolCalls) > 0 {
 				msg.ToolCalls = ToToolCallParams(m.ToolCalls, model)
 			}
+			if m.ReasoningContent != "" {
+				msg.SetExtraFields(map[string]any{
+					"reasoning_content": m.ReasoningContent,
+				})
+			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &msg})
 		case chat.RoleTool:
 			if m.ToolCallID == "" {

@@ -142,28 +142,5 @@ func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openai
 }
 
 func toResult(resp *openai.ChatCompletion) *chat.Result {
-	if resp == nil {
-		return &chat.Result{Warnings: []string{"azure response is nil"}}
-	}
-	text := ""
-	parts := make([]chat.Part, 0, 1)
-	var toolCalls []chat.ToolCall
-	for _, choice := range resp.Choices {
-		text += choice.Message.Content
-		if len(choice.Message.ToolCalls) > 0 && len(toolCalls) == 0 {
-			toolCalls = oaicompat.ToToolCalls(choice.Message.ToolCalls)
-		}
-	}
-	if text != "" {
-		parts = append(parts, chat.TextPart(text))
-	}
-
-	return &chat.Result{
-		Text:      text,
-		Parts:     parts,
-		Model:     resp.Model,
-		ToolCalls: toolCalls,
-		Usage:     oaicompat.ChatCompletionUsageToChatUsage(resp.Usage),
-		Raw:       resp,
-	}
+	return oaicompat.ChatCompletionToResult(resp)
 }

@@ -66,6 +66,8 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"think "},"finish_reason":null}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"first"},"finish_reason":null}]}`)
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}`)
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3,"custom_usage_tokens":99}}`)
@@ -110,6 +112,9 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 	if !strings.Contains(deltaRaw.RawJSON(), `"content":"hello"`) {
 		t.Fatalf("expected raw delta chunk, got %q", deltaRaw.RawJSON())
 	}
+	if len(result.Messages) != 1 || result.Messages[0].ReasoningContent != "think first" {
+		t.Fatalf("unexpected replay messages: %#v", result.Messages)
+	}
 	doneChunks, ok := doneEvent.Raw.([]openai.ChatCompletionChunk)
 	if !ok {
 		t.Fatalf("done raw type = %T", doneEvent.Raw)
@@ -118,8 +123,8 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 	if !ok {
 		t.Fatalf("result raw type = %T", result.Raw)
 	}
-	if len(doneChunks) != 3 || len(resultChunks) != 3 {
-		t.Fatalf("expected 3 raw chunks, got done=%d result=%d", len(doneChunks), len(resultChunks))
+	if len(doneChunks) != 5 || len(resultChunks) != 5 {
+		t.Fatalf("expected 5 raw chunks, got done=%d result=%d", len(doneChunks), len(resultChunks))
 	}
 	last := doneChunks[len(doneChunks)-1]
 	if !strings.Contains(last.RawJSON(), `"custom_usage_tokens":99`) {

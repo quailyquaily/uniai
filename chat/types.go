@@ -31,12 +31,13 @@ type Part struct {
 }
 
 type Message struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
-	Parts      []Part     `json:"parts,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content,omitempty"`
+	Parts            []Part     `json:"parts,omitempty"`
+	Name             string     `json:"name,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
 }
 
 type ToolCall struct {
@@ -439,6 +440,41 @@ func AssistantToolCalls(toolCalls ...ToolCall) Message {
 	return Message{Role: RoleAssistant, ToolCalls: CloneToolCalls(toolCalls)}
 }
 
+// AssistantReplayMessages returns assistant messages that should be appended to
+// conversation history before tool results or the next user turn.
+//
+// It preserves provider-specific replay state carried by Result.Messages, such
+// as OpenAI-compatible reasoning_content and Gemini thought signatures. For
+// older providers that do not populate Result.Messages, it falls back to
+// Result.Text, Result.Parts, and Result.ToolCalls.
+func AssistantReplayMessages(result *Result) []Message {
+	if result == nil {
+		return nil
+	}
+	if len(result.Messages) > 0 {
+		out := make([]Message, 0, len(result.Messages))
+		for _, msg := range result.Messages {
+			if msg.Role != RoleAssistant {
+				continue
+			}
+			out = append(out, cloneMessage(msg))
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	msg := Message{
+		Role:      RoleAssistant,
+		Content:   result.Text,
+		Parts:     CloneParts(result.Parts),
+		ToolCalls: CloneToolCalls(result.ToolCalls),
+	}
+	if msg.Content == "" && len(msg.Parts) == 0 && len(msg.ToolCalls) == 0 {
+		return nil
+	}
+	return []Message{msg}
+}
+
 func ToolResult(toolCallID, content string) Message {
 	return Message{Role: RoleTool, Content: content, ToolCallID: toolCallID}
 }
@@ -503,6 +539,13 @@ func CloneToolCalls(toolCalls []ToolCall) []ToolCall {
 	}
 	out := make([]ToolCall, len(toolCalls))
 	copy(out, toolCalls)
+	return out
+}
+
+func cloneMessage(msg Message) Message {
+	out := msg
+	out.Parts = CloneParts(msg.Parts)
+	out.ToolCalls = CloneToolCalls(msg.ToolCalls)
 	return out
 }
 

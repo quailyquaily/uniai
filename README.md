@@ -230,14 +230,28 @@ resp, err := client.Chat(ctx,
 )
 ```
 
-For multi-turn tool execution, always preserve `resp.ToolCalls` exactly as returned by `Chat`:
+For multi-turn tool execution, preserve complete assistant replay messages from `resp.Messages`. `resp.ToolCalls` tells you which tools to run; it is not a lossless assistant history because some providers attach replay fields such as `reasoning_content` to the assistant message itself.
 
 ```go
 messages := []uniai.Message{
 	uniai.User("Use the echo tool to repeat: hello"),
 }
 
-Gemini needs follow-up tool rounds to preserve provider-specific metadata, please see [`docs/workarounds.md`](docs/workarounds.md).
+resp, err := client.Chat(ctx,
+	uniai.WithMessages(messages...),
+	uniai.WithTools(tools),
+)
+if err != nil {
+	return err
+}
+
+messages = append(messages, uniai.AssistantReplayMessages(resp)...)
+for _, call := range resp.ToolCalls {
+	messages = append(messages, uniai.ToolResult(call.ID, runTool(call)))
+}
+```
+
+`AssistantReplayMessages` preserves provider-specific replay state such as Gemini thought signatures and OpenAI-compatible `reasoning_content`. Some providers need this state in follow-up tool rounds; see [`docs/workarounds.md`](docs/workarounds.md).
 
 ### Tool calling emulation
 

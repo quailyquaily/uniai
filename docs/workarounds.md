@@ -2,17 +2,55 @@
 
 Use the narrowest stable trigger available, prefer preserving provider metadata, and add tests for both hit and miss cases.
 
-## Kimi / Moonshot
+## OpenAI-Compatible Reasoning Content
 
-- Path: `providers/openai/openai.go`
+- Paths:
+  - `chat/types.go`
+  - `internal/oaicompat/convert.go`
+  - `internal/oaicompat/result.go`
 - Trigger:
-  - model starts with `kimi-`
-  - or base URL host is `api.moonshot.ai`, `api.kimi.com`, or `api.moonshot.cn`
-- Behavior: inject `reasoning_content: "."` on assistant messages with `tool_calls`
+  - an assistant `chat.Message` has non-empty `ReasoningContent`
+- Behavior:
+  - preserve provider-returned `reasoning_content` on `Result.Messages`
+  - pass `Message.ReasoningContent` back as `reasoning_content` in OpenAI-compatible Chat Completions requests
 - Notes:
-  - only applies to the `openai` provider path
-  - does not apply to `openai_resp`
-- Tests: `providers/openai/openai_test.go`
+  - this is not limited to Kimi or DeepSeek; if an OpenAI-compatible provider returns this field, replay should keep it
+  - no placeholder `reasoning_content` is injected
+  - callers that maintain conversation history should append `chat.AssistantReplayMessages(resp)`, not rebuild assistant history from `resp.ToolCalls`
+- Tests:
+  - `providers/openai/openai_test.go`
+  - `internal/oaicompat/stream_test.go`
+
+Recommended pattern:
+
+```go
+messages := []chat.Message{chat.User("read README.md")}
+
+resp, err := client.Chat(ctx, &chat.Request{
+	Provider: "deepseek",
+	Messages: messages,
+	Tools:    tools,
+})
+if err != nil {
+	return err
+}
+
+toolMsg, err := chat.ToolResultValue(resp.ToolCalls[0].ID, map[string]any{
+	"content": "...file text...",
+})
+if err != nil {
+	return err
+}
+
+messages = append(messages, chat.AssistantReplayMessages(resp)...)
+messages = append(messages, toolMsg)
+
+_, err = client.Chat(ctx, &chat.Request{
+	Provider: "deepseek",
+	Messages: messages,
+	Tools:    tools,
+})
+```
 
 ## Gemini OpenAI-Compatible
 
@@ -37,10 +75,10 @@ Use the narrowest stable trigger available, prefer preserving provider metadata,
   - replaying assistant tool calls must preserve Gemini `thought_signature`
   - `function_response.response` is safest as a JSON object
 - Helpers:
-  - `chat.AssistantToolCalls(resp.ToolCalls...)`
+  - `chat.AssistantReplayMessages(resp)`
   - `chat.ToolResultValue(call.ID, value)`
 - Behavior:
-  - `AssistantToolCalls` replays the prior tool calls as-is
+  - `AssistantReplayMessages` replays the assistant turn while preserving provider-specific metadata
   - `ToolResultValue` keeps object JSON unchanged
   - non-object values are wrapped as `{"result": ...}`
   - for parallel Gemini function calls in the same assistant turn, only the first call needs `thought_signature`
@@ -63,12 +101,12 @@ if err != nil {
 	return err
 }
 
+messages := []chat.Message{chat.User("read README.md")}
+messages = append(messages, chat.AssistantReplayMessages(resp)...)
+messages = append(messages, toolMsg)
+
 _, err = client.Chat(ctx, &chat.Request{
-	Messages: []chat.Message{
-		chat.User("read README.md"),
-		chat.AssistantToolCalls(resp.ToolCalls...),
-		toolMsg,
-	},
+	Messages: messages,
 	Tools: tools,
 })
 ```

@@ -132,6 +132,7 @@ func toChatMessage(m openai.ChatCompletionMessageParamUnion) (chat.Message, erro
 		if len(m.OfAssistant.ToolCalls) > 0 {
 			msg.ToolCalls = toToolCalls(m.OfAssistant.ToolCalls)
 		}
+		msg.ReasoningContent = reasoningContentFromAssistantParam(m.OfAssistant)
 		return msg, nil
 	case m.OfTool != nil:
 		content := readTextFromTool(m.OfTool.Content)
@@ -360,6 +361,23 @@ func thoughtSignatureFromToolCallParam(call *openai.ChatCompletionMessageFunctio
 		return strings.TrimSpace(sig)
 	}
 	return ""
+}
+
+func reasoningContentFromAssistantParam(msg *openai.ChatCompletionAssistantMessageParam) string {
+	if msg == nil {
+		return ""
+	}
+	raw, err := json.Marshal(msg)
+	if err != nil {
+		return ""
+	}
+	var payload struct {
+		ReasoningContent string `json:"reasoning_content"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	return payload.ReasoningContent
 }
 
 func toOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {

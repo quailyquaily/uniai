@@ -177,6 +177,96 @@ func TestAssistantToolCallsClonesInput(t *testing.T) {
 	}
 }
 
+func TestAssistantReplayMessagesPrefersResultMessagesAndClones(t *testing.T) {
+	resp := &Result{
+		Text: "fallback",
+		Messages: []Message{
+			{
+				Role:             RoleAssistant,
+				Content:          "using tool",
+				ReasoningContent: "real reasoning",
+				Parts:            []Part{WithPartCacheControl(TextPart("using tool"), CacheTTL5m())},
+				ToolCalls: []ToolCall{
+					{
+						ID: "call_1",
+						Function: ToolCallFunction{
+							Name:      "lookup",
+							Arguments: `{"q":"hello"}`,
+						},
+						ThoughtSignature: "sig_1",
+					},
+				},
+			},
+		},
+		ToolCalls: []ToolCall{
+			{
+				ID: "fallback_call",
+				Function: ToolCallFunction{
+					Name: "fallback",
+				},
+			},
+		},
+	}
+
+	messages := AssistantReplayMessages(resp)
+	resp.Messages[0].Content = "mutated"
+	resp.Messages[0].Parts[0].CacheControl.TTL = "1h"
+	resp.Messages[0].ToolCalls[0].Function.Name = "mutated"
+
+	if len(messages) != 1 {
+		t.Fatalf("expected one replay message, got %d", len(messages))
+	}
+	msg := messages[0]
+	if msg.Content != "using tool" || msg.ReasoningContent != "real reasoning" {
+		t.Fatalf("unexpected replay message: %#v", msg)
+	}
+	if len(msg.Parts) != 1 || msg.Parts[0].CacheControl == nil || msg.Parts[0].CacheControl.TTL != "5m" {
+		t.Fatalf("expected cloned parts, got %#v", msg.Parts)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "lookup" || msg.ToolCalls[0].ThoughtSignature != "sig_1" {
+		t.Fatalf("expected cloned tool calls, got %#v", msg.ToolCalls)
+	}
+}
+
+func TestAssistantReplayMessagesFallsBackToResultFields(t *testing.T) {
+	resp := &Result{
+		Text: "using tool",
+		ToolCalls: []ToolCall{
+			{
+				ID: "call_1",
+				Function: ToolCallFunction{
+					Name:      "lookup",
+					Arguments: `{"q":"hello"}`,
+				},
+				ThoughtSignature: "sig_1",
+			},
+		},
+	}
+
+	messages := AssistantReplayMessages(resp)
+	resp.ToolCalls[0].Function.Name = "mutated"
+
+	if len(messages) != 1 {
+		t.Fatalf("expected one fallback message, got %d", len(messages))
+	}
+	msg := messages[0]
+	if msg.Role != RoleAssistant || msg.Content != "using tool" {
+		t.Fatalf("unexpected fallback message: %#v", msg)
+	}
+	if len(msg.ToolCalls) != 1 || msg.ToolCalls[0].Function.Name != "lookup" || msg.ToolCalls[0].ThoughtSignature != "sig_1" {
+		t.Fatalf("expected cloned fallback tool calls, got %#v", msg.ToolCalls)
+	}
+}
+
+func TestAssistantReplayMessagesNilOrEmpty(t *testing.T) {
+	if got := AssistantReplayMessages(nil); len(got) != 0 {
+		t.Fatalf("nil result should return no messages, got %#v", got)
+	}
+	if got := AssistantReplayMessages(&Result{}); len(got) != 0 {
+		t.Fatalf("empty result should return no messages, got %#v", got)
+	}
+}
+
 func TestToolResultValuePreservesJSONObject(t *testing.T) {
 	msg, err := ToolResultValue("call_1", map[string]any{
 		"content": "hello",
