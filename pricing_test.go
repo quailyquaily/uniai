@@ -699,6 +699,10 @@ func TestPricingExampleYAML(t *testing.T) {
 		"kimi-k2-0905-preview",
 		"MiniMax-M2.7",
 		"MiniMax-M2.5-highspeed",
+		"deepseek-v4-flash",
+		"deepseek-v4-pro",
+		"deepseek-chat",
+		"deepseek-reasoner",
 		"grok-4.1-fast-reasoning",
 		"grok-4-1-fast-reasoning",
 	}
@@ -817,6 +821,43 @@ func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotK26PriceMath(t *testin
 	assertNearlyEqual(t, cost.Output, 300*4.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.001992)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	flash, ok := catalog.EstimateChatCost("deepseek-v4-flash", usage)
+	if !ok {
+		t.Fatal("expected flash cost estimate from pricing.example.yaml")
+	}
+	assertNearlyEqual(t, flash.Input, 800*0.14/1_000_000)
+	assertNearlyEqual(t, flash.CachedInput, 200*0.0028/1_000_000)
+	assertNearlyEqual(t, flash.Output, 300*0.28/1_000_000)
+	assertNearlyEqual(t, flash.Total, 0.00019656)
+
+	alias, ok := catalog.EstimateChatCost("deepseek-reasoner", usage)
+	if !ok {
+		t.Fatal("expected deepseek-reasoner alias cost estimate from pricing.example.yaml")
+	}
+	assertNearlyEqual(t, alias.Total, flash.Total)
+
+	pro, ok := catalog.EstimateChatCost("deepseek-v4-pro", usage)
+	if !ok {
+		t.Fatal("expected pro cost estimate from pricing.example.yaml")
+	}
+	assertNearlyEqual(t, pro.Input, 800*1.74/1_000_000)
+	assertNearlyEqual(t, pro.CachedInput, 200*0.0145/1_000_000)
+	assertNearlyEqual(t, pro.Output, 300*3.48/1_000_000)
+	assertNearlyEqual(t, pro.Total, 0.0024389)
 }
 
 func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *testing.T) {

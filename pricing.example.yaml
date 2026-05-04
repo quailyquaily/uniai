@@ -3,6 +3,7 @@
 # Checked against official pricing pages on 2026-04-24.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
+# DeepSeek V4 entries refreshed on 2026-05-04 from the public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example intentionally keeps only chat token rates that fit the current
@@ -400,15 +401,18 @@ chat:
 
   # DeepSeek
   - inference_provider: deepseek
-    model: deepseek-chat
-    input_usd_per_million: 0.28
-    cached_input_usd_per_million: 0.028
-    output_usd_per_million: 0.42
+    model: deepseek-v4-flash
+    aliases:
+      - deepseek-chat
+      - deepseek-reasoner
+    input_usd_per_million: 0.14
+    cached_input_usd_per_million: 0.0028
+    output_usd_per_million: 0.28
   - inference_provider: deepseek
-    model: deepseek-reasoner
-    input_usd_per_million: 0.28
-    cached_input_usd_per_million: 0.028
-    output_usd_per_million: 0.42
+    model: deepseek-v4-pro
+    input_usd_per_million: 1.74
+    cached_input_usd_per_million: 0.0145
+    output_usd_per_million: 3.48
 
   # xAI
   - inference_provider: xai
