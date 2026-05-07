@@ -4,6 +4,7 @@
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-04 from the public pricing page.
+# xAI Grok 4.3 entry added on 2026-05-07 from the official pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example intentionally keeps only chat token rates that fit the current
@@ -28,7 +29,8 @@
 # - Moonshot Kimi: https://platform.kimi.ai/docs/pricing/chat
 # - MiniMax: https://platform.minimax.io/docs/guides/pricing-paygo
 # - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing/
-# - xAI: https://x.ai/api
+# - xAI: https://docs.x.ai/developers/models
+# - xAI Grok 4.3 detail: https://docs.x.ai/developers/models/grok-4.3
 # - Groq: https://console.groq.com/docs/models
 # - Groq GPT-OSS cached pricing: https://console.groq.com/docs/model/openai/gpt-oss-120b
 # - Cloudflare: https://developers.cloudflare.com/workers-ai/platform/pricing/
@@ -45,6 +47,7 @@
 # - OpenAI `gpt-5.4*` long-context tiers below use `>270000` input tokens.
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
+# - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
 # - Gemini Flash entries below use the text / image / video tier.
 # - Runtime price lookup matches by `model` / `aliases` by default, not by the
 #   client's driver/provider name. Callers can optionally pass an explicit
@@ -66,7 +69,7 @@ pricing_references:
     moonshot: "https://platform.kimi.ai/docs/pricing/chat"
     minimax: "https://platform.minimax.io/docs/guides/pricing-paygo"
     deepseek: "https://api-docs.deepseek.com/quick_start/pricing/"
-    xai: "https://x.ai/api"
+    xai: "https://docs.x.ai/developers/models"
     groq: "https://console.groq.com/docs/models"
     cloudflare: "https://developers.cloudflare.com/workers-ai/platform/pricing/"
     qwen: "https://help.aliyun.com/zh/model-studio/model-pricing"
@@ -415,6 +418,18 @@ chat:
     output_usd_per_million: 3.48
 
   # xAI
+  - inference_provider: xai
+    model: grok-4.3
+    aliases:
+      - grok-4.3-latest
+    tiers:
+      - max_input_tokens: 200000
+        input_usd_per_million: 1.25
+        cached_input_usd_per_million: 0.20
+        output_usd_per_million: 2.50
+      - input_usd_per_million: 2.50
+        cached_input_usd_per_million: 0.40
+        output_usd_per_million: 5.00
   - inference_provider: xai
     model: grok-4.20-reasoning
     input_usd_per_million: 2.00

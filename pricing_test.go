@@ -703,6 +703,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"deepseek-v4-pro",
 		"deepseek-chat",
 		"deepseek-reasoner",
+		"grok-4.3",
+		"grok-4.3-latest",
 		"grok-4.1-fast-reasoning",
 		"grok-4-1-fast-reasoning",
 	}
@@ -877,6 +879,52 @@ func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *test
 	assertNearlyEqual(t, cost.Input, 1000*0.20/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*0.50/1_000_000)
 	assertNearlyEqual(t, cost.Total, 0.00035)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok43PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.3", usage)
+	if !ok {
+		t.Fatal("expected grok-4.3 cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*1.25/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.20/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*2.50/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00179)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok43LongContextPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  200001,
+		OutputTokens: 300,
+		TotalTokens:  200301,
+		Cache: UsageCache{
+			CachedInputTokens: 1000,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.3", usage)
+	if !ok {
+		t.Fatal("expected grok-4.3 long-context cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 199001*2.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 1000*0.40/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*5.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.4994025)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {
