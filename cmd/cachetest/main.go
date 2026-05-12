@@ -493,6 +493,7 @@ func buildClientConfig(providerRaw, modelRaw string) (uniai.Config, string, erro
 			return uniai.Config{}, "", fmt.Errorf("anthropic provider: %w", err)
 		}
 		cfg.AnthropicAPIKey = apiKey
+		cfg.AnthropicAPIBase = envAny("ANTHROPIC_API_BASE")
 		cfg.AnthropicModel = model
 		return cfg, model, nil
 	case "bedrock":

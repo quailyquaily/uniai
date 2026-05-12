@@ -350,9 +350,10 @@ func pickChatConfigs() []chatConfig {
 				provider: "anthropic",
 				model:    model,
 				cfg: Config{
-					Provider:        "anthropic",
-					AnthropicAPIKey: key,
-					AnthropicModel:  model,
+					Provider:         "anthropic",
+					AnthropicAPIKey:  key,
+					AnthropicAPIBase: env("TEST_ANTHROPIC_API_BASE"),
+					AnthropicModel:   model,
 				},
 			})
 		}

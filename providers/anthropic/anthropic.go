@@ -18,6 +18,7 @@ import (
 
 type Config struct {
 	APIKey       string
+	APIBase      string
 	DefaultModel string
 	Headers      map[string]string
 	Debug        bool
@@ -26,6 +27,9 @@ type Config struct {
 type Provider struct {
 	cfg Config
 }
+
+// DefaultAPIBase is the official Anthropic Messages API base URL.
+const DefaultAPIBase = "https://api.anthropic.com/v1"
 
 func New(cfg Config) *Provider {
 	cfg.Headers = httputil.CloneHeaders(cfg.Headers)
@@ -160,7 +164,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	diag.LogText(p.cfg.Debug, debugFn, "anthropic.chat.request", string(data))
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(data))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL(p.cfg.APIBase), bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
@@ -213,6 +217,18 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	result.Raw = out
 	return result, nil
+}
+
+func messagesURL(base string) string {
+	return normalizeAPIBase(base) + "/messages"
+}
+
+func normalizeAPIBase(base string) string {
+	trimmed := strings.TrimRight(strings.TrimSpace(base), "/")
+	if trimmed == "" {
+		return DefaultAPIBase
+	}
+	return trimmed
 }
 
 func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {

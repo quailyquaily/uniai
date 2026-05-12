@@ -1,6 +1,9 @@
 package uniai
 
-import "github.com/quailyquaily/uniai/internal/httputil"
+import (
+	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/providers/anthropic"
+)
 
 // Config provides shared configuration for uniai clients.
 // Fields are optional and used by specific providers/features.
@@ -28,8 +31,9 @@ type Config struct {
 	AzureOpenAIAPIVersion string
 
 	// Anthropic
-	AnthropicAPIKey string
-	AnthropicModel  string
+	AnthropicAPIKey  string
+	AnthropicAPIBase string
+	AnthropicModel   string
 
 	// AWS Bedrock
 	AwsKey             string
@@ -57,6 +61,7 @@ type Config struct {
 
 const (
 	DefaultOpenAIAPIBase     = "https://api.openai.com/v1"
+	DefaultAnthropicAPIBase  = anthropic.DefaultAPIBase
 	DefaultJinaAPIBase       = "https://api.jina.ai"
 	DefaultGeminiAPIBase     = "https://generativelanguage.googleapis.com"
 	DefaultCloudflareAPIBase = "https://api.cloudflare.com/client/v4"
@@ -71,6 +76,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.OpenAIAPIBase == "" {
 		cfg.OpenAIAPIBase = DefaultOpenAIAPIBase
+	}
+	if cfg.AnthropicAPIBase == "" {
+		cfg.AnthropicAPIBase = DefaultAnthropicAPIBase
 	}
 	if cfg.JinaAPIBase == "" {
 		cfg.JinaAPIBase = DefaultJinaAPIBase

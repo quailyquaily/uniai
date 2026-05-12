@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -343,6 +344,83 @@ func TestChatAppliesCustomHeaders(t *testing.T) {
 	}
 	if resp.Text != "ok" {
 		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}
+
+func TestChatUsesCustomAPIBase(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/anthropic/messages" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("x-api-key"); got != "test-key" {
+			t.Fatalf("unexpected api key header: %q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{
+			"content":[{"type":"text","text":"ok"}],
+			"model":"claude-sonnet-test",
+			"usage":{"input_tokens":1,"output_tokens":1}
+		}`)
+	}))
+	defer server.Close()
+
+	p := New(Config{
+		APIKey:       "test-key",
+		APIBase:      server.URL + "/anthropic",
+		DefaultModel: "claude-sonnet-test",
+	})
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}
+
+func TestNormalizeAPIBase(t *testing.T) {
+	tests := []struct {
+		name string
+		base string
+		want string
+	}{
+		{
+			name: "empty",
+			want: DefaultAPIBase,
+		},
+		{
+			name: "root",
+			base: "https://example.test",
+			want: "https://example.test",
+		},
+		{
+			name: "versioned",
+			base: "https://example.test/v1",
+			want: "https://example.test/v1",
+		},
+		{
+			name: "versioned trailing slash",
+			base: "https://example.test/v1/",
+			want: "https://example.test/v1",
+		},
+		{
+			name: "path prefix",
+			base: "https://example.test/anthropic",
+			want: "https://example.test/anthropic",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := normalizeAPIBase(tt.base); got != tt.want {
+				t.Fatalf("normalizeAPIBase(%q) = %q, want %q", tt.base, got, tt.want)
+			}
+		})
 	}
 }
 

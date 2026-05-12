@@ -36,6 +36,7 @@ export TEST_AZURE_MODEL="o1-mini"
 
 # Anthropic
 export TEST_ANTHROPIC_API_KEY=""
+export TEST_ANTHROPIC_API_BASE=""
 export TEST_ANTHROPIC_MODEL="claude-3-5-sonnet"
 
 # AWS Bedrock

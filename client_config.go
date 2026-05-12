@@ -50,6 +50,7 @@ func (c *Client) GetConfig() ClientConfigView {
 		out.APIBase = c.cfg.AzureOpenAIEndpoint
 	case "anthropic":
 		out.Model = c.cfg.AnthropicModel
+		out.APIBase = c.cfg.AnthropicAPIBase
 	case "bedrock":
 		out.Model = c.cfg.AwsBedrockModelArn
 		out.APIBase = c.cfg.AwsRegion

@@ -79,6 +79,8 @@ Supported provider names:
 
 For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenAIAPIBase`.
 
+For custom Anthropic-compatible endpoints, use provider `anthropic` with `Config.AnthropicAPIBase`. Set it to the provider's Messages API base, for example `https://api.anthropic.com/v1`; uniai appends `/messages`.
+
 ### `openai` vs `openai_resp`
 
 Use `openai` when you want Chat Completions behavior or compatibility with OpenAI-like providers.
@@ -467,7 +469,7 @@ All configuration is provided via `uniai.Config`. Only the fields required for t
 - Chat defaults: `Provider`, `Debug`, `ChatHeaders`, `Pricing` (`ChatHeaders` apply to chat provider HTTP requests only; `Pricing` overrides the embedded default pricing catalog used for `Usage.Cost`)
 - OpenAI/OpenAI-compatible: `OpenAIAPIKey`, `OpenAIAPIBase`, `OpenAIModel`
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
-- Anthropic: `AnthropicAPIKey`, `AnthropicModel`
+- Anthropic: `AnthropicAPIKey`, `AnthropicAPIBase`, `AnthropicModel`
 - AWS Bedrock: `AwsKey`, `AwsSecret`, `AwsRegion`, `AwsBedrockModelArn`
 - Cloudflare Workers AI: `CloudflareAccountID`, `CloudflareAPIToken`, `CloudflareAPIBase`
 - Embeddings/Rerank/Classify (Jina): `JinaAPIKey`, `JinaAPIBase`

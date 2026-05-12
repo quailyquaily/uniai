@@ -274,6 +274,7 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 	case "anthropic":
 		p := anthropic.New(anthropic.Config{
 			APIKey:       c.cfg.AnthropicAPIKey,
+			APIBase:      c.cfg.AnthropicAPIBase,
 			DefaultModel: c.cfg.AnthropicModel,
 			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
