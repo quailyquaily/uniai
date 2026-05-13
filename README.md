@@ -330,9 +330,9 @@ Prompt-caching usage, explicit cache control, and provider support notes live in
 
 ## Cost estimation
 
-`uniai` ships an embedded default pricing catalog for common chat models.
+`uniai` ships an embedded default pricing catalog for common chat and image generation models.
 
-By default, `uniai` fills `Usage.Cost` on the blocking result and on the final streaming event when the current model matches the embedded catalog. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
+By default, `uniai` fills `Usage.Cost` on blocking chat results, final chat streaming events, and image generation results when the current model matches the embedded catalog. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
 
 For models with long-context pricing tiers, `uniai` selects the tier from each upstream request's raw `input_tokens` count before any tool-emulation aggregation happens.
 

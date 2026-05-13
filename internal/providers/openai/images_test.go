@@ -28,6 +28,12 @@ func TestCreateImagesGPTImage2Payload(t *testing.T) {
 				"input_tokens":  10,
 				"output_tokens": 20,
 				"total_tokens":  30,
+				"input_tokens_details": map[string]any{
+					"text_tokens":         7,
+					"image_tokens":        3,
+					"cached_text_tokens":  2,
+					"cached_image_tokens": 1,
+				},
 			},
 		})
 	}))
@@ -80,6 +86,12 @@ func TestCreateImagesGPTImage2Payload(t *testing.T) {
 	}
 	if out.Usage.InputTokens != 10 || out.Usage.OutputTokens != 20 || out.Usage.TotalTokens != 30 {
 		t.Fatalf("unexpected usage: %#v", out.Usage)
+	}
+	if out.Usage.InputTextTokens != 7 || out.Usage.InputImageTokens != 3 {
+		t.Fatalf("unexpected usage details: %#v", out.Usage)
+	}
+	if out.Usage.CachedTextTokens != 2 || out.Usage.CachedImageTokens != 1 {
+		t.Fatalf("unexpected cached usage details: %#v", out.Usage)
 	}
 }
 

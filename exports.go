@@ -185,6 +185,7 @@ type (
 	ImageOptions = image.Options
 	ImageRequest = image.Request
 	ImageResult  = image.Result
+	ImageUsage   = image.CreateImageUsage
 )
 
 func Image(model, prompt string) ImageOption          { return image.Image(model, prompt) }

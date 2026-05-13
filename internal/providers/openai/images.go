@@ -29,8 +29,10 @@ type openAICreateImagesUsage struct {
 	OutputTokens       int `json:"output_tokens"`
 	TotalTokens        int `json:"total_tokens"`
 	InputTokensDetails struct {
-		ImageTokens int `json:"image_tokens"`
-		TextTokens  int `json:"text_tokens"`
+		ImageTokens       int `json:"image_tokens"`
+		TextTokens        int `json:"text_tokens"`
+		CachedImageTokens int `json:"cached_image_tokens"`
+		CachedTextTokens  int `json:"cached_text_tokens"`
 	} `json:"input_tokens_details"`
 }
 
@@ -39,11 +41,7 @@ type openAICreateImagesOutput struct {
 	Data    []struct {
 		B64JSON string `json:"b64_json"`
 	} `json:"data"`
-	OpenAICreateImagesUsage struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
-	} `json:"usage"`
+	Usage openAICreateImagesUsage `json:"usage"`
 }
 
 type createImagesOutput struct {
@@ -59,9 +57,13 @@ type createImageUsage struct {
 	Size    string `json:"size"`
 	Quality string `json:"quality"`
 
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	InputTextTokens   int `json:"input_text_tokens,omitempty"`
+	InputImageTokens  int `json:"input_image_tokens,omitempty"`
+	CachedTextTokens  int `json:"cached_text_tokens,omitempty"`
+	CachedImageTokens int `json:"cached_image_tokens,omitempty"`
+	OutputTokens      int `json:"output_tokens"`
+	TotalTokens       int `json:"total_tokens"`
 }
 
 func CreateImages(ctx context.Context, token, base, model, prompt string, count int, options structs.JSONMap) ([]byte, error) {
@@ -120,11 +122,15 @@ func CreateImages(ctx context.Context, token, base, model, prompt string, count 
 		Created: resp.Created,
 		Data:    resp.Data,
 		Usage: createImageUsage{
-			Size:         payload.Size,
-			Quality:      payload.Quality,
-			InputTokens:  resp.OpenAICreateImagesUsage.InputTokens,
-			OutputTokens: resp.OpenAICreateImagesUsage.OutputTokens,
-			TotalTokens:  resp.OpenAICreateImagesUsage.TotalTokens,
+			Size:              payload.Size,
+			Quality:           payload.Quality,
+			InputTokens:       resp.Usage.InputTokens,
+			InputTextTokens:   resp.Usage.InputTokensDetails.TextTokens,
+			InputImageTokens:  resp.Usage.InputTokensDetails.ImageTokens,
+			CachedTextTokens:  resp.Usage.InputTokensDetails.CachedTextTokens,
+			CachedImageTokens: resp.Usage.InputTokensDetails.CachedImageTokens,
+			OutputTokens:      resp.Usage.OutputTokens,
+			TotalTokens:       resp.Usage.TotalTokens,
 		},
 		MimeType: getMimeType(payload.OutputFormat),
 	}

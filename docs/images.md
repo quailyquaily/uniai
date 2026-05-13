@@ -19,6 +19,8 @@ img, err := client.Image(ctx,
 
 `ImageResult.Data[*].B64JSON` contains base64-encoded image data. `ImageResult.MimeType` contains the normalized MIME type when the provider reports or implies one.
 
+When the provider returns image token usage and the active pricing catalog has a matching `image` rule, `ImageResult.Usage.Cost` contains a local USD estimate. See [`docs/pricing.md`](pricing.md) for catalog fields and formulas.
+
 ## Provider Routing
 
 If `WithImageProvider(...)` is not set, `uniai` chooses a provider from the model name:

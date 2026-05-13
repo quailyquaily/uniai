@@ -1,6 +1,9 @@
 package image
 
-import "github.com/lyricat/goutils/structs"
+import (
+	"github.com/lyricat/goutils/structs"
+	"github.com/quailyquaily/uniai/chat"
+)
 
 type Options struct {
 	OpenAI     structs.JSONMap `json:"openai_options,omitempty"`
@@ -29,9 +32,15 @@ type CreateImageUsage struct {
 	Size    string `json:"size"`
 	Quality string `json:"quality"`
 
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	InputTextTokens   int `json:"input_text_tokens,omitempty"`
+	InputImageTokens  int `json:"input_image_tokens,omitempty"`
+	CachedTextTokens  int `json:"cached_text_tokens,omitempty"`
+	CachedImageTokens int `json:"cached_image_tokens,omitempty"`
+	OutputTokens      int `json:"output_tokens"`
+	TotalTokens       int `json:"total_tokens"`
+
+	Cost *chat.UsageCost `json:"cost,omitempty"`
 }
 
 type Option func(*Request)

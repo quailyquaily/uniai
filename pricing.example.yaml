@@ -1,19 +1,22 @@
 # Example pricing catalog for uniai.
 #
-# Checked against official pricing pages on 2026-04-24.
+# Checked against official pricing pages on 2026-05-13.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-04 from the public pricing page.
-# xAI Grok 4.3 entry added on 2026-05-07 from the official pricing page.
+# xAI Grok 4.3 and Grok 4.20 entries refreshed on 2026-05-13 from the official
+# docs pages.
+# OpenAI GPT Image 2 image-generation pricing added on 2026-05-13 from the
+# public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
-# This example intentionally keeps only chat token rates that fit the current
-# PricingCatalog schema.
+# This example includes chat token rates and image-generation token rates that
+# fit the current PricingCatalog schema.
 # It does not encode:
 # - Batch / Flex / Priority variants
 # - tool invocation fees
 # - storage fees for cache/context caching
-# - image / audio specific token prices
+# - audio specific token prices
 #
 # Official sources used for this file:
 # - OpenAI: https://openai.com/api/pricing/
@@ -55,6 +58,8 @@
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
 # - Mistral entries below use explicit dated model IDs to avoid guessing where a
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
+# - OpenAI `gpt-image-2` image generation pricing uses separate rates for text
+#   input, image input, cached input, and image output tokens.
 
 # Informational metadata for humans. ParsePricingYAML ignores unknown top-level
 # fields, so this section does not affect runtime pricing lookup.
@@ -74,6 +79,18 @@ pricing_references:
     cloudflare: "https://developers.cloudflare.com/workers-ai/platform/pricing/"
     qwen: "https://help.aliyun.com/zh/model-studio/model-pricing"
     doubao: "https://www.volcengine.com/docs/82379/1544106"
+
+image:
+  # OpenAI Images API
+  - inference_provider: openai
+    model: gpt-image-2
+    aliases:
+      - gpt-image-2-2026-04-21
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8.00
+    cached_image_input_usd_per_million: 2.00
+    output_usd_per_million: 30.00
 
 chat:
   # OpenAI
@@ -422,6 +439,7 @@ chat:
     model: grok-4.3
     aliases:
       - grok-4.3-latest
+      - grok-latest
     tiers:
       - max_input_tokens: 200000
         input_usd_per_million: 1.25
@@ -431,13 +449,26 @@ chat:
         cached_input_usd_per_million: 0.40
         output_usd_per_million: 5.00
   - inference_provider: xai
-    model: grok-4.20-reasoning
-    input_usd_per_million: 2.00
-    output_usd_per_million: 6.00
+    model: grok-4.20-0309-reasoning
+    aliases:
+      - grok-4.20-reasoning
+      - grok-4.20-reasoning-latest
+      - grok-4.20
+      - grok-4.2
+      - grok-4.2-reasoning
+      - grok-4.20-0309
+    input_usd_per_million: 1.25
+    cached_input_usd_per_million: 0.20
+    output_usd_per_million: 2.50
   - inference_provider: xai
-    model: grok-4.20-non-reasoning
-    input_usd_per_million: 2.00
-    output_usd_per_million: 6.00
+    model: grok-4.20-0309-non-reasoning
+    aliases:
+      - grok-4.20-non-reasoning
+      - grok-4.20-non-reasoning-latest
+      - grok-4.2-non-reasoning
+    input_usd_per_million: 1.25
+    cached_input_usd_per_million: 0.20
+    output_usd_per_million: 2.50
   - inference_provider: xai
     model: grok-4-1-fast-reasoning
     input_usd_per_million: 0.20

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
+	imagepkg "github.com/quailyquaily/uniai/image"
 )
 
 func TestParsePricingYAML(t *testing.T) {
@@ -22,6 +23,16 @@ chat:
     input_usd_per_million: 1.25
     output_usd_per_million: 10
     cached_input_usd_per_million: 0.125
+image:
+  - inference_provider: openai
+    model: gpt-image-2
+    aliases:
+      - gpt-image-2-20260421
+    text_input_usd_per_million: 5
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8
+    cached_image_input_usd_per_million: 2
+    output_usd_per_million: 30
 `))
 	if err != nil {
 		t.Fatalf("parse pricing yaml: %v", err)
@@ -41,6 +52,22 @@ chat:
 	}
 	if len(rule.Tiers) != 0 {
 		t.Fatalf("unexpected tiers: %#v", rule.Tiers)
+	}
+	if len(catalog.Image) != 1 {
+		t.Fatalf("unexpected image rule count: %d", len(catalog.Image))
+	}
+	imageRule := catalog.Image[0]
+	if imageRule.InferenceProvider != "openai" || imageRule.Model != "gpt-image-2" {
+		t.Fatalf("unexpected image rule: %#v", imageRule)
+	}
+	if len(imageRule.Aliases) != 1 || imageRule.Aliases[0] != "gpt-image-2-20260421" {
+		t.Fatalf("unexpected image aliases: %#v", imageRule.Aliases)
+	}
+	if imageRule.CachedTextInputUSDPerMillion == nil || *imageRule.CachedTextInputUSDPerMillion != 1.25 {
+		t.Fatalf("unexpected cached text input price: %#v", imageRule.CachedTextInputUSDPerMillion)
+	}
+	if imageRule.CachedImageInputUSDPerMillion == nil || *imageRule.CachedImageInputUSDPerMillion != 2 {
+		t.Fatalf("unexpected cached image input price: %#v", imageRule.CachedImageInputUSDPerMillion)
 	}
 }
 
@@ -105,6 +132,96 @@ func TestPricingCatalogEstimateChatCost(t *testing.T) {
 	assertNearlyEqual(t, cost.CachedInput, 0.000005)
 	assertNearlyEqual(t, cost.Output, 0.00025)
 	assertNearlyEqual(t, cost.Total, 0.00033)
+}
+
+func TestPricingCatalogEstimateImageCost(t *testing.T) {
+	catalog := &PricingCatalog{
+		Image: []ImagePricingRule{
+			{
+				InferenceProvider:       "openai",
+				Model:                   "gpt-image-2",
+				Aliases:                 []string{"gpt-image-2-20260421"},
+				TextInputUSDPerMillion:  5,
+				ImageInputUSDPerMillion: 8,
+				OutputUSDPerMillion:     30,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateImageCost("gpt-image-2-20260421", imagepkg.CreateImageUsage{
+		InputTokens:      15,
+		InputTextTokens:  10,
+		InputImageTokens: 5,
+		OutputTokens:     196,
+		TotalTokens:      211,
+	})
+	if !ok {
+		t.Fatal("expected image cost estimate")
+	}
+
+	assertNearlyEqual(t, cost.Input, (10*5.00+5*8.00)/1_000_000)
+	assertNearlyEqual(t, cost.Output, 196*30.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00597)
+}
+
+func TestPricingCatalogEstimateImageCostWithCachedInputs(t *testing.T) {
+	catalog := &PricingCatalog{
+		Image: []ImagePricingRule{
+			{
+				InferenceProvider:             "openai",
+				Model:                         "gpt-image-2",
+				TextInputUSDPerMillion:        5,
+				ImageInputUSDPerMillion:       8,
+				CachedTextInputUSDPerMillion:  float64Ptr(1.25),
+				CachedImageInputUSDPerMillion: float64Ptr(2),
+				OutputUSDPerMillion:           30,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateImageCost("gpt-image-2", imagepkg.CreateImageUsage{
+		InputTokens:       15,
+		InputTextTokens:   10,
+		InputImageTokens:  5,
+		CachedTextTokens:  4,
+		CachedImageTokens: 2,
+		OutputTokens:      196,
+		TotalTokens:       211,
+	})
+	if !ok {
+		t.Fatal("expected image cost estimate")
+	}
+
+	assertNearlyEqual(t, cost.Input, (6*5.00+3*8.00)/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, (4*1.25+2*2.00)/1_000_000)
+	assertNearlyEqual(t, cost.Output, 196*30.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.005943)
+}
+
+func TestPricingCatalogEstimateImageCostTreatsUnsplitInputAsText(t *testing.T) {
+	catalog := &PricingCatalog{
+		Image: []ImagePricingRule{
+			{
+				InferenceProvider:      "openai",
+				Model:                  "gpt-image-2",
+				TextInputUSDPerMillion: 5,
+				OutputUSDPerMillion:    30,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateImageCost("gpt-image-2", imagepkg.CreateImageUsage{
+		InputTokens:  10,
+		OutputTokens: 196,
+		TotalTokens:  206,
+	})
+	if !ok {
+		t.Fatal("expected image cost estimate")
+	}
+
+	assertNearlyEqual(t, cost.Input, 10*5.00/1_000_000)
+	assertNearlyEqual(t, cost.Output, 196*30.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00593)
 }
 
 func TestPricingCatalogEstimateChatCostUsesShortTierAtBoundary(t *testing.T) {
@@ -705,6 +822,18 @@ func TestPricingExampleYAML(t *testing.T) {
 		"deepseek-reasoner",
 		"grok-4.3",
 		"grok-4.3-latest",
+		"grok-latest",
+		"grok-4.20-0309-reasoning",
+		"grok-4.20-reasoning",
+		"grok-4.20-reasoning-latest",
+		"grok-4.20",
+		"grok-4.2",
+		"grok-4.2-reasoning",
+		"grok-4.20-0309",
+		"grok-4.20-0309-non-reasoning",
+		"grok-4.20-non-reasoning",
+		"grok-4.20-non-reasoning-latest",
+		"grok-4.2-non-reasoning",
 		"grok-4.1-fast-reasoning",
 		"grok-4-1-fast-reasoning",
 	}
@@ -927,6 +1056,35 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok43LongContextPriceMath(t *
 	assertNearlyEqual(t, cost.Total, 0.4994025)
 }
 
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok420PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.2", usage)
+	if !ok {
+		t.Fatal("expected grok-4.2 cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*1.25/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.20/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*2.50/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00179)
+
+	nonReasoningCost, ok := catalog.EstimateChatCost("grok-4.20-0309-non-reasoning", usage)
+	if !ok {
+		t.Fatal("expected grok-4.20 non-reasoning cost estimate from pricing.example.yaml")
+	}
+	assertNearlyEqual(t, nonReasoningCost.Total, cost.Total)
+}
+
 func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
@@ -1065,6 +1223,57 @@ func TestPricingExampleYAMLAnnotateChatResultCostMatchesAnthropicPriceMath(t *te
 	if !resp.Usage.Cost.Estimated {
 		t.Fatal("expected estimated cost")
 	}
+}
+
+func TestPricingExampleYAMLAnnotateImageResultCostMatchesOpenAIPriceMath(t *testing.T) {
+	client := New(Config{
+		Pricing: loadExamplePricingCatalog(t),
+	})
+	req := &imagepkg.Request{
+		Model: "gpt-image-2",
+	}
+	resp := &imagepkg.Result{
+		Usage: imagepkg.CreateImageUsage{
+			InputTokens:  10,
+			OutputTokens: 196,
+			TotalTokens:  206,
+		},
+	}
+
+	client.annotateImageResultCost(req, resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected image usage cost from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, resp.Usage.Cost.Input, 10*5.00/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Output, 196*30.00/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.00593)
+	if resp.Usage.Cost.Currency != "USD" {
+		t.Fatalf("unexpected currency: %q", resp.Usage.Cost.Currency)
+	}
+	if !resp.Usage.Cost.Estimated {
+		t.Fatal("expected estimated cost")
+	}
+}
+
+func TestClientImageCostUsesEmbeddedDefaultPricing(t *testing.T) {
+	client := New(Config{})
+	req := &imagepkg.Request{
+		Model: "gpt-image-2-2026-04-21",
+	}
+	resp := &imagepkg.Result{
+		Usage: imagepkg.CreateImageUsage{
+			InputTokens:  10,
+			OutputTokens: 196,
+			TotalTokens:  206,
+		},
+	}
+
+	client.annotateImageResultCost(req, resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected embedded default pricing to annotate image usage")
+	}
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.00593)
 }
 
 func TestWrapChatStreamCostUsesEmbeddedDefaultPricing(t *testing.T) {

@@ -322,7 +322,25 @@ func (c *Client) Image(ctx context.Context, opts ...image.Option) (*image.Result
 	if c.imageClient == nil {
 		return nil, fmt.Errorf("image client not configured")
 	}
-	return c.imageClient.Create(ctx, opts...)
+	req := image.BuildRequest(opts...)
+	resp, err := c.imageClient.Create(ctx, opts...)
+	c.annotateImageResultCost(req, resp)
+	return resp, err
+}
+
+func (c *Client) annotateImageResultCost(req *image.Request, resp *image.Result) {
+	if resp == nil || resp.Usage.Cost != nil || c.cfg.Pricing == nil {
+		return
+	}
+	model := ""
+	inferenceProvider := ""
+	if req != nil {
+		model = req.Model
+		inferenceProvider = req.Provider
+	}
+	if cost, ok := c.cfg.Pricing.EstimateImageCostWithInferenceProvider(inferenceProvider, model, resp.Usage); ok {
+		resp.Usage.Cost = cost
+	}
 }
 
 func (c *Client) Audio(ctx context.Context, opts ...audio.Option) (*audio.Result, error) {

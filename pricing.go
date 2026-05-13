@@ -5,12 +5,14 @@ import (
 	"math"
 	"strings"
 
+	"github.com/quailyquaily/uniai/image"
 	"gopkg.in/yaml.v3"
 )
 
 // PricingCatalog is the price table used by uniai to derive Usage.Cost.
 type PricingCatalog struct {
-	Chat []ChatPricingRule `json:"chat,omitempty" yaml:"chat,omitempty"`
+	Chat  []ChatPricingRule  `json:"chat,omitempty" yaml:"chat,omitempty"`
+	Image []ImagePricingRule `json:"image,omitempty" yaml:"image,omitempty"`
 }
 
 // ChatPricingRule defines one chat model price entry.
@@ -66,6 +68,33 @@ type chatPricingRates struct {
 	CacheCreationInputDetailUSDPerMillion map[string]float64
 }
 
+// ImagePricingRule defines one image generation model price entry.
+//
+// Text and image input token rates are separate because image generation APIs
+// may price prompt text, reference images, and generated image output
+// differently.
+type ImagePricingRule struct {
+	InferenceProvider string   `json:"inference_provider,omitempty" yaml:"inference_provider,omitempty"`
+	Model             string   `json:"model" yaml:"model"`
+	Aliases           []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+
+	TextInputUSDPerMillion  float64 `json:"text_input_usd_per_million,omitempty" yaml:"text_input_usd_per_million,omitempty"`
+	ImageInputUSDPerMillion float64 `json:"image_input_usd_per_million,omitempty" yaml:"image_input_usd_per_million,omitempty"`
+	OutputUSDPerMillion     float64 `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+
+	CachedTextInputUSDPerMillion  *float64 `json:"cached_text_input_usd_per_million,omitempty" yaml:"cached_text_input_usd_per_million,omitempty"`
+	CachedImageInputUSDPerMillion *float64 `json:"cached_image_input_usd_per_million,omitempty" yaml:"cached_image_input_usd_per_million,omitempty"`
+}
+
+type imagePricingRates struct {
+	TextInputUSDPerMillion  float64
+	ImageInputUSDPerMillion float64
+	OutputUSDPerMillion     float64
+
+	CachedTextInputUSDPerMillion  *float64
+	CachedImageInputUSDPerMillion *float64
+}
+
 // ParsePricingYAML decodes a pricing YAML document into a PricingCatalog and
 // validates the supported schema.
 func ParsePricingYAML(data []byte) (*PricingCatalog, error) {
@@ -91,6 +120,12 @@ func (c *PricingCatalog) Clone() *PricingCatalog {
 			out.Chat[i] = cloneChatPricingRule(c.Chat[i])
 		}
 	}
+	if len(c.Image) > 0 {
+		out.Image = make([]ImagePricingRule, len(c.Image))
+		for i := range c.Image {
+			out.Image[i] = cloneImagePricingRule(c.Image[i])
+		}
+	}
 	return out
 }
 
@@ -105,7 +140,15 @@ func (c *PricingCatalog) Validate() error {
 			return fmt.Errorf("chat[%d]: %w", i, err)
 		}
 	}
+	for i, rule := range c.Image {
+		if err := validateImagePricingRule(rule); err != nil {
+			return fmt.Errorf("image[%d]: %w", i, err)
+		}
+	}
 	if err := validateUniqueChatPricingRuleModels(c.Chat); err != nil {
+		return err
+	}
+	if err := validateUniqueImagePricingRuleModels(c.Image); err != nil {
 		return err
 	}
 	return nil
@@ -138,8 +181,39 @@ func (c *PricingCatalog) EstimateChatCostWithInferenceProvider(inferenceProvider
 	return estimateChatCostForRule(*rule, usage)
 }
 
+// EstimateImageCost derives a cost estimate from the catalog, model, and image
+// usage. It returns false when no rule matches or when the matched rule does not
+// define all rates required by the usage payload.
+func (c *PricingCatalog) EstimateImageCost(model string, usage image.CreateImageUsage) (*UsageCost, bool) {
+	return c.EstimateImageCostWithInferenceProvider("", model, usage)
+}
+
+// EstimateImageCostWithInferenceProvider derives an image generation cost
+// estimate from the catalog, inference provider hint, model, and usage.
+//
+// If inferenceProvider is empty, or if the catalog has no rule using that
+// inference provider, lookup falls back to model-only matching. If the hinted
+// provider exists in the catalog, lookup stays within that provider only.
+func (c *PricingCatalog) EstimateImageCostWithInferenceProvider(inferenceProvider, model string, usage image.CreateImageUsage) (*UsageCost, bool) {
+	if c == nil {
+		return nil, false
+	}
+	if usage.Cost != nil {
+		return usage.Cost, true
+	}
+	rule := c.findImagePricingRuleWithInferenceProvider(inferenceProvider, model)
+	if rule == nil {
+		return nil, false
+	}
+	return estimateImageCostForRule(*rule, usage)
+}
+
 func (c *PricingCatalog) findChatPricingRule(model string) *ChatPricingRule {
 	return c.findChatPricingRuleWithInferenceProvider("", model)
+}
+
+func (c *PricingCatalog) findImagePricingRule(model string) *ImagePricingRule {
+	return c.findImagePricingRuleWithInferenceProvider("", model)
 }
 
 func (c *PricingCatalog) findChatPricingRuleWithInferenceProvider(inferenceProvider, model string) *ChatPricingRule {
@@ -178,12 +252,60 @@ func (c *PricingCatalog) findChatPricingRuleWithInferenceProvider(inferenceProvi
 	return nil
 }
 
+func (c *PricingCatalog) findImagePricingRuleWithInferenceProvider(inferenceProvider, model string) *ImagePricingRule {
+	if c == nil {
+		return nil
+	}
+	candidates := normalizeModelCandidates(model)
+	if len(candidates) == 0 {
+		return nil
+	}
+	inferenceProvider = normalizeInferenceProvider(inferenceProvider)
+
+	if inferenceProvider != "" && c.hasImageInferenceProvider(inferenceProvider) {
+		for _, candidate := range candidates {
+			for i := range c.Image {
+				rule := &c.Image[i]
+				if normalizeInferenceProvider(rule.InferenceProvider) != inferenceProvider {
+					continue
+				}
+				if imagePricingRuleMatches(rule, candidate) {
+					return rule
+				}
+			}
+		}
+		return nil
+	}
+
+	for _, candidate := range candidates {
+		for i := range c.Image {
+			rule := &c.Image[i]
+			if imagePricingRuleMatches(rule, candidate) {
+				return rule
+			}
+		}
+	}
+	return nil
+}
+
 func (c *PricingCatalog) hasInferenceProvider(inferenceProvider string) bool {
 	if c == nil || inferenceProvider == "" {
 		return false
 	}
 	for i := range c.Chat {
 		if normalizeInferenceProvider(c.Chat[i].InferenceProvider) == inferenceProvider {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *PricingCatalog) hasImageInferenceProvider(inferenceProvider string) bool {
+	if c == nil || inferenceProvider == "" {
+		return false
+	}
+	for i := range c.Image {
+		if normalizeInferenceProvider(c.Image[i].InferenceProvider) == inferenceProvider {
 			return true
 		}
 	}
@@ -205,12 +327,37 @@ func chatPricingRuleMatches(rule *ChatPricingRule, model string) bool {
 	return false
 }
 
+func imagePricingRuleMatches(rule *ImagePricingRule, model string) bool {
+	if rule == nil {
+		return false
+	}
+	if normalizeModel(rule.Model) == model {
+		return true
+	}
+	for _, alias := range rule.Aliases {
+		if normalizeModel(alias) == model {
+			return true
+		}
+	}
+	return false
+}
+
 func estimateChatCostForRule(rule ChatPricingRule, usage Usage) (*UsageCost, bool) {
 	rates, ok := resolveChatPricingRates(rule, usage)
 	if !ok {
 		return nil, false
 	}
 	return estimateChatCostForRates(rates, usage)
+}
+
+func estimateImageCostForRule(rule ImagePricingRule, usage image.CreateImageUsage) (*UsageCost, bool) {
+	return estimateImageCostForRates(imagePricingRates{
+		TextInputUSDPerMillion:        rule.TextInputUSDPerMillion,
+		ImageInputUSDPerMillion:       rule.ImageInputUSDPerMillion,
+		OutputUSDPerMillion:           rule.OutputUSDPerMillion,
+		CachedTextInputUSDPerMillion:  rule.CachedTextInputUSDPerMillion,
+		CachedImageInputUSDPerMillion: rule.CachedImageInputUSDPerMillion,
+	}, usage)
 }
 
 func resolveChatPricingRates(rule ChatPricingRule, usage Usage) (chatPricingRates, bool) {
@@ -281,11 +428,73 @@ func estimateChatCostForRates(rates chatPricingRates, usage Usage) (*UsageCost, 
 	}, true
 }
 
+func estimateImageCostForRates(rates imagePricingRates, usage image.CreateImageUsage) (*UsageCost, bool) {
+	if !hasPricableImageUsage(usage) {
+		return nil, false
+	}
+
+	textInputTokens := usage.InputTextTokens
+	imageInputTokens := usage.InputImageTokens
+	if textInputTokens == 0 && imageInputTokens == 0 {
+		// Generation-only calls may report input_tokens without a provider detail
+		// split. In that case the input is prompt text.
+		textInputTokens = usage.InputTokens
+	} else if remaining := usage.InputTokens - textInputTokens - imageInputTokens; remaining > 0 {
+		textInputTokens += remaining
+	}
+
+	baseTextInputTokens := textInputTokens - usage.CachedTextTokens
+	if baseTextInputTokens < 0 {
+		baseTextInputTokens = 0
+	}
+	baseImageInputTokens := imageInputTokens - usage.CachedImageTokens
+	if baseImageInputTokens < 0 {
+		baseImageInputTokens = 0
+	}
+
+	textInputCost := tokensCost(baseTextInputTokens, rates.TextInputUSDPerMillion)
+	imageInputCost := tokensCost(baseImageInputTokens, rates.ImageInputUSDPerMillion)
+	cachedInputCost := 0.0
+	if usage.CachedTextTokens > 0 {
+		if rates.CachedTextInputUSDPerMillion == nil {
+			return nil, false
+		}
+		cachedInputCost += tokensCost(usage.CachedTextTokens, *rates.CachedTextInputUSDPerMillion)
+	}
+	if usage.CachedImageTokens > 0 {
+		if rates.CachedImageInputUSDPerMillion == nil {
+			return nil, false
+		}
+		cachedInputCost += tokensCost(usage.CachedImageTokens, *rates.CachedImageInputUSDPerMillion)
+	}
+	outputCost := tokensCost(usage.OutputTokens, rates.OutputUSDPerMillion)
+	inputCost := textInputCost + imageInputCost
+	total := inputCost + cachedInputCost + outputCost
+
+	return &UsageCost{
+		Currency:    "USD",
+		Estimated:   true,
+		Input:       roundUSD(inputCost),
+		CachedInput: roundUSD(cachedInputCost),
+		Output:      roundUSD(outputCost),
+		Total:       roundUSD(total),
+	}, true
+}
+
 func hasPricableUsage(usage Usage) bool {
 	return usage.InputTokens > 0 ||
 		usage.OutputTokens > 0 ||
 		usage.Cache.CachedInputTokens > 0 ||
 		usage.Cache.CacheCreationInputTokens > 0
+}
+
+func hasPricableImageUsage(usage image.CreateImageUsage) bool {
+	return usage.InputTokens > 0 ||
+		usage.InputTextTokens > 0 ||
+		usage.InputImageTokens > 0 ||
+		usage.CachedTextTokens > 0 ||
+		usage.CachedImageTokens > 0 ||
+		usage.OutputTokens > 0
 }
 
 func findDetailRate(rates map[string]float64, key string) (float64, bool) {
@@ -363,6 +572,28 @@ func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {
 	return out
 }
 
+func cloneImagePricingRule(in ImagePricingRule) ImagePricingRule {
+	out := ImagePricingRule{
+		InferenceProvider:       in.InferenceProvider,
+		Model:                   in.Model,
+		TextInputUSDPerMillion:  in.TextInputUSDPerMillion,
+		ImageInputUSDPerMillion: in.ImageInputUSDPerMillion,
+		OutputUSDPerMillion:     in.OutputUSDPerMillion,
+	}
+	if len(in.Aliases) > 0 {
+		out.Aliases = append([]string{}, in.Aliases...)
+	}
+	if in.CachedTextInputUSDPerMillion != nil {
+		v := *in.CachedTextInputUSDPerMillion
+		out.CachedTextInputUSDPerMillion = &v
+	}
+	if in.CachedImageInputUSDPerMillion != nil {
+		v := *in.CachedImageInputUSDPerMillion
+		out.CachedImageInputUSDPerMillion = &v
+	}
+	return out
+}
+
 func cloneChatPricingTier(in ChatPricingTier) ChatPricingTier {
 	out := ChatPricingTier{
 		InputUSDPerMillion:  in.InputUSDPerMillion,
@@ -405,6 +636,19 @@ func validateChatPricingRule(rule ChatPricingRule) error {
 		CachedInputUSDPerMillion:              rule.CachedInputUSDPerMillion,
 		CacheCreationInputUSDPerMillion:       rule.CacheCreationInputUSDPerMillion,
 		CacheCreationInputDetailUSDPerMillion: rule.CacheCreationInputDetailUSDPerMillion,
+	})
+}
+
+func validateImagePricingRule(rule ImagePricingRule) error {
+	if strings.TrimSpace(rule.Model) == "" {
+		return fmt.Errorf("model is required")
+	}
+	return validateImagePricingRates("", imagePricingRates{
+		TextInputUSDPerMillion:        rule.TextInputUSDPerMillion,
+		ImageInputUSDPerMillion:       rule.ImageInputUSDPerMillion,
+		OutputUSDPerMillion:           rule.OutputUSDPerMillion,
+		CachedTextInputUSDPerMillion:  rule.CachedTextInputUSDPerMillion,
+		CachedImageInputUSDPerMillion: rule.CachedImageInputUSDPerMillion,
 	})
 }
 
@@ -496,6 +740,44 @@ func validateChatPricingRates(prefix string, rates chatPricingRates) error {
 	return nil
 }
 
+func validateImagePricingRates(prefix string, rates imagePricingRates) error {
+	if err := validateFinitePrice(prefix+"text_input_usd_per_million", rates.TextInputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice(prefix+"image_input_usd_per_million", rates.ImageInputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice(prefix+"output_usd_per_million", rates.OutputUSDPerMillion); err != nil {
+		return err
+	}
+	if rates.TextInputUSDPerMillion < 0 {
+		return fmt.Errorf("%stext_input_usd_per_million must be >= 0", prefix)
+	}
+	if rates.ImageInputUSDPerMillion < 0 {
+		return fmt.Errorf("%simage_input_usd_per_million must be >= 0", prefix)
+	}
+	if rates.OutputUSDPerMillion < 0 {
+		return fmt.Errorf("%soutput_usd_per_million must be >= 0", prefix)
+	}
+	if rates.CachedTextInputUSDPerMillion != nil {
+		if err := validateFinitePrice(prefix+"cached_text_input_usd_per_million", *rates.CachedTextInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rates.CachedTextInputUSDPerMillion < 0 {
+			return fmt.Errorf("%scached_text_input_usd_per_million must be >= 0", prefix)
+		}
+	}
+	if rates.CachedImageInputUSDPerMillion != nil {
+		if err := validateFinitePrice(prefix+"cached_image_input_usd_per_million", *rates.CachedImageInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rates.CachedImageInputUSDPerMillion < 0 {
+			return fmt.Errorf("%scached_image_input_usd_per_million must be >= 0", prefix)
+		}
+	}
+	return nil
+}
+
 func validateUniqueChatPricingRuleModels(rules []ChatPricingRule) error {
 	seen := make(map[string]int, len(rules))
 	for i, rule := range rules {
@@ -515,6 +797,32 @@ func validateUniqueChatPricingRuleModels(rules []ChatPricingRule) error {
 					return fmt.Errorf("chat[%d]: model or alias %q conflicts with chat[%d]", i, name, prev)
 				}
 				return fmt.Errorf("chat[%d]: model or alias %q conflicts with chat[%d] under inference_provider %q", i, name, prev, rule.InferenceProvider)
+			}
+			seen[key] = i
+		}
+	}
+	return nil
+}
+
+func validateUniqueImagePricingRuleModels(rules []ImagePricingRule) error {
+	seen := make(map[string]int, len(rules))
+	for i, rule := range rules {
+		inferenceProvider := normalizeInferenceProvider(rule.InferenceProvider)
+		names := append([]string{rule.Model}, rule.Aliases...)
+		for _, name := range names {
+			normalized := normalizeModel(name)
+			if normalized == "" {
+				continue
+			}
+			key := inferenceProvider + "\x00" + normalized
+			if prev, ok := seen[key]; ok {
+				if prev == i {
+					continue
+				}
+				if inferenceProvider == "" {
+					return fmt.Errorf("image[%d]: model or alias %q conflicts with image[%d]", i, name, prev)
+				}
+				return fmt.Errorf("image[%d]: model or alias %q conflicts with image[%d] under inference_provider %q", i, name, prev, rule.InferenceProvider)
 			}
 			seen[key] = i
 		}
