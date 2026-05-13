@@ -427,7 +427,7 @@ func pickEmbeddingConfig() (Config, string, string, bool) {
 
 func pickImageConfig() (Config, string, string, bool) {
 	if key := env("TEST_OPENAI_API_KEY"); key != "" {
-		model := envDefault("TEST_OPENAI_IMAGE_MODEL", "gpt-image-1")
+		model := envDefault("TEST_OPENAI_IMAGE_MODEL", "gpt-image-2")
 		return Config{
 			OpenAIAPIKey:  key,
 			OpenAIAPIBase: env("TEST_OPENAI_API_BASE"),

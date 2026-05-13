@@ -3,6 +3,7 @@
 # OpenAI
 export TEST_OPENAI_API_KEY=""
 export TEST_OPENAI_MODEL="gpt-5.2"
+export TEST_OPENAI_IMAGE_MODEL="gpt-image-2"
 export TEST_OPENAI_API_BASE=""
 
 # OpenAI-compatible custom endpoint

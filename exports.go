@@ -182,6 +182,7 @@ func WithEmbeddingOptions(opts embedding.Options) EmbeddingOption { return embed
 // Image re-exports
 type (
 	ImageOption  = image.Option
+	ImageOptions = image.Options
 	ImageRequest = image.Request
 	ImageResult  = image.Result
 )

@@ -399,10 +399,12 @@ emb, err := client.Embedding(ctx,
 
 ```go
 img, err := client.Image(ctx,
-    uniai.Image("gpt-image-1", "a minimal line-art cat"),
+    uniai.Image("gpt-image-2", "a minimal line-art cat"),
     uniai.WithCount(1),
 )
 ```
+
+Image generation details and provider-specific options are in [docs/images.md](docs/images.md).
 
 ## Audio (ASR)
 
