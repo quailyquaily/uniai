@@ -15,6 +15,10 @@ const (
 )
 
 func doRequest(ctx context.Context, token, base, method, path string, data []byte) ([]byte, error) {
+	return doRequestWithContentType(ctx, token, base, method, path, "application/json", data)
+}
+
+func doRequestWithContentType(ctx context.Context, token, base, method, path, contentType string, data []byte) ([]byte, error) {
 	base = normalizeBase(base)
 	url := fmt.Sprintf("%s%s", base, path)
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(data))
@@ -22,7 +26,7 @@ func doRequest(ctx context.Context, token, base, method, path string, data []byt
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := httputil.ClientForContext(ctx).Do(req)

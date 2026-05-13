@@ -16,6 +16,8 @@ coverage*.out
 # Build directories
 /bin/
 /dist/
+cmd/imagetest/*.png
+cmd/imagetest/*.jpg
 
 # Dependency vendors (optional)
 /vendor/

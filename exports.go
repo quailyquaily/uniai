@@ -181,17 +181,30 @@ func WithEmbeddingOptions(opts embedding.Options) EmbeddingOption { return embed
 
 // Image re-exports
 type (
-	ImageOption  = image.Option
-	ImageOptions = image.Options
-	ImageRequest = image.Request
-	ImageResult  = image.Result
-	ImageUsage   = image.CreateImageUsage
+	ImageOption      = image.Option
+	ImageEditOption  = image.ImageEditOption
+	ImageOptions     = image.Options
+	ImageRequest     = image.Request
+	ImageEditRequest = image.EditRequest
+	InputImage       = image.InputImage
+	ImageAsset       = image.ImageAsset
+	ImageData        = image.ImageData
+	ImageResult      = image.Result
+	ImageUsage       = image.CreateImageUsage
 )
 
 func Image(model, prompt string) ImageOption          { return image.Image(model, prompt) }
 func WithImageProvider(provider string) ImageOption   { return image.WithProvider(provider) }
 func WithCount(count int) ImageOption                 { return image.WithCount(count) }
 func WithImageOptions(opts image.Options) ImageOption { return image.WithOptions(opts) }
+func ImageEdit(model, prompt string, images ...image.InputImage) ImageEditOption {
+	return image.ImageEdit(model, prompt, images...)
+}
+func WithImageEditProvider(provider string) ImageEditOption { return image.WithEditProvider(provider) }
+func WithImageEditCount(count int) ImageEditOption          { return image.WithEditCount(count) }
+func WithImageEditOptions(opts image.Options) ImageEditOption {
+	return image.WithEditOptions(opts)
+}
 
 // Audio re-exports
 type (
