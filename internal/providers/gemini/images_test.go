@@ -128,11 +128,21 @@ func TestBuildGeminiGenerateContentRequestBodyWithInputImages(t *testing.T) {
 	if !ok || len(modalities) != 2 || modalities[0] != "TEXT" || modalities[1] != "IMAGE" {
 		t.Fatalf("unexpected modalities: %#v", config["responseModalities"])
 	}
-	if config["aspectRatio"] != AspectRatioLandscape169 {
-		t.Fatalf("unexpected aspect ratio: %#v", config["aspectRatio"])
+	imageConfig, ok := config["imageConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected image config: %#v", config["imageConfig"])
 	}
-	if config["imageSize"] != "2K" {
-		t.Fatalf("unexpected image size: %#v", config["imageSize"])
+	if imageConfig["aspectRatio"] != AspectRatioLandscape169 {
+		t.Fatalf("unexpected aspect ratio: %#v", imageConfig["aspectRatio"])
+	}
+	if imageConfig["imageSize"] != "2K" {
+		t.Fatalf("unexpected image size: %#v", imageConfig["imageSize"])
+	}
+	if _, ok := config["aspectRatio"]; ok {
+		t.Fatalf("aspectRatio should be nested in imageConfig: %#v", config)
+	}
+	if _, ok := config["imageSize"]; ok {
+		t.Fatalf("imageSize should be nested in imageConfig: %#v", config)
 	}
 }
 
