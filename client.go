@@ -324,19 +324,23 @@ func (c *Client) Image(ctx context.Context, opts ...image.Option) (*image.Result
 	}
 	req := image.BuildRequest(opts...)
 	resp, err := c.imageClient.Create(ctx, opts...)
-	c.annotateImageResultCost(req, resp)
+	c.annotateImageResultCost(req.Provider, req.Model, resp)
 	return resp, err
 }
 
-func (c *Client) annotateImageResultCost(req *image.Request, resp *image.Result) {
+func (c *Client) EditImage(ctx context.Context, opts ...image.ImageEditOption) (*image.Result, error) {
+	if c.imageClient == nil {
+		return nil, fmt.Errorf("image client not configured")
+	}
+	req := image.BuildEditRequest(opts...)
+	resp, err := c.imageClient.Edit(ctx, opts...)
+	c.annotateImageResultCost(req.Provider, req.Model, resp)
+	return resp, err
+}
+
+func (c *Client) annotateImageResultCost(inferenceProvider, model string, resp *image.Result) {
 	if resp == nil || resp.Usage.Cost != nil || c.cfg.Pricing == nil {
 		return
-	}
-	model := ""
-	inferenceProvider := ""
-	if req != nil {
-		model = req.Model
-		inferenceProvider = req.Provider
 	}
 	if cost, ok := c.cfg.Pricing.EstimateImageCostWithInferenceProvider(inferenceProvider, model, resp.Usage); ok {
 		resp.Usage.Cost = cost

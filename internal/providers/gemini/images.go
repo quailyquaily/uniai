@@ -19,12 +19,23 @@ import (
 )
 
 type createImagesOutput struct {
-	Created int `json:"created"`
-	Data    []struct {
-		B64JSON string `json:"b64_json"`
-	} `json:"data"`
+	Created  int              `json:"created"`
+	Images   []imageAsset     `json:"images,omitempty"`
+	Text     string           `json:"text,omitempty"`
+	Data     []imageData      `json:"data"`
 	MimeType string           `json:"mime_type"`
 	Usage    createImageUsage `json:"usage"`
+}
+
+type imageAsset struct {
+	DataBase64    string `json:"data_base64,omitempty"`
+	URL           string `json:"url,omitempty"`
+	MIMEType      string `json:"mime_type,omitempty"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+}
+
+type imageData struct {
+	B64JSON string `json:"b64_json"`
 }
 
 type createImageUsage struct {
@@ -49,6 +60,7 @@ type (
 		// Native Gemini image generation (Nano Banana)
 		ResponseModalities []string
 		ImageSize          string
+		InputImages        []InputImage
 	}
 
 	GeminiCreateImagesOutput struct {
@@ -56,6 +68,12 @@ type (
 		Text   string
 	}
 )
+
+type InputImage struct {
+	Filename string
+	MIMEType string
+	Data     []byte
+}
 
 const (
 	AspectRatioSquare       = "1:1"
@@ -95,38 +113,68 @@ const (
 	// Nano Banana native image generation (generateContent endpoint)
 	GeminiModelNanoBanana    = "gemini-2.5-flash-image"
 	GeminiModelNanoBananaPro = "gemini-3-pro-image-preview"
+	GeminiModelNanoBanana2   = "gemini-3.1-flash-image-preview"
 )
 
 var (
 	errInvalidGeminiModel = errors.New("invalid gemini image model")
 )
 
-func CreateImages(ctx context.Context, token, model, prompt string, count int, options structs.JSONMap) ([]byte, error) {
+func CreateImages(ctx context.Context, token, model, prompt string, count int, options structs.JSONMap) ([]byte, []byte, error) {
 	if model == "" {
 		model = GeminiModelImagen3
 	}
 	geminiInput := &GeminiCreateImagesInput{}
 	geminiInput.LoadFrom(model, prompt, count, options)
 	if err := geminiInput.Verify(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var (
 		result *createImagesOutput
+		raw    []byte
 		err    error
 	)
 	switch geminiInput.Model {
 	case GeminiModelImagen3:
-		result, err = geminiPredictImagen(ctx, token, geminiInput)
-	case GeminiModelNanoBanana, GeminiModelNanoBananaPro:
-		result, err = geminiGenerateContentImages(ctx, token, geminiInput)
+		result, raw, err = geminiPredictImagen(ctx, token, geminiInput)
+	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
+		result, raw, err = geminiGenerateContentImages(ctx, token, geminiInput)
 	default:
 		err = fmt.Errorf("%w: %s", errInvalidGeminiModel, geminiInput.Model)
 	}
 	if err != nil {
-		return nil, err
+		return nil, raw, err
 	}
-	return json.Marshal(result)
+	out, err := json.Marshal(result)
+	return out, raw, err
+}
+
+func EditImages(ctx context.Context, token, model, prompt string, images []InputImage, count int, options structs.JSONMap) ([]byte, []byte, error) {
+	if model == "" {
+		model = GeminiModelNanoBanana2
+	}
+	geminiInput := &GeminiCreateImagesInput{}
+	geminiInput.LoadFrom(model, prompt, count, options)
+	geminiInput.InputImages = append([]InputImage{}, images...)
+	if err := geminiInput.Verify(); err != nil {
+		return nil, nil, err
+	}
+	if len(geminiInput.InputImages) == 0 {
+		return nil, nil, fmt.Errorf("at least one input image is required")
+	}
+
+	switch geminiInput.Model {
+	case GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
+		result, raw, err := geminiGenerateContentImages(ctx, token, geminiInput)
+		if err != nil {
+			return nil, raw, err
+		}
+		out, err := json.Marshal(result)
+		return out, raw, err
+	default:
+		return nil, nil, fmt.Errorf("%w: %s (image edit supported: %s, %s)", errInvalidGeminiModel, geminiInput.Model, GeminiModelNanoBananaPro, GeminiModelNanoBanana2)
+	}
 }
 
 func (i2 *GeminiCreateImagesInput) LoadFrom(model, prompt string, count int, options structs.JSONMap) {
@@ -194,7 +242,7 @@ func (i *GeminiCreateImagesInput) Verify() error {
 		}
 		return nil
 
-	case GeminiModelNanoBanana, GeminiModelNanoBananaPro:
+	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
 		aspectRatio := []string{
 			AspectRatioSquare,
 			AspectRatioPortrait23,
@@ -224,9 +272,19 @@ func (i *GeminiCreateImagesInput) Verify() error {
 				return fmt.Errorf("image size must be one of %v", allowed)
 			}
 		}
+		if len(i.InputImages) > 0 {
+			if i.NumberOfImages > 1 {
+				return fmt.Errorf("gemini image edit supports one returned image")
+			}
+			for idx, image := range i.InputImages {
+				if len(image.Data) == 0 {
+					return fmt.Errorf("input image %d data is required", idx)
+				}
+			}
+		}
 		return nil
 	default:
-		return fmt.Errorf("%w: %s (supported: %s, %s, %s)", errInvalidGeminiModel, i.Model, GeminiModelImagen3, GeminiModelNanoBanana, GeminiModelNanoBananaPro)
+		return fmt.Errorf("%w: %s (supported: %s, %s, %s, %s)", errInvalidGeminiModel, i.Model, GeminiModelImagen3, GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2)
 	}
 }
 
@@ -264,7 +322,7 @@ func normalizeResponseModalities(modalities []string) []string {
 	return out
 }
 
-func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiCreateImagesInput) (*createImagesOutput, error) {
+func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiCreateImagesInput) (*createImagesOutput, []byte, error) {
 	reqBody := map[string]any{
 		"instances": []map[string]any{{
 			"prompt": geminiInput.Prompt,
@@ -279,27 +337,30 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:predict", geminiInput.Model)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", token)
 
 	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, readErr := httputil.ReadBody(resp.Body)
+	if readErr != nil {
+		return nil, nil, readErr
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := httputil.ReadBody(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, body, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var data struct {
@@ -309,8 +370,8 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 		} `json:"predictions"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, body, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	now := time.Now()
@@ -319,23 +380,26 @@ func geminiPredictImagen(ctx context.Context, token string, geminiInput *GeminiC
 	}
 
 	for _, item := range data.Predictions {
-		result.Data = append(result.Data, struct {
-			B64JSON string `json:"b64_json"`
-		}{B64JSON: item.BytesBase64Encoded})
+		result.Images = append(result.Images, imageAsset{
+			DataBase64: item.BytesBase64Encoded,
+			MIMEType:   item.MimeType,
+		})
+		result.Data = append(result.Data, imageData{B64JSON: item.BytesBase64Encoded})
 	}
 
 	if len(data.Predictions) > 0 {
 		result.MimeType = data.Predictions[0].MimeType
 	}
 
-	return result, nil
+	return result, body, nil
 }
 
-func geminiGenerateContentImages(ctx context.Context, token string, geminiInput *GeminiCreateImagesInput) (*createImagesOutput, error) {
+func geminiGenerateContentImages(ctx context.Context, token string, geminiInput *GeminiCreateImagesInput) (*createImagesOutput, []byte, error) {
 	now := time.Now()
 	result := &createImagesOutput{
 		Created: int(now.Unix()),
 	}
+	rawResponses := make([]json.RawMessage, 0, geminiInput.NumberOfImages)
 
 	modalities := normalizeResponseModalities(geminiInput.ResponseModalities)
 	if len(modalities) == 0 {
@@ -343,14 +407,18 @@ func geminiGenerateContentImages(ctx context.Context, token string, geminiInput 
 	}
 
 	for i := 0; i < geminiInput.NumberOfImages; i++ {
-		resp, err := geminiGenerateContentOnce(ctx, token, geminiInput.Model, geminiInput.Prompt, modalities, geminiInput.AspectRatio, geminiInput.ImageSize)
+		resp, raw, err := geminiGenerateContentOnce(ctx, token, geminiInput.Model, geminiInput.Prompt, geminiInput.InputImages, modalities, geminiInput.AspectRatio, geminiInput.ImageSize)
 		if err != nil {
-			return nil, err
+			return nil, raw, err
 		}
+		rawResponses = append(rawResponses, json.RawMessage(append([]byte(nil), raw...)))
+		result.Text += resp.text
 		for _, item := range resp.images {
-			result.Data = append(result.Data, struct {
-				B64JSON string `json:"b64_json"`
-			}{B64JSON: item.data})
+			result.Images = append(result.Images, imageAsset{
+				DataBase64: item.data,
+				MIMEType:   item.mimeType,
+			})
+			result.Data = append(result.Data, imageData{B64JSON: item.data})
 			if result.MimeType == "" && item.mimeType != "" {
 				result.MimeType = item.mimeType
 			}
@@ -358,9 +426,20 @@ func geminiGenerateContentImages(ctx context.Context, token string, geminiInput 
 	}
 
 	if len(result.Data) == 0 {
-		return nil, fmt.Errorf("no images returned from model %s", geminiInput.Model)
+		raw, _ := json.Marshal(rawResponses)
+		return nil, raw, fmt.Errorf("no images returned from model %s", geminiInput.Model)
 	}
-	return result, nil
+	raw := []byte(nil)
+	if len(rawResponses) == 1 {
+		raw = rawResponses[0]
+	} else if len(rawResponses) > 1 {
+		var err error
+		raw, err = json.Marshal(rawResponses)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return result, raw, nil
 }
 
 type geminiGeneratedImage struct {
@@ -373,27 +452,11 @@ type geminiGenerateContentParsed struct {
 	images []geminiGeneratedImage
 }
 
-func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string, responseModalities []string, aspectRatio, imageSize string) (*geminiGenerateContentParsed, error) {
-	reqBody := map[string]any{
-		"contents": []map[string]any{{
-			"parts": []map[string]any{{
-				"text": prompt,
-			}},
-		}},
-		"generationConfig": map[string]any{
-			"responseModalities": responseModalities,
-		},
-	}
-	if aspectRatio != "" {
-		reqBody["generationConfig"].(map[string]any)["aspectRatio"] = aspectRatio
-	}
-	if imageSize != "" {
-		reqBody["generationConfig"].(map[string]any)["imageSize"] = imageSize
-	}
-
+func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string, inputImages []InputImage, responseModalities []string, aspectRatio, imageSize string) (*geminiGenerateContentParsed, []byte, error) {
+	reqBody := buildGeminiGenerateContentRequestBody(prompt, inputImages, responseModalities, aspectRatio, imageSize)
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent", model)
@@ -403,20 +466,23 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", token)
 
 	resp, err := httputil.ClientForContext(ctx).Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, readErr := httputil.ReadBody(resp.Body)
+	if readErr != nil {
+		return nil, nil, readErr
+	}
 	if resp.StatusCode != http.StatusOK {
-		body, _ := httputil.ReadBody(resp.Body)
-		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, body, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var data struct {
@@ -437,8 +503,8 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 		} `json:"candidates"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, body, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	parsed := &geminiGenerateContentParsed{}
@@ -453,14 +519,47 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 			if part.FileData.FileURI != "" {
 				img, mimeType, err := geminiDownloadImage(ctx, part.FileData.FileURI)
 				if err != nil {
-					return nil, err
+					return nil, body, err
 				}
 				parsed.images = append(parsed.images, geminiGeneratedImage{data: img, mimeType: mimeType})
 			}
 		}
 	}
 
-	return parsed, nil
+	return parsed, body, nil
+}
+
+func buildGeminiGenerateContentRequestBody(prompt string, inputImages []InputImage, responseModalities []string, aspectRatio, imageSize string) map[string]any {
+	parts := []map[string]any{{
+		"text": prompt,
+	}}
+	for _, image := range inputImages {
+		mimeType := strings.TrimSpace(image.MIMEType)
+		if mimeType == "" {
+			mimeType = http.DetectContentType(image.Data)
+		}
+		parts = append(parts, map[string]any{
+			"inlineData": map[string]any{
+				"mimeType": mimeType,
+				"data":     base64.StdEncoding.EncodeToString(image.Data),
+			},
+		})
+	}
+	reqBody := map[string]any{
+		"contents": []map[string]any{{
+			"parts": parts,
+		}},
+		"generationConfig": map[string]any{
+			"responseModalities": responseModalities,
+		},
+	}
+	if aspectRatio != "" {
+		reqBody["generationConfig"].(map[string]any)["aspectRatio"] = aspectRatio
+	}
+	if imageSize != "" {
+		reqBody["generationConfig"].(map[string]any)["imageSize"] = imageSize
+	}
+	return reqBody
 }
 
 func geminiDownloadImage(ctx context.Context, uri string) (string, string, error) {

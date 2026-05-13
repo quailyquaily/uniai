@@ -31,7 +31,7 @@ type createImageUsage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
-func CreateImages(ctx context.Context, token, base, accountID, model, prompt string, count int, options structs.JSONMap) ([]byte, error) {
+func CreateImages(ctx context.Context, token, base, accountID, model, prompt string, count int, options structs.JSONMap) ([]byte, []byte, error) {
 	payload := structs.NewJSONMap()
 	payload.Merge(options)
 
@@ -46,23 +46,23 @@ func CreateImages(ctx context.Context, token, base, accountID, model, prompt str
 	contentType := "application/json"
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if useMultipart {
 		contentType, body, err = buildMultipartBody(payload)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	resultRaw, err := Run(ctx, token, base, accountID, model, contentType, body)
 	if err != nil {
-		return nil, err
+		return nil, resultRaw, err
 	}
 
 	images, mimeType := extractImages(resultRaw)
 	if len(images) == 0 {
-		return nil, fmt.Errorf("cloudflare image response missing image data")
+		return nil, resultRaw, fmt.Errorf("cloudflare image response missing image data")
 	}
 
 	out := &createImagesOutput{
@@ -78,7 +78,8 @@ func CreateImages(ctx context.Context, token, base, accountID, model, prompt str
 		}{B64JSON: img})
 	}
 
-	return json.Marshal(out)
+	outData, err := json.Marshal(out)
+	return outData, resultRaw, err
 }
 
 func shouldUseMultipart(model string, options structs.JSONMap) bool {

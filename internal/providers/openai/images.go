@@ -1,9 +1,13 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
+	"net/http"
+	"net/textproto"
 	"slices"
 	"strconv"
 	"strings"
@@ -39,16 +43,34 @@ type openAICreateImagesUsage struct {
 type openAICreateImagesOutput struct {
 	Created int `json:"created"`
 	Data    []struct {
-		B64JSON string `json:"b64_json"`
+		B64JSON       string `json:"b64_json"`
+		URL           string `json:"url"`
+		RevisedPrompt string `json:"revised_prompt"`
 	} `json:"data"`
 	Usage openAICreateImagesUsage `json:"usage"`
 }
 
+type InputImage struct {
+	Filename string
+	MIMEType string
+	Data     []byte
+}
+
+type imageAsset struct {
+	DataBase64    string `json:"data_base64,omitempty"`
+	URL           string `json:"url,omitempty"`
+	MIMEType      string `json:"mime_type,omitempty"`
+	RevisedPrompt string `json:"revised_prompt,omitempty"`
+}
+
+type imageData struct {
+	B64JSON string `json:"b64_json"`
+}
+
 type createImagesOutput struct {
-	Created int `json:"created"`
-	Data    []struct {
-		B64JSON string `json:"b64_json"`
-	} `json:"data"`
+	Created  int              `json:"created"`
+	Images   []imageAsset     `json:"images,omitempty"`
+	Data     []imageData      `json:"data"`
 	MimeType string           `json:"mime_type"`
 	Usage    createImageUsage `json:"usage"`
 }
@@ -66,7 +88,60 @@ type createImageUsage struct {
 	TotalTokens       int `json:"total_tokens"`
 }
 
-func CreateImages(ctx context.Context, token, base, model, prompt string, count int, options structs.JSONMap) ([]byte, error) {
+func CreateImages(ctx context.Context, token, base, model, prompt string, count int, options structs.JSONMap) ([]byte, []byte, error) {
+	payload := buildOpenAIImagesInput(model, prompt, count, options)
+	if err := verifyOpenAIImagesInput(payload); err != nil {
+		return nil, nil, err
+	}
+
+	reqData, err := json.Marshal(payload)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	respData, err := doRequest(ctx, token, base, "POST", "/images/generations", reqData)
+	if err != nil {
+		return nil, respData, err
+	}
+
+	var resp openAICreateImagesOutput
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, respData, err
+	}
+
+	out, err := json.Marshal(mapOpenAIImagesOutput(payload, &resp))
+	return out, respData, err
+}
+
+func EditImages(ctx context.Context, token, base, model, prompt string, images []InputImage, count int, options structs.JSONMap) ([]byte, []byte, error) {
+	payload := buildOpenAIImagesInput(model, prompt, count, options)
+	if err := verifyOpenAIImagesInput(payload); err != nil {
+		return nil, nil, err
+	}
+	if err := verifyOpenAIEditImages(images); err != nil {
+		return nil, nil, err
+	}
+
+	contentType, body, err := buildOpenAIEditImagesMultipart(payload, images)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	respData, err := doRequestWithContentType(ctx, token, base, "POST", "/images/edits", contentType, body)
+	if err != nil {
+		return nil, respData, err
+	}
+
+	var resp openAICreateImagesOutput
+	if err := json.Unmarshal(respData, &resp); err != nil {
+		return nil, respData, err
+	}
+
+	out, err := json.Marshal(mapOpenAIImagesOutput(payload, &resp))
+	return out, respData, err
+}
+
+func buildOpenAIImagesInput(model, prompt string, count int, options structs.JSONMap) *openAICreateImagesInput {
 	payload := &openAICreateImagesInput{
 		Model:  model,
 		Prompt: prompt,
@@ -78,7 +153,7 @@ func CreateImages(ctx context.Context, token, base, model, prompt string, count 
 
 	payload.Quality = options.GetString("quality")
 	if payload.Quality == "" {
-		payload.Quality = "low"
+		payload.Quality = "medium"
 	}
 	payload.Size = options.GetString("size")
 	if payload.Size == "" {
@@ -98,29 +173,15 @@ func CreateImages(ctx context.Context, token, base, model, prompt string, count 
 	}
 	payload.Moderation = options.GetString("moderation")
 	payload.User = options.GetString("user")
+	return payload
+}
 
-	if err := verifyOpenAIImagesInput(payload); err != nil {
-		return nil, err
-	}
-
-	reqData, err := json.Marshal(payload)
-	if err != nil {
-		return nil, err
-	}
-
-	respData, err := doRequest(ctx, token, base, "POST", "/images/generations", reqData)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp openAICreateImagesOutput
-	if err := json.Unmarshal(respData, &resp); err != nil {
-		return nil, err
-	}
-
-	out := &createImagesOutput{
+func mapOpenAIImagesOutput(payload *openAICreateImagesInput, resp *openAICreateImagesOutput) *createImagesOutput {
+	mimeType := getMimeType(payload.OutputFormat)
+	return &createImagesOutput{
 		Created: resp.Created,
-		Data:    resp.Data,
+		Images:  toImageAssets(resp.Data, mimeType),
+		Data:    toImageData(resp.Data),
 		Usage: createImageUsage{
 			Size:              payload.Size,
 			Quality:           payload.Quality,
@@ -132,10 +193,146 @@ func CreateImages(ctx context.Context, token, base, model, prompt string, count 
 			OutputTokens:      resp.Usage.OutputTokens,
 			TotalTokens:       resp.Usage.TotalTokens,
 		},
-		MimeType: getMimeType(payload.OutputFormat),
+		MimeType: mimeType,
 	}
+}
 
-	return json.Marshal(out)
+func verifyOpenAIEditImages(images []InputImage) error {
+	if len(images) == 0 {
+		return fmt.Errorf("at least one input image is required")
+	}
+	if len(images) > 16 {
+		return fmt.Errorf("at most 16 input images are supported")
+	}
+	for i, image := range images {
+		if len(image.Data) == 0 {
+			return fmt.Errorf("input image %d data is required", i)
+		}
+		mimeType := normalizeImageMIMEType(image.MIMEType, image.Data)
+		switch mimeType {
+		case "image/png", "image/webp", "image/jpeg":
+		default:
+			return fmt.Errorf("input image %d mime type must be image/png, image/webp, or image/jpeg", i)
+		}
+	}
+	return nil
+}
+
+func buildOpenAIEditImagesMultipart(payload *openAICreateImagesInput, images []InputImage) (string, []byte, error) {
+	buf := &bytes.Buffer{}
+	writer := multipart.NewWriter(buf)
+
+	fields := map[string]string{
+		"model":         payload.Model,
+		"prompt":        payload.Prompt,
+		"n":             strconv.Itoa(payload.N),
+		"size":          payload.Size,
+		"quality":       payload.Quality,
+		"background":    payload.Background,
+		"output_format": payload.OutputFormat,
+	}
+	if payload.Moderation != "" {
+		fields["moderation"] = payload.Moderation
+	}
+	if payload.User != "" {
+		fields["user"] = payload.User
+	}
+	if payload.OutputCompression != nil {
+		fields["output_compression"] = strconv.Itoa(*payload.OutputCompression)
+	}
+	for key, value := range fields {
+		if err := writer.WriteField(key, value); err != nil {
+			_ = writer.Close()
+			return "", nil, err
+		}
+	}
+	for i, image := range images {
+		if err := writeImagePart(writer, "image[]", image, i); err != nil {
+			_ = writer.Close()
+			return "", nil, err
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return "", nil, err
+	}
+	return writer.FormDataContentType(), buf.Bytes(), nil
+}
+
+func writeImagePart(writer *multipart.Writer, field string, image InputImage, index int) error {
+	mimeType := normalizeImageMIMEType(image.MIMEType, image.Data)
+	filename := strings.TrimSpace(image.Filename)
+	if filename == "" {
+		filename = defaultImageFilename(mimeType, index)
+	}
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, field, escapeMultipartFilename(filename)))
+	header.Set("Content-Type", mimeType)
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(image.Data)
+	return err
+}
+
+func normalizeImageMIMEType(mimeType string, data []byte) string {
+	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
+	if mimeType == "image/jpg" {
+		return "image/jpeg"
+	}
+	if mimeType != "" {
+		return mimeType
+	}
+	return http.DetectContentType(data)
+}
+
+func defaultImageFilename(mimeType string, index int) string {
+	switch mimeType {
+	case "image/png":
+		return fmt.Sprintf("image-%d.png", index+1)
+	case "image/webp":
+		return fmt.Sprintf("image-%d.webp", index+1)
+	case "image/jpeg":
+		return fmt.Sprintf("image-%d.jpg", index+1)
+	default:
+		return fmt.Sprintf("image-%d", index+1)
+	}
+}
+
+func escapeMultipartFilename(filename string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, "\\\"").Replace(filename)
+}
+
+func toImageAssets(data []struct {
+	B64JSON       string `json:"b64_json"`
+	URL           string `json:"url"`
+	RevisedPrompt string `json:"revised_prompt"`
+}, mimeType string) []imageAsset {
+	out := make([]imageAsset, 0, len(data))
+	for _, item := range data {
+		out = append(out, imageAsset{
+			DataBase64:    item.B64JSON,
+			URL:           item.URL,
+			MIMEType:      mimeType,
+			RevisedPrompt: item.RevisedPrompt,
+		})
+	}
+	return out
+}
+
+func toImageData(data []struct {
+	B64JSON       string `json:"b64_json"`
+	URL           string `json:"url"`
+	RevisedPrompt string `json:"revised_prompt"`
+}) []imageData {
+	out := make([]imageData, 0, len(data))
+	for _, item := range data {
+		if strings.TrimSpace(item.B64JSON) == "" {
+			continue
+		}
+		out = append(out, imageData{B64JSON: item.B64JSON})
+	}
+	return out
 }
 
 func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {

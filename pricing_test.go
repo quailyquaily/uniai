@@ -1229,9 +1229,6 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesOpenAIPriceMath(t *test
 	client := New(Config{
 		Pricing: loadExamplePricingCatalog(t),
 	})
-	req := &imagepkg.Request{
-		Model: "gpt-image-2",
-	}
 	resp := &imagepkg.Result{
 		Usage: imagepkg.CreateImageUsage{
 			InputTokens:  10,
@@ -1240,7 +1237,7 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesOpenAIPriceMath(t *test
 		},
 	}
 
-	client.annotateImageResultCost(req, resp)
+	client.annotateImageResultCost("", "gpt-image-2", resp)
 	if resp.Usage.Cost == nil {
 		t.Fatal("expected image usage cost from pricing.example.yaml")
 	}
@@ -1258,9 +1255,6 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesOpenAIPriceMath(t *test
 
 func TestClientImageCostUsesEmbeddedDefaultPricing(t *testing.T) {
 	client := New(Config{})
-	req := &imagepkg.Request{
-		Model: "gpt-image-2-2026-04-21",
-	}
 	resp := &imagepkg.Result{
 		Usage: imagepkg.CreateImageUsage{
 			InputTokens:  10,
@@ -1269,7 +1263,7 @@ func TestClientImageCostUsesEmbeddedDefaultPricing(t *testing.T) {
 		},
 	}
 
-	client.annotateImageResultCost(req, resp)
+	client.annotateImageResultCost("", "gpt-image-2-2026-04-21", resp)
 	if resp.Usage.Cost == nil {
 		t.Fatal("expected embedded default pricing to annotate image usage")
 	}

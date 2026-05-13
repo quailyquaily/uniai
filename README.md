@@ -404,7 +404,7 @@ img, err := client.Image(ctx,
 )
 ```
 
-Image generation details and provider-specific options are in [docs/images.md](docs/images.md).
+Image generation, editing, supported models, and provider-specific options are in [docs/images.md](docs/images.md).
 
 ## Audio (ASR)
 

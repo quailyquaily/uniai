@@ -34,6 +34,20 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 		}
 	})
 
+	t.Run("nano banana 2", func(t *testing.T) {
+		in := &GeminiCreateImagesInput{
+			Model:              GeminiModelNanoBanana2,
+			Prompt:             "p",
+			NumberOfImages:     1,
+			AspectRatio:        AspectRatioLandscape169,
+			ResponseModalities: []string{"TEXT", "IMAGE"},
+			ImageSize:          "2K",
+		}
+		if err := in.Verify(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
 	t.Run("imagen", func(t *testing.T) {
 		in := &GeminiCreateImagesInput{
 			Model:             GeminiModelImagen3,
@@ -62,6 +76,64 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 			t.Fatalf("expected errInvalidGeminiModel, got %v", err)
 		}
 	})
+}
+
+func TestGeminiCreateImagesInputVerify_EditRejectsMultipleReturnedImages(t *testing.T) {
+	in := &GeminiCreateImagesInput{
+		Model:          GeminiModelNanoBanana2,
+		Prompt:         "p",
+		NumberOfImages: 2,
+		InputImages: []InputImage{
+			{MIMEType: "image/png", Data: []byte("image-data")},
+		},
+	}
+	if err := in.Verify(); err == nil {
+		t.Fatalf("expected error")
+	}
+}
+
+func TestBuildGeminiGenerateContentRequestBodyWithInputImages(t *testing.T) {
+	body := buildGeminiGenerateContentRequestBody(
+		"redraw",
+		[]InputImage{{MIMEType: "image/png", Data: []byte("ABC")}},
+		[]string{"TEXT", "IMAGE"},
+		AspectRatioLandscape169,
+		"2K",
+	)
+
+	contents, ok := body["contents"].([]map[string]any)
+	if !ok || len(contents) != 1 {
+		t.Fatalf("unexpected contents: %#v", body["contents"])
+	}
+	parts, ok := contents[0]["parts"].([]map[string]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("unexpected parts: %#v", contents[0]["parts"])
+	}
+	if parts[0]["text"] != "redraw" {
+		t.Fatalf("unexpected text part: %#v", parts[0])
+	}
+	inlineData, ok := parts[1]["inlineData"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected inlineData: %#v", parts[1]["inlineData"])
+	}
+	if inlineData["mimeType"] != "image/png" || inlineData["data"] != "QUJD" {
+		t.Fatalf("unexpected inlineData: %#v", inlineData)
+	}
+
+	config, ok := body["generationConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected generation config: %#v", body["generationConfig"])
+	}
+	modalities, ok := config["responseModalities"].([]string)
+	if !ok || len(modalities) != 2 || modalities[0] != "TEXT" || modalities[1] != "IMAGE" {
+		t.Fatalf("unexpected modalities: %#v", config["responseModalities"])
+	}
+	if config["aspectRatio"] != AspectRatioLandscape169 {
+		t.Fatalf("unexpected aspect ratio: %#v", config["aspectRatio"])
+	}
+	if config["imageSize"] != "2K" {
+		t.Fatalf("unexpected image size: %#v", config["imageSize"])
+	}
 }
 
 func TestNormalizeResponseModalities(t *testing.T) {
