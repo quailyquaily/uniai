@@ -545,21 +545,26 @@ func buildGeminiGenerateContentRequestBody(prompt string, inputImages []InputIma
 			},
 		})
 	}
-	reqBody := map[string]any{
+	generationConfig := map[string]any{
+		"responseModalities": responseModalities,
+	}
+	imageConfig := map[string]any{}
+	if aspectRatio != "" {
+		imageConfig["aspectRatio"] = aspectRatio
+	}
+	if imageSize != "" {
+		imageConfig["imageSize"] = imageSize
+	}
+	if len(imageConfig) > 0 {
+		generationConfig["imageConfig"] = imageConfig
+	}
+
+	return map[string]any{
 		"contents": []map[string]any{{
 			"parts": parts,
 		}},
-		"generationConfig": map[string]any{
-			"responseModalities": responseModalities,
-		},
+		"generationConfig": generationConfig,
 	}
-	if aspectRatio != "" {
-		reqBody["generationConfig"].(map[string]any)["aspectRatio"] = aspectRatio
-	}
-	if imageSize != "" {
-		reqBody["generationConfig"].(map[string]any)["imageSize"] = imageSize
-	}
-	return reqBody
 }
 
 func geminiDownloadImage(ctx context.Context, uri string) (string, string, error) {
