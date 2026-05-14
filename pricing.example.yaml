@@ -1,6 +1,6 @@
 # Example pricing catalog for uniai.
 #
-# Checked against official pricing pages on 2026-05-13.
+# Checked against official pricing pages on 2026-05-14.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-04 from the public pricing page.
@@ -8,6 +8,8 @@
 # docs pages.
 # OpenAI GPT Image 2 image-generation pricing added on 2026-05-13 from the
 # public pricing page.
+# OpenAI GPT Image 1 and Gemini image-generation preview pricing added on
+# 2026-05-14 from the public pricing pages.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example includes chat token rates and image-generation token rates that
@@ -17,6 +19,8 @@
 # - tool invocation fees
 # - storage fees for cache/context caching
 # - audio specific token prices
+# - separate text-output token prices for image-generation models that can
+#   return both text and images
 #
 # Official sources used for this file:
 # - OpenAI: https://openai.com/api/pricing/
@@ -60,12 +64,16 @@
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
 # - OpenAI `gpt-image-2` image generation pricing uses separate rates for text
 #   input, image input, cached input, and image output tokens.
+# - Gemini image-generation pricing below uses Standard tier token rates. The
+#   current image pricing schema has one output rate, so Gemini image rules use
+#   the published image-output token rate.
 
 # Informational metadata for humans. ParsePricingYAML ignores unknown top-level
 # fields, so this section does not affect runtime pricing lookup.
 pricing_references:
   inference_providers:
     openai: "https://platform.openai.com/docs/pricing/"
+    openai_gpt_image_1: "https://platform.openai.com/docs/models/gpt-image-1"
     anthropic: "https://platform.claude.com/docs/en/docs/about-claude/pricing"
     gemini: "https://ai.google.dev/gemini-api/docs/pricing"
     mistral: "https://mistral.ai/pricing"
@@ -91,6 +99,29 @@ image:
     image_input_usd_per_million: 8.00
     cached_image_input_usd_per_million: 2.00
     output_usd_per_million: 30.00
+  - inference_provider: openai
+    model: gpt-image-1
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 10.00
+    cached_image_input_usd_per_million: 2.50
+    output_usd_per_million: 40.00
+
+  # Gemini native image generation
+  - inference_provider: gemini
+    model: gemini-3.1-flash-image-preview
+    aliases:
+      - nano-banana-2
+    text_input_usd_per_million: 0.50
+    image_input_usd_per_million: 0.50
+    output_usd_per_million: 60.00
+  - inference_provider: gemini
+    model: gemini-3-pro-image-preview
+    aliases:
+      - nano-banana-pro
+    text_input_usd_per_million: 2.00
+    image_input_usd_per_million: 2.00
+    output_usd_per_million: 120.00
 
 chat:
   # OpenAI

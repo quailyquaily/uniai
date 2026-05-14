@@ -121,6 +121,27 @@ image:
     image_input_usd_per_million: 8.00
     cached_image_input_usd_per_million: 2.00
     output_usd_per_million: 30.00
+  - inference_provider: openai
+    model: gpt-image-1
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 10.00
+    cached_image_input_usd_per_million: 2.50
+    output_usd_per_million: 40.00
+  - inference_provider: gemini
+    model: gemini-3.1-flash-image-preview
+    aliases:
+      - nano-banana-2
+    text_input_usd_per_million: 0.50
+    image_input_usd_per_million: 0.50
+    output_usd_per_million: 60.00
+  - inference_provider: gemini
+    model: gemini-3-pro-image-preview
+    aliases:
+      - nano-banana-pro
+    text_input_usd_per_million: 2.00
+    image_input_usd_per_million: 2.00
+    output_usd_per_million: 120.00
 ```
 
 See [`pricing.example.yaml`](../pricing.example.yaml) for the embedded default catalog source and a fuller example.
@@ -143,7 +164,7 @@ Each rule must use either flat price fields or `tiers`, not both. All prices mus
 
 Each `image` entry supports these fields:
 
-- `inference_provider`: optional metadata for the underlying model vendor, such as `openai`
+- `inference_provider`: optional metadata for the underlying model vendor, such as `openai` or `gemini`
 - `model`: required model name
 - `aliases`: optional extra model names that should reuse the same price
 - `text_input_usd_per_million`: prompt text input token price

@@ -1253,6 +1253,78 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesOpenAIPriceMath(t *test
 	}
 }
 
+func TestPricingExampleYAMLAnnotateImageResultCostMatchesGPTImage1PriceMath(t *testing.T) {
+	client := New(Config{
+		Pricing: loadExamplePricingCatalog(t),
+	})
+	resp := &imagepkg.Result{
+		Usage: imagepkg.CreateImageUsage{
+			InputTokens:       15,
+			InputTextTokens:   10,
+			InputImageTokens:  5,
+			CachedTextTokens:  2,
+			CachedImageTokens: 1,
+			OutputTokens:      100,
+			TotalTokens:       115,
+		},
+	}
+
+	client.annotateImageResultCost("openai", "gpt-image-1", resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected gpt-image-1 image usage cost from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, resp.Usage.Cost.Input, (8*5.00+4*10.00)/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.CachedInput, (2*1.25+1*2.50)/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Output, 100*40.00/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.004085)
+}
+
+func TestPricingExampleYAMLEstimateImageCostMatchesGeminiImagePriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+	tests := []struct {
+		name         string
+		model        string
+		inputRate    float64
+		outputRate   float64
+		expectedCost float64
+	}{
+		{
+			name:         "nano banana 2 alias",
+			model:        "nano-banana-2",
+			inputRate:    0.50,
+			outputRate:   60.00,
+			expectedCost: 0.067215,
+		},
+		{
+			name:         "nano banana pro alias",
+			model:        "nano-banana-pro",
+			inputRate:    2.00,
+			outputRate:   120.00,
+			expectedCost: 0.13446,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cost, ok := catalog.EstimateImageCostWithInferenceProvider("gemini", tt.model, imagepkg.CreateImageUsage{
+				InputTokens:      30,
+				InputTextTokens:  10,
+				InputImageTokens: 20,
+				OutputTokens:     1120,
+				TotalTokens:      1150,
+			})
+			if !ok {
+				t.Fatal("expected gemini image usage cost from pricing.example.yaml")
+			}
+
+			assertNearlyEqual(t, cost.Input, (10*tt.inputRate+20*tt.inputRate)/1_000_000)
+			assertNearlyEqual(t, cost.Output, 1120*tt.outputRate/1_000_000)
+			assertNearlyEqual(t, cost.Total, tt.expectedCost)
+		})
+	}
+}
+
 func TestClientImageCostUsesEmbeddedDefaultPricing(t *testing.T) {
 	client := New(Config{})
 	resp := &imagepkg.Result{
