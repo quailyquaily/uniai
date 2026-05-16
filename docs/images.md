@@ -113,7 +113,7 @@ Supported OpenAI `gpt-image-2` options:
 
 - `size`: `auto` or `<width>x<height>`.
 - `quality`: `low`, `medium`, `high`, or `auto`. If omitted, `uniai` sends `medium`.
-- `output_format`: `png`, `jpeg`, or `webp`. `jpg` is accepted and sent as `jpeg`. If omitted, `uniai` sends `webp`.
+- `output_format`: `png`, `jpeg`, or `webp`. `jpg` is accepted and sent as `jpeg`. If omitted, `uniai` does not send this field and OpenAI defaults to `png`.
 - `output_compression`: integer from 0 to 100. Valid only with `jpeg` or `webp`.
 - `background`: `auto` or `opaque`. `transparent` is rejected for `gpt-image-2`.
 - `moderation`: `auto` or `low`.

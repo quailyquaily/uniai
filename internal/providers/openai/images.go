@@ -164,9 +164,6 @@ func buildOpenAIImagesInput(model, prompt string, count int, options structs.JSO
 		payload.Background = "auto"
 	}
 	payload.OutputFormat = options.GetString("output_format")
-	if payload.OutputFormat == "" {
-		payload.OutputFormat = "webp"
-	}
 	if options.HasKey("output_compression") {
 		compression := int(options.GetInt64("output_compression"))
 		payload.OutputCompression = &compression
@@ -223,13 +220,15 @@ func buildOpenAIEditImagesMultipart(payload *openAICreateImagesInput, images []I
 	writer := multipart.NewWriter(buf)
 
 	fields := map[string]string{
-		"model":         payload.Model,
-		"prompt":        payload.Prompt,
-		"n":             strconv.Itoa(payload.N),
-		"size":          payload.Size,
-		"quality":       payload.Quality,
-		"background":    payload.Background,
-		"output_format": payload.OutputFormat,
+		"model":      payload.Model,
+		"prompt":     payload.Prompt,
+		"n":          strconv.Itoa(payload.N),
+		"size":       payload.Size,
+		"quality":    payload.Quality,
+		"background": payload.Background,
+	}
+	if payload.OutputFormat != "" {
+		fields["output_format"] = payload.OutputFormat
 	}
 	if payload.Moderation != "" {
 		fields["moderation"] = payload.Moderation
@@ -343,7 +342,7 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	input.OutputFormat = normalizeOutputFormat(input.OutputFormat)
 
 	quality := []string{"high", "medium", "low", "auto"}
-	outputFormat := []string{"webp", "png", "jpeg"}
+	outputFormat := []string{"", "webp", "png", "jpeg"}
 	background := []string{"auto", "opaque", "transparent"}
 	moderation := []string{"", "auto", "low"}
 
@@ -468,6 +467,6 @@ func getMimeType(format string) string {
 	case "jpeg":
 		return "image/jpeg"
 	default:
-		return "image/webp"
+		return "image/png"
 	}
 }

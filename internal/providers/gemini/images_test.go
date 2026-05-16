@@ -1,8 +1,15 @@
 package gemini
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/quailyquaily/uniai/internal/httputil"
 )
 
 func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
@@ -146,9 +153,95 @@ func TestBuildGeminiGenerateContentRequestBodyWithInputImages(t *testing.T) {
 	}
 }
 
+func TestGeminiGenerateContentImagesMapsUsageMetadata(t *testing.T) {
+	originalTransport := httputil.DefaultClient.Transport
+	defer func() {
+		httputil.DefaultClient.Transport = originalTransport
+	}()
+
+	call := 0
+	httputil.DefaultClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		call++
+		if r.Method != http.MethodPost {
+			t.Fatalf("unexpected method: %s", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/v1beta/models/"+GeminiModelNanoBanana2+":generateContent") {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("x-goog-api-key"); got != "test-key" {
+			t.Fatalf("unexpected api key header: %q", got)
+		}
+
+		inputTokens := 10 + call
+		outputTokens := 20 + call
+		totalTokens := inputTokens + outputTokens
+		body, err := json.Marshal(map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"parts": []map[string]any{
+							{
+								"inlineData": map[string]any{
+									"mimeType": "image/png",
+									"data":     "QUJD",
+								},
+							},
+						},
+					},
+				},
+			},
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     inputTokens,
+				"candidatesTokenCount": outputTokens,
+				"totalTokenCount":      totalTokens,
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal response: %v", err)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(string(body))),
+		}, nil
+	})
+
+	respData, _, err := CreateImages(
+		context.Background(),
+		"test-key",
+		GeminiModelNanoBanana2,
+		"draw a cat",
+		2,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("CreateImages: %v", err)
+	}
+	if call != 2 {
+		t.Fatalf("expected 2 requests, got %d", call)
+	}
+
+	var out createImagesOutput
+	if err := json.Unmarshal(respData, &out); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if len(out.Images) != 2 {
+		t.Fatalf("expected 2 images, got %d", len(out.Images))
+	}
+	if out.Usage.InputTokens != 23 || out.Usage.OutputTokens != 43 || out.Usage.TotalTokens != 66 {
+		t.Fatalf("unexpected usage: %#v", out.Usage)
+	}
+}
+
 func TestNormalizeResponseModalities(t *testing.T) {
 	got := normalizeResponseModalities([]string{"Text", "Image", "IMAGE", " text "})
 	if len(got) != 2 || got[0] != "TEXT" || got[1] != "IMAGE" {
 		t.Fatalf("unexpected normalized modalities: %#v", got)
 	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return fn(r)
 }

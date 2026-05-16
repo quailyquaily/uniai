@@ -47,6 +47,12 @@ type createImageUsage struct {
 	TotalTokens  int `json:"total_tokens"`
 }
 
+type geminiGenerateContentUsage struct {
+	InputTokens  int `json:"promptTokenCount,omitempty"`
+	OutputTokens int `json:"candidatesTokenCount,omitempty"`
+	TotalTokens  int `json:"totalTokenCount,omitempty"`
+}
+
 type (
 	GeminiCreateImagesInput struct {
 		Model  string
@@ -413,6 +419,9 @@ func geminiGenerateContentImages(ctx context.Context, token string, geminiInput 
 		}
 		rawResponses = append(rawResponses, json.RawMessage(append([]byte(nil), raw...)))
 		result.Text += resp.text
+		result.Usage.InputTokens += resp.usage.InputTokens
+		result.Usage.OutputTokens += resp.usage.OutputTokens
+		result.Usage.TotalTokens += resp.usage.TotalTokens
 		for _, item := range resp.images {
 			result.Images = append(result.Images, imageAsset{
 				DataBase64: item.data,
@@ -450,6 +459,7 @@ type geminiGeneratedImage struct {
 type geminiGenerateContentParsed struct {
 	text   string
 	images []geminiGeneratedImage
+	usage  createImageUsage
 }
 
 func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string, inputImages []InputImage, responseModalities []string, aspectRatio, imageSize string) (*geminiGenerateContentParsed, []byte, error) {
@@ -501,6 +511,7 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 				} `json:"parts"`
 			} `json:"content"`
 		} `json:"candidates"`
+		Usage geminiGenerateContentUsage `json:"usageMetadata"`
 	}
 
 	if err := json.Unmarshal(body, &data); err != nil {
@@ -508,6 +519,11 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 	}
 
 	parsed := &geminiGenerateContentParsed{}
+	parsed.usage = createImageUsage{
+		InputTokens:  data.Usage.InputTokens,
+		OutputTokens: data.Usage.OutputTokens,
+		TotalTokens:  data.Usage.TotalTokens,
+	}
 	for _, candidate := range data.Candidates {
 		for _, part := range candidate.Content.Parts {
 			if part.Text != "" {

@@ -145,11 +145,10 @@ func selectedProviders(provider, openAIModel, geminiModel string) ([]providerCon
 			apiKey:    openAIKey,
 			editCount: 1,
 			options: uniai.ImageOptions{OpenAI: structs.JSONMap{
-				"size":          "1024x1024",
-				"quality":       "auto",
-				"output_format": "jpeg",
-				"background":    "auto",
-				"moderation":    "auto",
+				"size":       "1024x1024",
+				"quality":    "auto",
+				"background": "auto",
+				"moderation": "auto",
 			}},
 		})
 	}

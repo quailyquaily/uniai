@@ -116,7 +116,7 @@ func TestCreateImagesOpenAIDefaultQualityAndFormat(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, _, err := CreateImages(
+	respData, _, err := CreateImages(
 		context.Background(),
 		"test-key",
 		server.URL,
@@ -131,8 +131,52 @@ func TestCreateImagesOpenAIDefaultQualityAndFormat(t *testing.T) {
 	if got["quality"] != "medium" {
 		t.Fatalf("unexpected default quality: %#v", got["quality"])
 	}
-	if got["output_format"] != "webp" {
-		t.Fatalf("unexpected default output_format: %#v", got["output_format"])
+	if _, ok := got["output_format"]; ok {
+		t.Fatalf("output_format should be omitted by default: %#v", got["output_format"])
+	}
+	var out createImagesOutput
+	if err := json.Unmarshal(respData, &out); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if out.MimeType != "image/png" {
+		t.Fatalf("unexpected default mime type: %q", out.MimeType)
+	}
+}
+
+func TestEditImagesDefaultOmitsOutputFormat(t *testing.T) {
+	var sawRequest bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawRequest = true
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		if _, ok := r.MultipartForm.Value["output_format"]; ok {
+			t.Fatalf("output_format should be omitted by default: %#v", r.MultipartForm.Value["output_format"])
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"created": 2,
+			"data": []map[string]any{
+				{"b64_json": "QUJD"},
+			},
+		})
+	}))
+	defer server.Close()
+
+	_, _, err := EditImages(
+		context.Background(),
+		"test-key",
+		server.URL,
+		"gpt-image-2",
+		"edit this",
+		[]InputImage{{Filename: "source.png", MIMEType: "image/png", Data: []byte("png-data")}},
+		1,
+		structs.JSONMap{"size": "1024x1024"},
+	)
+	if err != nil {
+		t.Fatalf("EditImages: %v", err)
+	}
+	if !sawRequest {
+		t.Fatalf("expected request")
 	}
 }
 
