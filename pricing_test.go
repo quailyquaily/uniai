@@ -794,6 +794,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-sonnet-4-6-20260201",
 		"claude-sonnet-4-6",
 		"claude-haiku-4-5",
+		"gemini-3.5-flash",
 		"gemini-3-pro-preview",
 		"gemini-3.0-pro",
 		"gemini-3-flash-preview",
@@ -1180,6 +1181,29 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGeminiLongContextTier(t *testi
 	assertNearlyEqual(t, cost.CachedInput, 200*0.25/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*15.00/1_000_000)
 	assertNearlyEqual(t, cost.Total, 0.5040525)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGemini35FlashPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gemini-3.5-flash", usage)
+	if !ok {
+		t.Fatal("expected gemini 3.5 flash cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*1.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.15/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*9.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00393)
 }
 
 func TestPricingExampleYAMLAnnotateChatResultCostMatchesAnthropicPriceMath(t *testing.T) {

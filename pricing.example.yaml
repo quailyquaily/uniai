@@ -1,6 +1,6 @@
 # Example pricing catalog for uniai.
 #
-# Checked against official pricing pages on 2026-05-14.
+# Checked against official pricing pages on 2026-05-20.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-04 from the public pricing page.
@@ -10,6 +10,7 @@
 # public pricing page.
 # OpenAI GPT Image 1 and Gemini image-generation preview pricing added on
 # 2026-05-14 from the public pricing pages.
+# Gemini 3.5 Flash pricing added on 2026-05-20 from the public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example includes chat token rates and image-generation token rates that
@@ -252,6 +253,11 @@ chat:
     output_usd_per_million: 5.00
 
   # Gemini
+  - inference_provider: gemini
+    model: gemini-3.5-flash
+    input_usd_per_million: 1.50
+    cached_input_usd_per_million: 0.15
+    output_usd_per_million: 9.00
   - inference_provider: gemini
     model: gemini-3-pro-preview
     aliases:
