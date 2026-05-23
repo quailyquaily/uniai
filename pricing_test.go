@@ -986,10 +986,10 @@ func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing
 	if !ok {
 		t.Fatal("expected pro cost estimate from pricing.example.yaml")
 	}
-	assertNearlyEqual(t, pro.Input, 800*1.74/1_000_000)
-	assertNearlyEqual(t, pro.CachedInput, 200*0.0145/1_000_000)
-	assertNearlyEqual(t, pro.Output, 300*3.48/1_000_000)
-	assertNearlyEqual(t, pro.Total, 0.0024389)
+	assertNearlyEqual(t, pro.Input, 800*0.435/1_000_000)
+	assertNearlyEqual(t, pro.CachedInput, 200*0.003625/1_000_000)
+	assertNearlyEqual(t, pro.Output, 300*0.87/1_000_000)
+	assertNearlyEqual(t, pro.Total, 0.000609725)
 }
 
 func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *testing.T) {
