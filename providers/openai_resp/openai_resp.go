@@ -3,6 +3,7 @@ package openairesp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,6 +102,10 @@ func (p *Provider) response(ctx context.Context, params responses.ResponseNewPar
 
 	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
 		result, err := streamChatFromResponse(rawResp)
+		if isEmptyMissingCompletedStream(err) {
+			result, err = streamChat(ctx, &p.client, params, nil)
+			return result, "", err
+		}
 		return result, "", err
 	}
 
@@ -956,6 +961,26 @@ type responseStreamState struct {
 	toolCalls map[int]streamToolCallState
 	completed *responses.Response
 	text      strings.Builder
+	events    int
+}
+
+type missingCompletedStreamError struct {
+	events    int
+	textLen   int
+	toolCalls int
+}
+
+func (e *missingCompletedStreamError) Error() string {
+	return "openai responses stream ended without a completed response"
+}
+
+func (e *missingCompletedStreamError) empty() bool {
+	return e != nil && e.events == 0 && e.textLen == 0 && e.toolCalls == 0
+}
+
+func isEmptyMissingCompletedStream(err error) bool {
+	var missing *missingCompletedStreamError
+	return errors.As(err, &missing) && missing.empty()
 }
 
 func streamChat(
@@ -983,6 +1008,7 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 
 	for stream.Next() {
 		ev := stream.Current()
+		state.events++
 		if err := processStreamEvent(ev, state, onStream); err != nil {
 			stream.Close()
 			return nil, err
@@ -1081,7 +1107,14 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 
 func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {
 	if state == nil || state.completed == nil {
-		return nil, fmt.Errorf("openai responses stream ended without a completed response")
+		if state == nil {
+			return nil, &missingCompletedStreamError{}
+		}
+		return nil, &missingCompletedStreamError{
+			events:    state.events,
+			textLen:   state.text.Len(),
+			toolCalls: len(state.toolCalls),
+		}
 	}
 	if err := responseStatusError(state.completed); err != nil {
 		return nil, err

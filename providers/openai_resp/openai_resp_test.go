@@ -3,6 +3,7 @@ package openairesp
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -170,6 +171,97 @@ func TestChatAggregatesEventStreamOnNonStreamingRequest(t *testing.T) {
 	}
 	if resp.Usage.TotalTokens != 3 {
 		t.Fatalf("unexpected usage: %#v", resp.Usage)
+	}
+}
+
+func TestChatRetriesEmptyEventStreamOnNonStreamingRequest(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		requests++
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read body: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		if requests == 1 {
+			if strings.Contains(string(data), `"stream":true`) {
+				t.Fatalf("first request should be non-streaming, body: %s", string(data))
+			}
+			return
+		}
+		if requests != 2 {
+			t.Fatalf("unexpected request count: %d", requests)
+		}
+		if !strings.Contains(string(data), `"stream":true`) {
+			t.Fatalf("retry should request a real stream, body: %s", string(data))
+		}
+		writeOpenAIResponseSSE(t, w, map[string]any{
+			"type":            "response.completed",
+			"sequence_number": 1,
+			"response": map[string]any{
+				"id":                  "resp_retry",
+				"model":               "gpt-5.4",
+				"object":              "response",
+				"parallel_tool_calls": true,
+				"status":              "completed",
+				"output": []any{
+					map[string]any{
+						"id":     "msg_1",
+						"type":   "message",
+						"role":   "assistant",
+						"status": "completed",
+						"content": []any{
+							map[string]any{
+								"type":        "output_text",
+								"text":        "hello",
+								"annotations": []any{},
+							},
+						},
+					},
+				},
+				"usage": map[string]any{
+					"input_tokens":         2,
+					"input_tokens_details": map[string]any{},
+					"output_tokens":        1,
+					"output_tokens_details": map[string]any{
+						"reasoning_tokens": 0,
+					},
+					"total_tokens": 3,
+				},
+				"text": map[string]any{
+					"format": map[string]any{"type": "text"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL + "/v1",
+		DefaultModel: "gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("requests = %d, want 2", requests)
+	}
+	if resp.Text != "hello" {
+		t.Fatalf("unexpected text: %q", resp.Text)
 	}
 }
 
