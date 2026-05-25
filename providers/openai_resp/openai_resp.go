@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"sort"
 	"strings"
 
@@ -11,6 +13,7 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
@@ -72,22 +75,47 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return result, nil
 	}
 
-	resp, err := p.client.Responses.New(ctx, params)
+	result, raw, err := p.response(ctx, params)
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "openai.responses.response", err)
 		return nil, err
 	}
-	if raw := resp.RawJSON(); raw != "" {
+	if raw != "" {
 		diag.LogText(p.debug, debugFn, "openai.responses.response", raw)
 	} else {
-		diag.LogJSON(p.debug, debugFn, "openai.responses.response", resp)
+		diag.LogJSON(p.debug, debugFn, "openai.responses.response", result.Raw)
 	}
 
-	if err := responseStatusError(resp); err != nil {
-		return nil, err
+	return result, nil
+}
+
+func (p *Provider) response(ctx context.Context, params responses.ResponseNewParams) (*chat.Result, string, error) {
+	var rawResp *http.Response
+	if err := p.client.Execute(ctx, http.MethodPost, "responses", params, &rawResp); err != nil {
+		return nil, "", err
+	}
+	if rawResp == nil || rawResp.Body == nil {
+		return nil, "", fmt.Errorf("openai responses response is empty")
+	}
+	defer rawResp.Body.Close()
+
+	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
+		result, err := streamChatFromResponse(rawResp)
+		return result, "", err
 	}
 
-	return toResult(resp), nil
+	data, err := io.ReadAll(rawResp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	var resp responses.Response
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, string(data), err
+	}
+	if err := responseStatusError(&resp); err != nil {
+		return nil, string(data), err
+	}
+	return toResult(&resp), string(data), nil
 }
 
 var openAIResponsesOptionKeys = map[string]struct{}{
@@ -925,6 +953,18 @@ func streamChat(
 	onStream chat.OnStreamFunc,
 ) (*chat.Result, error) {
 	stream := client.Responses.NewStreaming(ctx, params)
+	return consumeResponseStream(stream, onStream)
+}
+
+func streamChatFromResponse(resp *http.Response) (*chat.Result, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, fmt.Errorf("openai responses stream response is empty")
+	}
+	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](ssestream.NewDecoder(resp), nil)
+	return consumeResponseStream(stream, nil)
+}
+
+func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], onStream chat.OnStreamFunc) (*chat.Result, error) {
 	state := &responseStreamState{
 		toolCalls: map[int]streamToolCallState{},
 	}
@@ -943,11 +983,13 @@ func streamChat(
 	if err != nil {
 		return nil, err
 	}
-	if err := onStream(chat.StreamEvent{
-		Done:  true,
-		Usage: &result.Usage,
-	}); err != nil {
-		return nil, err
+	if onStream != nil {
+		if err := onStream(chat.StreamEvent{
+			Done:  true,
+			Usage: &result.Usage,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	return result, nil
 }
@@ -965,6 +1007,9 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		if state != nil {
 			state.text.WriteString(event.Delta)
 		}
+		if onStream == nil {
+			return nil
+		}
 		return onStream(chat.StreamEvent{Delta: event.Delta})
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
 		meta := state.toolCalls[int(event.OutputIndex)]
@@ -977,6 +1022,9 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		}
 		meta.Arguments += event.Delta
 		state.toolCalls[int(event.OutputIndex)] = meta
+		if onStream == nil {
+			return nil
+		}
 		return onStream(chat.StreamEvent{
 			ToolCallDelta: &chat.ToolCallDelta{
 				Index:     int(event.OutputIndex),
@@ -998,6 +1046,9 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		id := strings.TrimSpace(meta.CallID)
 		if id == "" {
 			id = firstNonEmptyString(meta.ItemID, strings.TrimSpace(event.ItemID))
+		}
+		if onStream == nil {
+			return nil
 		}
 		return onStream(chat.StreamEvent{
 			ToolCallDelta: &chat.ToolCallDelta{

@@ -2,7 +2,10 @@ package openai
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	openai "github.com/openai/openai-go/v3"
@@ -72,17 +75,43 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return result, nil
 	}
 
-	resp, err := p.client.Chat.Completions.New(ctx, params)
+	result, raw, err := p.chatCompletion(ctx, params)
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "openai.chat.response", err)
 		return nil, err
 	}
-	if raw := resp.RawJSON(); raw != "" {
+	if raw != "" {
 		diag.LogText(p.debug, debugFn, "openai.chat.response", raw)
 	} else {
-		diag.LogJSON(p.debug, debugFn, "openai.chat.response", resp)
+		diag.LogJSON(p.debug, debugFn, "openai.chat.response", result.Raw)
 	}
-	return toResult(resp), nil
+	return result, nil
+}
+
+func (p *Provider) chatCompletion(ctx context.Context, params openai.ChatCompletionNewParams) (*chat.Result, string, error) {
+	var rawResp *http.Response
+	if err := p.client.Execute(ctx, http.MethodPost, "chat/completions", params, &rawResp); err != nil {
+		return nil, "", err
+	}
+	if rawResp == nil || rawResp.Body == nil {
+		return nil, "", fmt.Errorf("openai chat response is empty")
+	}
+	defer rawResp.Body.Close()
+
+	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
+		result, err := oaicompat.ChatStreamFromResponse(rawResp, nil)
+		return result, "", err
+	}
+
+	data, err := io.ReadAll(rawResp.Body)
+	if err != nil {
+		return nil, "", err
+	}
+	var resp openai.ChatCompletion
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, string(data), err
+	}
+	return toResult(&resp), string(data), nil
 }
 
 func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionNewParams, error) {

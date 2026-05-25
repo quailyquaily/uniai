@@ -1,7 +1,10 @@
 package openairesp
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -95,6 +98,78 @@ func TestBuildParamsMapsResponsesRequest(t *testing.T) {
 	}
 	if got := content[1].OfInputImage.ImageURL.Value; got != "data:image/png;base64,QUJD" {
 		t.Fatalf("unexpected image url: %q", got)
+	}
+}
+
+func TestChatAggregatesEventStreamOnNonStreamingRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeOpenAIResponseSSE(t, w, map[string]any{
+			"type":            "response.completed",
+			"sequence_number": 1,
+			"response": map[string]any{
+				"id":                  "resp_123",
+				"model":               "gpt-5.4",
+				"object":              "response",
+				"parallel_tool_calls": true,
+				"status":              "completed",
+				"output": []any{
+					map[string]any{
+						"id":     "msg_1",
+						"type":   "message",
+						"role":   "assistant",
+						"status": "completed",
+						"content": []any{
+							map[string]any{
+								"type":        "output_text",
+								"text":        "hello",
+								"annotations": []any{},
+							},
+						},
+					},
+				},
+				"usage": map[string]any{
+					"input_tokens":         2,
+					"input_tokens_details": map[string]any{},
+					"output_tokens":        1,
+					"output_tokens_details": map[string]any{
+						"reasoning_tokens": 0,
+					},
+					"total_tokens": 3,
+				},
+				"text": map[string]any{
+					"format": map[string]any{"type": "text"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL + "/v1",
+		DefaultModel: "gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "hello" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+	if resp.Usage.TotalTokens != 3 {
+		t.Fatalf("unexpected usage: %#v", resp.Usage)
 	}
 }
 
@@ -1005,4 +1080,15 @@ func mustDecodeStreamEvent(t *testing.T, payload map[string]any) responses.Respo
 		t.Fatalf("unmarshal stream event: %v", err)
 	}
 	return out
+}
+
+func writeOpenAIResponseSSE(t *testing.T, w http.ResponseWriter, payload map[string]any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal sse payload: %v", err)
+	}
+	if _, err := w.Write(append(append([]byte("data: "), data...), []byte("\n\n")...)); err != nil {
+		t.Fatalf("write sse: %v", err)
+	}
 }

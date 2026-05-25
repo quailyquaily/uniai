@@ -576,6 +576,43 @@ func TestChatAppliesCustomHeaders(t *testing.T) {
 	}
 }
 
+func TestChatAggregatesEventStreamOnNonStreamingRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-5.4","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}`)
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-5.4","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-5.4","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL + "/v1",
+		DefaultModel: "gpt-5.4",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	resp, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "hello" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+	if resp.Usage.TotalTokens != 3 {
+		t.Fatalf("unexpected usage: %#v", resp.Usage)
+	}
+}
+
 func TestBuildParamsMapsAssistantReasoningContent(t *testing.T) {
 	req := &chat.Request{
 		Model: "custom-thinking-model",
@@ -886,4 +923,11 @@ func readReasoningContentFromAssistantMessageParam(t *testing.T, msg *openai.Cha
 	}
 	value, _ := payload["reasoning_content"].(string)
 	return value
+}
+
+func writeOpenAIChatSSE(t *testing.T, w http.ResponseWriter, data string) {
+	t.Helper()
+	if _, err := w.Write([]byte("data: " + data + "\n\n")); err != nil {
+		t.Fatalf("write sse: %v", err)
+	}
 }

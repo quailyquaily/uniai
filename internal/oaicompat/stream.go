@@ -2,10 +2,13 @@ package oaicompat
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"strings"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/quailyquaily/uniai/chat"
 )
 
@@ -21,6 +24,18 @@ func ChatStream(
 ) (*chat.Result, error) {
 	ensureChatCompletionStreamIncludesUsage(&params)
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
+	return consumeChatCompletionStream(stream, onStream)
+}
+
+func ChatStreamFromResponse(resp *http.Response, onStream chat.OnStreamFunc) (*chat.Result, error) {
+	if resp == nil || resp.Body == nil {
+		return nil, fmt.Errorf("openai chat stream response is empty")
+	}
+	stream := ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(resp), nil)
+	return consumeChatCompletionStream(stream, onStream)
+}
+
+func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionChunk], onStream chat.OnStreamFunc) (*chat.Result, error) {
 	acc := openai.ChatCompletionAccumulator{}
 	toolCalls := streamToolCallAccumulator{}
 	var finalUsage *chat.Usage
@@ -46,7 +61,7 @@ func ChatStream(
 
 		delta := chunk.Choices[0].Delta.Content
 
-		if delta != "" {
+		if onStream != nil && delta != "" {
 			if err := onStream(chat.StreamEvent{
 				Delta: delta,
 				Raw:   chunk,
@@ -58,12 +73,14 @@ func ChatStream(
 
 		for _, tc := range chunk.Choices[0].Delta.ToolCalls {
 			toolCallDelta := toolCalls.addDelta(tc)
-			if err := onStream(chat.StreamEvent{
-				ToolCallDelta: &toolCallDelta,
-				Raw:           chunk,
-			}); err != nil {
-				stream.Close()
-				return nil, err
+			if onStream != nil {
+				if err := onStream(chat.StreamEvent{
+					ToolCallDelta: &toolCallDelta,
+					Raw:           chunk,
+				}); err != nil {
+					stream.Close()
+					return nil, err
+				}
 			}
 		}
 	}
@@ -81,12 +98,14 @@ func ChatStream(
 	}
 	result.Raw = rawChunks
 
-	if err := onStream(chat.StreamEvent{
-		Done:  true,
-		Usage: &result.Usage,
-		Raw:   rawChunks,
-	}); err != nil {
-		return nil, err
+	if onStream != nil {
+		if err := onStream(chat.StreamEvent{
+			Done:  true,
+			Usage: &result.Usage,
+			Raw:   rawChunks,
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	return result, nil
