@@ -287,6 +287,18 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams) {
 		params.TopP = param.Opt[float64]{}
 		params.TopLogprobs = param.Opt[int64]{}
 	}
+	if modelcompat.OpenAIRequires24hPromptCacheRetention(model) {
+		current := params.ExtraFields()
+		_, hasRetention := current["prompt_cache_retention"]
+		if params.PromptCacheKey.Valid() || hasRetention {
+			extra := map[string]any{}
+			for key, value := range current {
+				extra[key] = value
+			}
+			extra["prompt_cache_retention"] = "24h"
+			params.SetExtraFields(extra)
+		}
+	}
 }
 
 func validateOpenAIResponsesOptions(opts structs.JSONMap) error {

@@ -35,3 +35,12 @@ func TestOpenAIGPT5DropsSampling(t *testing.T) {
 		t.Fatalf("expected gpt-4.1 not to match GPT-5 sampling rules")
 	}
 }
+
+func TestOpenAIRequires24hPromptCacheRetention(t *testing.T) {
+	if !OpenAIRequires24hPromptCacheRetention("openai/gpt-5.5") {
+		t.Fatalf("expected gpt-5.5 to require 24h prompt cache retention")
+	}
+	if OpenAIRequires24hPromptCacheRetention("gpt-5.4") {
+		t.Fatalf("expected gpt-5.4 not to require 24h prompt cache retention")
+	}
+}

@@ -44,6 +44,11 @@ func OpenAIGPT5DropsSampling(model, reasoningEffort string, reasoningRequested b
 	return true
 }
 
+func OpenAIRequires24hPromptCacheRetention(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gpt-5-5")
+}
+
 func openAIGPT5AllowsSamplingWithNoReasoning(model string) bool {
 	return modelHasPrefix(model, "gpt-5-1") ||
 		modelHasPrefix(model, "gpt-5-2") ||

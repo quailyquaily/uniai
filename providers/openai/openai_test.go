@@ -263,6 +263,36 @@ func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
 	}
 }
 
+func TestBuildParamsForcesGPT55PromptCacheRetentionTo24h(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_key":       "abc",
+				"prompt_cache_retention": "in_memory",
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(data), `"prompt_cache_retention":"24h"`) {
+		t.Fatalf("expected prompt_cache_retention=24h in payload, got %s", string(data))
+	}
+	if strings.Contains(string(data), "in_memory") {
+		t.Fatalf("expected in_memory to be replaced, got %s", string(data))
+	}
+}
+
 func TestBuildParamsRejectsReasoningBudget(t *testing.T) {
 	budget := 4096
 	req := &chat.Request{
