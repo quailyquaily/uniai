@@ -246,6 +246,64 @@ func TestChatStreamNormalizesRepeatedFullToolCallNameDeltas(t *testing.T) {
 	}
 }
 
+func TestChatStreamNormalizesNegativeToolCallIndexes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"id":"chatcmpl_tool","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":-1,"delta":{"role":"assistant","tool_calls":[{"index":-1,"id":"call_1","type":"function","function":{"name":"read_file","arguments":"{\"path\""}}]},"finish_reason":null}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_tool","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":-1,"delta":{"tool_calls":[{"index":-1,"function":{"arguments":":\"README.md\"}"}}]},"finish_reason":null}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_tool","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":-1,"delta":{},"finish_reason":"tool_calls"}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_tool","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+		if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+			t.Fatalf("write done: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := openai.NewClient(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL+"/v1"),
+	)
+	messages, err := ToMessages([]chat.Message{chat.User("read README")}, "gpt-test")
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	params := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel("gpt-test"),
+		Messages: messages,
+	}
+
+	var toolDeltas []chat.ToolCallDelta
+	result, err := ChatStream(context.Background(), &client, params, func(ev chat.StreamEvent) error {
+		if ev.ToolCallDelta != nil {
+			toolDeltas = append(toolDeltas, *ev.ToolCallDelta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("chat stream: %v", err)
+	}
+
+	if len(toolDeltas) != 2 {
+		t.Fatalf("expected two tool call deltas, got %#v", toolDeltas)
+	}
+	if toolDeltas[0].Index != 0 || toolDeltas[1].Index != 0 {
+		t.Fatalf("negative tool call indexes should normalize to 0, got %#v", toolDeltas)
+	}
+	if len(result.ToolCalls) != 1 {
+		t.Fatalf("expected one tool call, got %#v", result.ToolCalls)
+	}
+	call := result.ToolCalls[0]
+	if call.ID != "call_1" || call.Function.Name != "read_file" || call.Function.Arguments != `{"path":"README.md"}` {
+		t.Fatalf("unexpected tool call: %#v", call)
+	}
+	if result.Usage.TotalTokens != 3 {
+		t.Fatalf("unexpected usage: %#v", result.Usage)
+	}
+}
+
 func writeSSE(t *testing.T, w http.ResponseWriter, data string) {
 	t.Helper()
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {

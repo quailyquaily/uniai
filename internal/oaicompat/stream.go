@@ -30,7 +30,7 @@ func ChatStream(
 	for stream.Next() {
 		chunk := stream.Current()
 		rawChunks = append(rawChunks, chunk)
-		acc.AddChunk(chunk)
+		acc.AddChunk(sanitizeChatCompletionChunkForAccumulator(chunk))
 		if chunk.JSON.Usage.Valid() {
 			usage := ChatCompletionUsageToChatUsage(chunk.Usage)
 			finalUsage = &usage
@@ -90,6 +90,20 @@ func ChatStream(
 	}
 
 	return result, nil
+}
+
+func sanitizeChatCompletionChunkForAccumulator(chunk openai.ChatCompletionChunk) openai.ChatCompletionChunk {
+	for i := range chunk.Choices {
+		if chunk.Choices[i].Index < 0 {
+			chunk.Choices[i].Index = 0
+		}
+		for j := range chunk.Choices[i].Delta.ToolCalls {
+			if chunk.Choices[i].Delta.ToolCalls[j].Index < 0 {
+				chunk.Choices[i].Delta.ToolCalls[j].Index = 0
+			}
+		}
+	}
+	return chunk
 }
 
 func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
