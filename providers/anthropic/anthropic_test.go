@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/httputil"
 )
@@ -207,6 +208,101 @@ func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
 	}
 	if body.Thinking == nil || body.Thinking.Type != "adaptive" {
 		t.Fatalf("expected adaptive thinking, got %#v", body.Thinking)
+	}
+}
+
+func TestBuildRequestAppliesOpus47SamplingOverlay(t *testing.T) {
+	temperature := 0.2
+	topP := 0.9
+	req := &chat.Request{
+		Model: "models/Claude-Opus-4.7",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temperature,
+			TopP:        &topP,
+			Anthropic:   structs.JSONMap{"top_k": 5},
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body.Temperature != nil || body.TopP != nil || body.TopK != nil {
+		t.Fatalf("expected Opus 4.7 sampling params to be omitted, got temperature=%v top_p=%v top_k=%v", body.Temperature, body.TopP, body.TopK)
+	}
+}
+
+func TestBuildRequestKeepsSamplingForOpus46(t *testing.T) {
+	temperature := 0.2
+	req := &chat.Request{
+		Model: "claude-opus-4-6",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temperature,
+			Anthropic:   structs.JSONMap{"top_k": 5},
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body.Temperature == nil || *body.Temperature != temperature {
+		t.Fatalf("expected temperature to be preserved, got %v", body.Temperature)
+	}
+	if body.TopK == nil || *body.TopK != 5 {
+		t.Fatalf("expected top_k to be preserved, got %v", body.TopK)
+	}
+}
+
+func TestBuildRequestMapsOpus47ReasoningDetailsToSummarizedAdaptiveThinking(t *testing.T) {
+	effort := chat.ReasoningEffortXHigh
+	req := &chat.Request{
+		Model: "claude-opus-4-7",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningDetails: true,
+			ReasoningEffort:  &effort,
+		},
+	}
+
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body.Thinking == nil || body.Thinking.Type != "adaptive" || body.Thinking.Display != "summarized" {
+		t.Fatalf("expected summarized adaptive thinking, got %#v", body.Thinking)
+	}
+	if body.OutputConfig == nil || body.OutputConfig.Effort != "xhigh" {
+		t.Fatalf("expected effort xhigh, got %#v", body.OutputConfig)
+	}
+}
+
+func TestBuildRequestRejectsReasoningBudgetOnOpus47(t *testing.T) {
+	budget := 4096
+	req := &chat.Request{
+		Model: "claude-opus-4-7",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningBudget: &budget,
+		},
+	}
+
+	_, err := buildRequest(req, req.Model)
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+	if !strings.Contains(err.Error(), "reasoning effort") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

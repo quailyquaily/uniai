@@ -10,11 +10,13 @@ import (
 	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 	"github.com/quailyquaily/uniai/internal/oaicompat"
 	"github.com/quailyquaily/uniai/internal/toolschema"
 )
@@ -241,7 +243,22 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		}
 	}
 
+	applyModelParameterOverlay(&params)
 	return params, nil
+}
+
+func applyModelParameterOverlay(params *responses.ResponseNewParams) {
+	if params == nil {
+		return
+	}
+	model := string(params.Model)
+	reasoningRequested := params.Reasoning.Effort != "" || params.Reasoning.Summary != ""
+	if modelcompat.KimiK2UsesFixedSampling(model) ||
+		modelcompat.OpenAIGPT5DropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
+		params.Temperature = param.Opt[float64]{}
+		params.TopP = param.Opt[float64]{}
+		params.TopLogprobs = param.Opt[int64]{}
+	}
 }
 
 func validateOpenAIResponsesOptions(opts structs.JSONMap) error {

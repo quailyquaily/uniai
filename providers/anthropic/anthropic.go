@@ -108,6 +108,7 @@ type anthropicToolChoice struct {
 type anthropicThinking struct {
 	Type         string `json:"type"`
 	BudgetTokens *int   `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
 }
 
 type anthropicOutputConfig struct {
@@ -231,7 +232,31 @@ func normalizeAPIBase(base string) string {
 	return trimmed
 }
 
+func normalizeAnthropicModel(model string) string {
+	model = strings.TrimSpace(strings.ToLower(model))
+	model = strings.TrimPrefix(model, "models/")
+	if !strings.Contains(model, ".") {
+		return model
+	}
+	var b strings.Builder
+	b.Grow(len(model))
+	for i := 0; i < len(model); i++ {
+		ch := model[i]
+		if ch == '.' && i > 0 && i+1 < len(model) && isASCIIDigit(model[i-1]) && isASCIIDigit(model[i+1]) {
+			b.WriteByte('-')
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func isASCIIDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
+}
+
 func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
+	modelKey := normalizeAnthropicModel(model)
 	systemTextParts := make([]string, 0, 1)
 	systemParts := make([]anthropicSystemPart, 0, 1)
 	structuredSystem := false
@@ -355,10 +380,11 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 			body.ToolChoice = choice
 		}
 	}
-	if err := applyAnthropicReasoningOptions(body, model, req.Options); err != nil {
+	if err := applyAnthropicReasoningOptions(body, modelKey, req.Options); err != nil {
 		return nil, err
 	}
 	applyAnthropicOptions(body, req.Options.Anthropic)
+	applyAnthropicModelOverlay(body, modelKey)
 	return body, nil
 }
 
@@ -370,16 +396,12 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		return nil
 	}
 
-	model = strings.ToLower(strings.TrimSpace(model))
-	supportsEffort := anthropicSupportsEffort(model)
-	prefersEffort := anthropicPrefersEffort(model)
-
 	if opts.ReasoningBudget != nil {
 		budget := *opts.ReasoningBudget
 		if budget < 1024 {
 			return fmt.Errorf("anthropic reasoning budget must be at least 1024")
 		}
-		if prefersEffort {
+		if anthropicPrefersEffort(model) {
 			return fmt.Errorf("anthropic model %q prefers reasoning effort; reasoning budget tokens are not supported in this path", model)
 		}
 		body.Thinking = &anthropicThinking{
@@ -389,7 +411,7 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 	}
 
 	if opts.ReasoningEffort != nil {
-		if !supportsEffort {
+		if !anthropicSupportsEffort(model) {
 			return fmt.Errorf("anthropic model %q does not support reasoning effort", model)
 		}
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
@@ -397,8 +419,11 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 
 	if opts.ReasoningDetails {
 		switch {
-		case prefersEffort:
+		case anthropicPrefersEffort(model):
 			body.Thinking = &anthropicThinking{Type: "adaptive"}
+			if anthropicSummarizesThinkingDetails(model) {
+				body.Thinking.Display = "summarized"
+			}
 		case body.Thinking != nil:
 			// explicit budget already set
 		default:
@@ -407,6 +432,33 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 	}
 
 	return nil
+}
+
+func applyAnthropicModelOverlay(body *anthropicRequest, model string) {
+	if body == nil || !anthropicDropsSamplingParameters(model) {
+		return
+	}
+	body.Temperature = nil
+	body.TopP = nil
+	body.TopK = nil
+}
+
+func anthropicDropsSamplingParameters(model string) bool {
+	return strings.Contains(model, "opus-4-7")
+}
+
+func anthropicSupportsEffort(model string) bool {
+	return strings.Contains(model, "opus-4-5") || anthropicPrefersEffort(model)
+}
+
+func anthropicPrefersEffort(model string) bool {
+	return strings.Contains(model, "opus-4-7") ||
+		strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "sonnet-4-6")
+}
+
+func anthropicSummarizesThinkingDetails(model string) bool {
+	return strings.Contains(model, "opus-4-7")
 }
 
 func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {
@@ -589,16 +641,6 @@ func appendAnthropicReasoning(reasoning *chat.ReasoningResult, typ, text, signat
 		Data:      data,
 	})
 	return reasoning
-}
-
-func anthropicSupportsEffort(model string) bool {
-	return strings.Contains(model, "opus-4-5") ||
-		strings.Contains(model, "opus-4-6") ||
-		strings.Contains(model, "sonnet-4-6")
-}
-
-func anthropicPrefersEffort(model string) bool {
-	return strings.Contains(model, "opus-4-6") || strings.Contains(model, "sonnet-4-6")
 }
 
 // SSE event data types for streaming.

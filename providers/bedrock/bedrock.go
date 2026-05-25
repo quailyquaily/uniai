@@ -138,6 +138,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		payload["system"] = strings.Join(systemParts, "\n")
 	}
 	applyBedrockOptions(payload, req.Options.Bedrock)
+	applyBedrockModelOverlay(payload, p.modelArn)
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -310,6 +311,41 @@ func applyBedrockOptions(payload map[string]any, opts structs.JSONMap) {
 			payload["top_k"] = top
 		}
 	}
+}
+
+func applyBedrockModelOverlay(payload map[string]any, model string) {
+	if payload == nil {
+		return
+	}
+	model = normalizeBedrockModel(model)
+	if !strings.Contains(model, "claude-opus-4-7") {
+		return
+	}
+	delete(payload, "top_k")
+	delete(payload, "top_p")
+	delete(payload, "temperature")
+}
+
+func normalizeBedrockModel(model string) string {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if !strings.Contains(model, ".") {
+		return model
+	}
+	var b strings.Builder
+	b.Grow(len(model))
+	for i := 0; i < len(model); i++ {
+		ch := model[i]
+		if ch == '.' && i > 0 && i+1 < len(model) && isASCIIDigit(model[i-1]) && isASCIIDigit(model[i+1]) {
+			b.WriteByte('-')
+			continue
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
+}
+
+func isASCIIDigit(ch byte) bool {
+	return ch >= '0' && ch <= '9'
 }
 
 func (p *Provider) requestOptions() []request.Option {

@@ -121,6 +121,122 @@ func TestBuildParamsMapsReasoningEffort(t *testing.T) {
 	}
 }
 
+func TestBuildParamsDropsKimiK26FixedSamplingParams(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	presence := 0.1
+	frequency := 0.2
+	req := &chat.Request{
+		Model: "moonshotai/kimi-k2.6",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature:      &temp,
+			TopP:             &topP,
+			PresencePenalty:  &presence,
+			FrequencyPenalty: &frequency,
+			OpenAI: structs.JSONMap{
+				"n": 2,
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.Temperature.Valid() || params.TopP.Valid() || params.N.Valid() ||
+		params.PresencePenalty.Valid() || params.FrequencyPenalty.Valid() {
+		t.Fatalf("expected fixed Kimi sampling params to be omitted, got %#v", params)
+	}
+}
+
+func TestBuildParamsDropsGPT5ReasoningSamplingParams(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	req := &chat.Request{
+		Model: "gpt-5.2",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+			TopP:        &topP,
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortHigh
+				return &v
+			}(),
+			OpenAI: structs.JSONMap{
+				"logprobs":     true,
+				"top_logprobs": 3,
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.Temperature.Valid() || params.TopP.Valid() || params.Logprobs.Valid() || params.TopLogprobs.Valid() {
+		t.Fatalf("expected GPT-5 reasoning sampling params to be omitted, got %#v", params)
+	}
+	if params.ReasoningEffort != "high" {
+		t.Fatalf("unexpected reasoning effort: %q", params.ReasoningEffort)
+	}
+}
+
+func TestBuildParamsKeepsGPT52SamplingWithReasoningNone(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	req := &chat.Request{
+		Model: "gpt-5.2",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+			TopP:        &topP,
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortNone
+				return &v
+			}(),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !params.Temperature.Valid() || params.Temperature.Value != temp {
+		t.Fatalf("expected temperature to be preserved, got %#v", params.Temperature)
+	}
+	if !params.TopP.Valid() || params.TopP.Value != topP {
+		t.Fatalf("expected top_p to be preserved, got %#v", params.TopP)
+	}
+}
+
+func TestBuildParamsDropsOlderGPT5SamplingParams(t *testing.T) {
+	temp := 0.2
+	req := &chat.Request{
+		Model: "gpt-5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.Temperature.Valid() {
+		t.Fatalf("expected older GPT-5 temperature to be omitted, got %#v", params.Temperature)
+	}
+}
+
 func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-4.1-mini",

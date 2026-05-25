@@ -98,6 +98,90 @@ func TestBuildParamsMapsResponsesRequest(t *testing.T) {
 	}
 }
 
+func TestBuildParamsDropsGPT5ReasoningSamplingParams(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	req := &chat.Request{
+		Model: "gpt-5.4",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+			TopP:        &topP,
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortHigh
+				return &v
+			}(),
+			OpenAI: structs.JSONMap{
+				"top_logprobs": 3,
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	if params.Temperature.Valid() || params.TopP.Valid() || params.TopLogprobs.Valid() {
+		t.Fatalf("expected GPT-5 reasoning sampling params to be omitted, got %#v", params)
+	}
+	if params.Reasoning.Effort != "high" {
+		t.Fatalf("unexpected reasoning effort: %q", params.Reasoning.Effort)
+	}
+}
+
+func TestBuildParamsKeepsGPT54SamplingWithReasoningNone(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	req := &chat.Request{
+		Model: "gpt-5.4",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+			TopP:        &topP,
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortNone
+				return &v
+			}(),
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	if !params.Temperature.Valid() || params.Temperature.Value != temp {
+		t.Fatalf("expected temperature to be preserved, got %#v", params.Temperature)
+	}
+	if !params.TopP.Valid() || params.TopP.Value != topP {
+		t.Fatalf("expected top_p to be preserved, got %#v", params.TopP)
+	}
+}
+
+func TestBuildParamsDropsGPT55SamplingParams(t *testing.T) {
+	temp := 0.2
+	req := &chat.Request{
+		Model: "gpt-5.5",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature: &temp,
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	if params.Temperature.Valid() {
+		t.Fatalf("expected GPT-5.5 temperature to be omitted, got %#v", params.Temperature)
+	}
+}
+
 func TestBuildParamsRejectsInputConflict(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.4",

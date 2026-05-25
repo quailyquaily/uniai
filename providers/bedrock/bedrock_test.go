@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 )
 
@@ -71,6 +72,24 @@ func TestToBedrockContentRejectsEmptyCachedTextPart(t *testing.T) {
 	}
 	if got := err.Error(); !strings.Contains(got, "non-empty text part") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBedrockOpus47ModelOverlayDropsTopK(t *testing.T) {
+	payload := map[string]any{}
+	applyBedrockOptions(payload, structs.JSONMap{"top_k": 5})
+	applyBedrockModelOverlay(payload, "anthropic.claude-opus-4.7-v1:0")
+	if _, ok := payload["top_k"]; ok {
+		t.Fatalf("expected Opus 4.7 top_k to be omitted, got %#v", payload)
+	}
+}
+
+func TestBedrockModelOverlayKeepsTopKForOpus46(t *testing.T) {
+	payload := map[string]any{}
+	applyBedrockOptions(payload, structs.JSONMap{"top_k": 5})
+	applyBedrockModelOverlay(payload, "anthropic.claude-opus-4-6-v1:0")
+	if payload["top_k"] != 5 {
+		t.Fatalf("expected Opus 4.6 top_k to be preserved, got %#v", payload)
 	}
 }
 

@@ -7,10 +7,12 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 	"github.com/quailyquaily/uniai/internal/oaicompat"
 )
 
@@ -156,8 +158,29 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	}
 
 	oaicompat.ApplyOptions(&params, req.Options.OpenAI)
+	applyModelParameterOverlay(&params)
 
 	return params, nil
+}
+
+func applyModelParameterOverlay(params *openai.ChatCompletionNewParams) {
+	if params == nil {
+		return
+	}
+	model := string(params.Model)
+	if modelcompat.KimiK2UsesFixedSampling(model) {
+		params.Temperature = param.Opt[float64]{}
+		params.TopP = param.Opt[float64]{}
+		params.N = param.Opt[int64]{}
+		params.PresencePenalty = param.Opt[float64]{}
+		params.FrequencyPenalty = param.Opt[float64]{}
+	}
+	if modelcompat.OpenAIGPT5DropsSampling(model, string(params.ReasoningEffort), params.ReasoningEffort != "") {
+		params.Temperature = param.Opt[float64]{}
+		params.TopP = param.Opt[float64]{}
+		params.Logprobs = param.Opt[bool]{}
+		params.TopLogprobs = param.Opt[int64]{}
+	}
 }
 
 func toResult(resp *openai.ChatCompletion) *chat.Result {
