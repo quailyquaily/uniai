@@ -3,6 +3,7 @@
 # Checked against official pricing pages on 2026-05-20.
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
+# Claude Opus 4.8 standard rates added on 2026-05-29 from the public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-23 from the public pricing page.
 # xAI Grok 4.3 and Grok 4.20 entries refreshed on 2026-05-13 from the official
 # docs pages.
@@ -27,7 +28,7 @@
 # - OpenAI: https://openai.com/api/pricing/
 # - OpenAI GPT-5.5 availability note: https://help.openai.com/en/articles/11909943-gpt-53-and-gpt-54-in-chatgpt
 # - Anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
-# - Anthropic announcements: https://www.anthropic.com/news/claude-opus-4-7
+# - Anthropic Claude Opus 4.8: https://www.anthropic.com/news/claude-opus-4-8
 # - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
 # - Gemini: https://ai.google.dev/gemini-api/docs/pricing
 # - Mistral: https://mistral.ai/pricing
@@ -52,6 +53,7 @@
 #   published standard token rates.
 # - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
 #   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
+# - Claude Opus 4.8 uses standard pricing across its full 1M token context window.
 # - OpenAI `gpt-5.4*` long-context tiers below use `>270000` input tokens.
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
@@ -181,6 +183,17 @@ chat:
     output_usd_per_million: 0.60
 
   # Anthropic
+  - inference_provider: anthropic
+    model: claude-opus-4-8
+    aliases:
+      - claude-opus-4.8
+    input_usd_per_million: 5.00
+    cached_input_usd_per_million: 0.50
+    cache_creation_input_usd_per_million: 6.25
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 6.25
+      ephemeral_1h_input_tokens: 10.00
+    output_usd_per_million: 25.00
   - inference_provider: anthropic
     model: claude-opus-4-7
     aliases:
