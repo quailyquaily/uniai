@@ -20,7 +20,10 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 	var toolCalls []chat.ToolCall
 	for _, choice := range resp.Choices {
 		messageToolCalls := ToToolCalls(choice.Message.ToolCalls)
-		content := normalizeJSONContent(choice.Message.Content)
+		content := choice.Message.Content
+		if normalized, ok := jsonoutput.NormalizeSingleJSONContent(content); ok {
+			content = normalized
+		}
 		text += content
 		if len(messageToolCalls) > 0 && len(toolCalls) == 0 {
 			toolCalls = messageToolCalls
@@ -48,13 +51,6 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 		Usage:     ChatCompletionUsageToChatUsage(resp.Usage),
 		Raw:       resp,
 	}
-}
-
-func normalizeJSONContent(content string) string {
-	if normalized, ok := jsonoutput.NormalizeSingleJSONContent(content); ok {
-		return normalized
-	}
-	return content
 }
 
 func reasoningContentFromRawJSON(raw string) string {

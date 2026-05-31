@@ -83,24 +83,10 @@ func NormalizeSingleJSONContent(text string) (string, bool) {
 	if !isJSONObjectOrArray(body) {
 		return "", false
 	}
-
-	candidates, err := CollectCandidates(trimmed)
-	if err != nil {
+	if !json.Valid([]byte(body)) {
 		return "", false
 	}
-	for _, candidate := range candidates {
-		payload := strings.TrimSpace(candidate)
-		if unquoted := UnquoteJSONStringPayload(payload); unquoted != "" {
-			payload = unquoted
-		}
-		if payload != body {
-			continue
-		}
-		if json.Valid([]byte(payload)) {
-			return payload, true
-		}
-	}
-	return "", false
+	return body, true
 }
 
 func AttemptRepair(input string) string {
