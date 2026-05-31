@@ -487,6 +487,54 @@ func TestToResultPreservesAssistantReasoningContent(t *testing.T) {
 	}
 }
 
+func TestToResultUnwrapsFencedJSONContent(t *testing.T) {
+	data, err := json.Marshal(map[string]any{
+		"model": "custom-thinking-model",
+		"choices": []map[string]any{
+			{
+				"message": map[string]any{
+					"role":              "assistant",
+					"content":           "```json\n{\n  \"type\": \"final\",\n  \"output\": \"ok\"\n}\n```",
+					"reasoning_content": "real reasoning",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+
+	var resp openai.ChatCompletion
+	if err := json.Unmarshal(data, &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+
+	out := toResult(&resp)
+	want := "{\n  \"type\": \"final\",\n  \"output\": \"ok\"\n}"
+	if out.Text != want {
+		t.Fatalf("unexpected text:\n%s", out.Text)
+	}
+	if len(out.Parts) != 1 || out.Parts[0].Text != want {
+		t.Fatalf("unexpected parts: %#v", out.Parts)
+	}
+	if len(out.Messages) != 1 || out.Messages[0].Content != want {
+		t.Fatalf("unexpected replay messages: %#v", out.Messages)
+	}
+	if out.Messages[0].ReasoningContent != "real reasoning" {
+		t.Fatalf("unexpected reasoning_content: %q", out.Messages[0].ReasoningContent)
+	}
+	var payload struct {
+		Type   string `json:"type"`
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal([]byte(out.Text), &payload); err != nil {
+		t.Fatalf("normalized text should be json: %v", err)
+	}
+	if payload.Type != "final" || payload.Output != "ok" {
+		t.Fatalf("unexpected payload: %#v", payload)
+	}
+}
+
 func TestToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
 	var resp openai.ChatCompletion
 	if err := json.Unmarshal([]byte(`{

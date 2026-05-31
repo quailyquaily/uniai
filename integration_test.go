@@ -476,7 +476,7 @@ func pickJinaConfig() (Config, bool) {
 
 func parseJSONObject(text string) (map[string]any, error) {
 	var out map[string]any
-	for _, candidate := range findJSONSnippets(text) {
+	for _, candidate := range FindJSONSnippets(text) {
 		if err := json.Unmarshal([]byte(candidate), &out); err == nil {
 			return out, nil
 		}

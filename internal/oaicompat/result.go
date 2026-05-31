@@ -5,6 +5,7 @@ import (
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/jsonoutput"
 )
 
 // ChatCompletionToResult converts an OpenAI-compatible Chat Completions response
@@ -19,13 +20,14 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 	var toolCalls []chat.ToolCall
 	for _, choice := range resp.Choices {
 		messageToolCalls := ToToolCalls(choice.Message.ToolCalls)
-		text += choice.Message.Content
+		content := normalizeJSONContent(choice.Message.Content)
+		text += content
 		if len(messageToolCalls) > 0 && len(toolCalls) == 0 {
 			toolCalls = messageToolCalls
 		}
 		message := chat.Message{
 			Role:             chat.RoleAssistant,
-			Content:          choice.Message.Content,
+			Content:          content,
 			ToolCalls:        messageToolCalls,
 			ReasoningContent: reasoningContentFromRawJSON(choice.Message.RawJSON()),
 		}
@@ -46,6 +48,13 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 		Usage:     ChatCompletionUsageToChatUsage(resp.Usage),
 		Raw:       resp,
 	}
+}
+
+func normalizeJSONContent(content string) string {
+	if normalized, ok := jsonoutput.NormalizeSingleJSONContent(content); ok {
+		return normalized
+	}
+	return content
 }
 
 func reasoningContentFromRawJSON(raw string) string {

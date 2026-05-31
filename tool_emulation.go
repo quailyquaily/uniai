@@ -7,11 +7,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
+	"github.com/quailyquaily/uniai/internal/jsonoutput"
 )
 
 func (c *Client) chatWithToolEmulation(ctx context.Context, providerName string, req *chat.Request, priorResp *chat.Result, userOnStream chat.OnStreamFunc) (*chat.Result, error) {
@@ -290,9 +290,9 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 	if marked := extractJSONBetweenMarkers(text, "JSON_BEGIN", "JSON_END"); len(marked) > 0 {
 		candidates = append(candidates, marked...)
 	}
-	cleaned := stripNonJSONLines(text)
+	cleaned := jsonoutput.StripNonJSONLines(text)
 	if strings.TrimSpace(cleaned) != "" {
-		more, err := collectJSONCandidates(cleaned)
+		more, err := jsonoutput.CollectCandidates(cleaned)
 		if err != nil {
 			if len(candidates) == 0 {
 				return nil, err
@@ -310,11 +310,11 @@ func parseToolDecision(text string) ([]emulatedToolCall, error) {
 		if payload == "" {
 			continue
 		}
-		if unquoted := unquoteJSON(payload); unquoted != "" {
+		if unquoted := jsonoutput.UnquoteJSONStringPayload(payload); unquoted != "" {
 			payload = unquoted
 		}
 		if !json.Valid([]byte(payload)) {
-			repaired := attemptJSONRepair(payload)
+			repaired := jsonoutput.AttemptRepair(payload)
 			if repaired == "" || !json.Valid([]byte(repaired)) {
 				continue
 			}
@@ -425,125 +425,6 @@ func parseSingleTool(toolRaw json.RawMessage, argsRaw json.RawMessage) (emulated
 	return emulatedToolCall{Name: toolName, Arguments: args}, true, nil
 }
 
-func collectJSONCandidates(text string) ([]string, error) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return nil, fmt.Errorf("empty tool decision")
-	}
-	candidates := []string{trimmed}
-	if strings.Contains(trimmed, "```") {
-		parts := strings.Split(trimmed, "```")
-		for i := 1; i < len(parts); i += 2 {
-			block := strings.TrimSpace(parts[i])
-			block = strings.TrimPrefix(block, "json")
-			block = strings.TrimSpace(block)
-			if block != "" {
-				candidates = append(candidates, block)
-			}
-		}
-	}
-	candidates = append(candidates, findJSONSnippets(trimmed)...)
-	if unquoted := unquoteJSON(trimmed); unquoted != "" {
-		candidates = append(candidates, unquoted)
-		candidates = append(candidates, findJSONSnippets(unquoted)...)
-	}
-	return candidates, nil
-}
-
-func stripNonJSONLines(input string) string {
-	lines := strings.Split(input, "\n")
-	out := make([]string, 0, len(lines))
-	depth := 0
-	inString := false
-	escape := false
-	for _, line := range lines {
-		keep := true
-		if depth == 0 {
-			trimmed := strings.TrimLeftFunc(line, unicode.IsSpace)
-			if !startsWithJSONBrace(trimmed) && !hasJSONBraceWithin(trimmed, 20) {
-				keep = false
-			}
-		}
-		if keep {
-			out = append(out, line)
-		}
-		depth, inString, escape = updateJSONDepth(line, depth, inString, escape)
-	}
-	return strings.Join(out, "\n")
-}
-
-func startsWithJSONBrace(line string) bool {
-	return strings.HasPrefix(line, "{") || strings.HasPrefix(line, "[")
-}
-
-func hasJSONBraceWithin(line string, limit int) bool {
-	if line == "" || limit <= 0 {
-		return false
-	}
-	if len(line) > limit {
-		line = line[:limit]
-	}
-	return strings.ContainsAny(line, "{[")
-}
-
-func updateJSONDepth(line string, depth int, inString bool, escape bool) (int, bool, bool) {
-	for i := 0; i < len(line); i++ {
-		ch := line[i]
-		if inString {
-			if escape {
-				escape = false
-				continue
-			}
-			if ch == '\\' {
-				escape = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
-			continue
-		}
-		switch ch {
-		case '"':
-			inString = true
-		case '{', '[':
-			depth++
-		case '}', ']':
-			if depth > 0 {
-				depth--
-			}
-		}
-	}
-	return depth, inString, escape
-}
-
-func unquoteJSON(input string) string {
-	trimmed := strings.TrimSpace(input)
-	if !strings.HasPrefix(trimmed, "\"") {
-		return ""
-	}
-	var value string
-	if err := json.Unmarshal([]byte(trimmed), &value); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(value)
-}
-
-func findJSONSnippets(text string) []string {
-	data := []byte(text)
-	var snippets []string
-	for i := 0; i < len(data); i++ {
-		if data[i] != '{' && data[i] != '[' {
-			continue
-		}
-		if snippet := scanJSONSubstring(data, i); snippet != "" {
-			snippets = append(snippets, snippet)
-			i += len(snippet) - 1
-		}
-	}
-	return snippets
-}
-
 func parseToolDecisionPayload(payload []byte) ([]emulatedToolCall, bool, error) {
 	var decision struct {
 		Tools     json.RawMessage `json:"tools"`
@@ -568,100 +449,6 @@ func parseToolDecisionPayload(payload []byte) ([]emulatedToolCall, bool, error) 
 		return nil, true, nil
 	}
 	return []emulatedToolCall{call}, true, nil
-}
-
-var trailingCommaRe = regexp.MustCompile(`,\s*([}\]])`)
-
-func attemptJSONRepair(input string) string {
-	trimmed := strings.TrimSpace(input)
-	if trimmed == "" {
-		return ""
-	}
-	if !strings.ContainsAny(trimmed, "{[") {
-		return ""
-	}
-	repaired := trailingCommaRe.ReplaceAllString(trimmed, "$1")
-
-	inString := false
-	escaped := false
-	for i := 0; i < len(repaired); i++ {
-		ch := repaired[i]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if ch == '\\' {
-			escaped = true
-			continue
-		}
-		if ch == '"' {
-			inString = !inString
-		}
-	}
-	if inString {
-		repaired += `"`
-	}
-
-	openBraces := strings.Count(repaired, "{")
-	closeBraces := strings.Count(repaired, "}")
-	for i := closeBraces; i < openBraces; i++ {
-		repaired += "}"
-	}
-
-	openBrackets := strings.Count(repaired, "[")
-	closeBrackets := strings.Count(repaired, "]")
-	for i := closeBrackets; i < openBrackets; i++ {
-		repaired += "]"
-	}
-
-	return repaired
-}
-
-func scanJSONSubstring(data []byte, start int) string {
-	var stack []byte
-	inString := false
-	escape := false
-	for i := start; i < len(data); i++ {
-		ch := data[i]
-		if inString {
-			if escape {
-				escape = false
-				continue
-			}
-			if ch == '\\' {
-				escape = true
-				continue
-			}
-			if ch == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		switch ch {
-		case '"':
-			inString = true
-		case '{', '[':
-			stack = append(stack, ch)
-		case '}', ']':
-			if len(stack) == 0 {
-				return ""
-			}
-			open := stack[len(stack)-1]
-			if (open == '{' && ch != '}') || (open == '[' && ch != ']') {
-				return ""
-			}
-			stack = stack[:len(stack)-1]
-			if len(stack) == 0 {
-				snippet := string(data[start : i+1])
-				if json.Valid([]byte(snippet)) {
-					return snippet
-				}
-				return ""
-			}
-		}
-	}
-	return ""
 }
 
 func toolExists(tools []chat.Tool, name string) bool {
