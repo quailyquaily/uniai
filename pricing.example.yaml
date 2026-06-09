@@ -4,6 +4,8 @@
 # Moonshot Kimi entries refreshed on 2026-04-23 for Kimi K2.6 launch.
 # OpenAI GPT-5.5 standard rates added on 2026-04-24 from the public pricing page.
 # Claude Opus 4.8 standard rates added on 2026-05-29 from the public pricing page.
+# Claude Fable 5 and Mythos 5 standard rates added on 2026-06-10 from the
+# public pricing page.
 # DeepSeek V4 entries refreshed on 2026-05-23 from the public pricing page.
 # xAI Grok 4.3 and Grok 4.20 entries refreshed on 2026-05-13 from the official
 # docs pages.
@@ -183,6 +185,24 @@ chat:
     output_usd_per_million: 0.60
 
   # Anthropic
+  - inference_provider: anthropic
+    model: claude-fable-5
+    input_usd_per_million: 10.00
+    cached_input_usd_per_million: 1.00
+    cache_creation_input_usd_per_million: 12.50
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 12.50
+      ephemeral_1h_input_tokens: 20.00
+    output_usd_per_million: 50.00
+  - inference_provider: anthropic
+    model: claude-mythos-5
+    input_usd_per_million: 10.00
+    cached_input_usd_per_million: 1.00
+    cache_creation_input_usd_per_million: 12.50
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 12.50
+      ephemeral_1h_input_tokens: 20.00
+    output_usd_per_million: 50.00
   - inference_provider: anthropic
     model: claude-opus-4-8
     aliases:

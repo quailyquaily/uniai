@@ -786,6 +786,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"gpt-4o-mini",
 		"gpt-5.4-mini",
 		"gpt-5.4-nano",
+		"claude-fable-5",
+		"claude-mythos-5",
 		"claude-opus-4-8",
 		"claude-opus-4-7",
 		"claude-opus-4-5",
@@ -906,6 +908,36 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT55PriceMath(t *testing.T) {
 	assertNearlyEqual(t, cost.Output, 300*30.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.0131)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesClaudeFableAndMythos5PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens:        200,
+			CacheCreationInputTokens: 100,
+			Details: map[string]int{
+				"ephemeral_1h_input_tokens": 40,
+			},
+		},
+	}
+
+	for _, model := range []string{"claude-fable-5", "claude-mythos-5"} {
+		cost, ok := catalog.EstimateChatCost(model, usage)
+		if !ok {
+			t.Fatalf("expected cost estimate from pricing.example.yaml for %s", model)
+		}
+
+		assertNearlyEqual(t, cost.Input, 700*10.00/1_000_000)
+		assertNearlyEqual(t, cost.CachedInput, 200*1.00/1_000_000)
+		assertNearlyEqual(t, cost.CacheCreationInput, (40*20.00+60*12.50)/1_000_000)
+		assertNearlyEqual(t, cost.Output, 300*50.00/1_000_000)
+		assertNearlyEqual(t, cost.Total, 0.02375)
+	}
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesClaudeOpus48PriceMath(t *testing.T) {
