@@ -444,7 +444,10 @@ func applyAnthropicModelOverlay(body *anthropicRequest, model string) {
 }
 
 func anthropicDropsSamplingParameters(model string) bool {
-	return strings.Contains(model, "opus-4-7")
+	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "mythos-5") ||
+		strings.Contains(model, "opus-4-8") ||
+		strings.Contains(model, "opus-4-7")
 }
 
 func anthropicSupportsEffort(model string) bool {
@@ -452,7 +455,10 @@ func anthropicSupportsEffort(model string) bool {
 }
 
 func anthropicPrefersEffort(model string) bool {
-	return strings.Contains(model, "opus-4-7") ||
+	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "mythos-5") ||
+		strings.Contains(model, "opus-4-8") ||
+		strings.Contains(model, "opus-4-7") ||
 		strings.Contains(model, "opus-4-6") ||
 		strings.Contains(model, "sonnet-4-6")
 }

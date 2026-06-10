@@ -211,27 +211,35 @@ func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
 	}
 }
 
-func TestBuildRequestAppliesOpus47SamplingOverlay(t *testing.T) {
+func TestBuildRequestAppliesSamplingOverlayForEffortModels(t *testing.T) {
 	temperature := 0.2
 	topP := 0.9
-	req := &chat.Request{
-		Model: "models/Claude-Opus-4.7",
-		Messages: []chat.Message{
-			chat.User("hello"),
-		},
-		Options: chat.Options{
-			Temperature: &temperature,
-			TopP:        &topP,
-			Anthropic:   structs.JSONMap{"top_k": 5},
-		},
-	}
 
-	body, err := buildRequest(req, req.Model)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if body.Temperature != nil || body.TopP != nil || body.TopK != nil {
-		t.Fatalf("expected Opus 4.7 sampling params to be omitted, got temperature=%v top_p=%v top_k=%v", body.Temperature, body.TopP, body.TopK)
+	for _, model := range []string{
+		"models/Claude-Opus-4.7",
+		"claude-opus-4-8",
+		"claude-fable-5",
+		"claude-mythos-5",
+	} {
+		req := &chat.Request{
+			Model: model,
+			Messages: []chat.Message{
+				chat.User("hello"),
+			},
+			Options: chat.Options{
+				Temperature: &temperature,
+				TopP:        &topP,
+				Anthropic:   structs.JSONMap{"top_k": 5},
+			},
+		}
+
+		body, err := buildRequest(req, req.Model)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", model, err)
+		}
+		if body.Temperature != nil || body.TopP != nil || body.TopK != nil {
+			t.Fatalf("expected %s sampling params to be omitted, got temperature=%v top_p=%v top_k=%v", model, body.Temperature, body.TopP, body.TopK)
+		}
 	}
 }
 
@@ -257,6 +265,34 @@ func TestBuildRequestKeepsSamplingForOpus46(t *testing.T) {
 	}
 	if body.TopK == nil || *body.TopK != 5 {
 		t.Fatalf("expected top_k to be preserved, got %v", body.TopK)
+	}
+}
+
+func TestBuildRequestMapsReasoningEffortForNewEffortModels(t *testing.T) {
+	effort := chat.ReasoningEffortMedium
+
+	for _, model := range []string{
+		"claude-opus-4-8",
+		"claude-fable-5",
+		"claude-mythos-5",
+	} {
+		req := &chat.Request{
+			Model: model,
+			Messages: []chat.Message{
+				chat.User("hello"),
+			},
+			Options: chat.Options{
+				ReasoningEffort: &effort,
+			},
+		}
+
+		body, err := buildRequest(req, req.Model)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", model, err)
+		}
+		if body.OutputConfig == nil || body.OutputConfig.Effort != "medium" {
+			t.Fatalf("expected %s effort medium, got %#v", model, body.OutputConfig)
+		}
 	}
 }
 
