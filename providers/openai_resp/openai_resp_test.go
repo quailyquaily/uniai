@@ -914,6 +914,62 @@ func TestToResultParsesResponsesOutput(t *testing.T) {
 	}
 }
 
+func TestToResultIncludesSakanaOrchestrationTokens(t *testing.T) {
+	resp := mustDecodeResponse(t, map[string]any{
+		"id":                  "resp_sakana",
+		"object":              "response",
+		"model":               "fugu-ultra",
+		"parallel_tool_calls": true,
+		"status":              "completed",
+		"output": []any{
+			map[string]any{
+				"id":     "msg_1",
+				"type":   "message",
+				"role":   "assistant",
+				"status": "completed",
+				"content": []any{
+					map[string]any{
+						"type":        "output_text",
+						"text":        "hello",
+						"annotations": []any{},
+					},
+				},
+			},
+		},
+		"usage": map[string]any{
+			"input_tokens": 120,
+			"input_tokens_details": map[string]any{
+				"cached_tokens":                     10,
+				"orchestration_input_tokens":        20,
+				"orchestration_input_cached_tokens": 5,
+			},
+			"output_tokens": 80,
+			"output_tokens_details": map[string]any{
+				"reasoning_tokens":            0,
+				"orchestration_output_tokens": 30,
+			},
+			"total_tokens": 250,
+		},
+		"text": map[string]any{
+			"format": map[string]any{"type": "text"},
+		},
+	})
+
+	result := toResult(resp)
+	if result.Usage.InputTokens != 140 {
+		t.Fatalf("input tokens = %d, want 140", result.Usage.InputTokens)
+	}
+	if result.Usage.Cache.CachedInputTokens != 15 {
+		t.Fatalf("cached input tokens = %d, want 15", result.Usage.Cache.CachedInputTokens)
+	}
+	if result.Usage.OutputTokens != 110 {
+		t.Fatalf("output tokens = %d, want 110", result.Usage.OutputTokens)
+	}
+	if result.Usage.TotalTokens != 250 {
+		t.Fatalf("total tokens = %d, want 250", result.Usage.TotalTokens)
+	}
+}
+
 func TestResponseStatusError(t *testing.T) {
 	cases := []struct {
 		name string

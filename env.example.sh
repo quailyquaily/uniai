@@ -30,6 +30,11 @@ export TEST_DEEPSEEK_API_BASE=""
 export TEST_GROQ_API_KEY=""
 export TEST_GROQ_MODEL="llama-3.3-70b-versatile"
 
+# Sakana AI (Responses-compatible)
+export TEST_SAKANA_API_KEY=""
+export TEST_SAKANA_MODEL="fugu-ultra"
+export TEST_SAKANA_API_BASE=""
+
 # Azure OpenAI
 export TEST_AZURE_API_KEY=""
 export TEST_AZURE_ENDPOINT=""

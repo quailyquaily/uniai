@@ -124,3 +124,92 @@ func TestClientChatClonesCustomHeaders(t *testing.T) {
 		t.Fatalf("unexpected text: %q", resp.Text)
 	}
 }
+
+func TestClientChatRoutesSakanaToOpenAICompatibleResponses(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer sakana-key" {
+			t.Fatalf("expected Sakana bearer token, got %q", got)
+		}
+
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload.Model != "fugu-ultra" {
+			t.Fatalf("model = %q, want fugu-ultra", payload.Model)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"id":                  "resp_sakana_test",
+			"object":              "response",
+			"model":               "fugu-ultra",
+			"parallel_tool_calls": true,
+			"status":              "completed",
+			"output": []any{
+				map[string]any{
+					"id":     "msg_1",
+					"type":   "message",
+					"role":   "assistant",
+					"status": "completed",
+					"content": []any{
+						map[string]any{
+							"type":        "output_text",
+							"text":        "ok",
+							"annotations": []any{},
+						},
+					},
+				},
+			},
+			"usage": map[string]any{
+				"input_tokens": 120,
+				"input_tokens_details": map[string]any{
+					"cached_tokens":                     10,
+					"orchestration_input_tokens":        20,
+					"orchestration_input_cached_tokens": 5,
+				},
+				"output_tokens": 80,
+				"output_tokens_details": map[string]any{
+					"reasoning_tokens":            0,
+					"orchestration_output_tokens": 30,
+				},
+				"total_tokens": 250,
+			},
+			"text": map[string]any{
+				"format": map[string]any{"type": "text"},
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "sakana",
+		OpenAIAPIKey:  "sakana-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "fugu-ultra",
+	})
+
+	resp, err := client.Chat(context.Background(), chat.WithMessages(chat.User("hello")))
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+	if resp.Usage.InputTokens != 140 {
+		t.Fatalf("input tokens = %d, want 140", resp.Usage.InputTokens)
+	}
+	if resp.Usage.Cache.CachedInputTokens != 15 {
+		t.Fatalf("cached input tokens = %d, want 15", resp.Usage.Cache.CachedInputTokens)
+	}
+	if resp.Usage.OutputTokens != 110 {
+		t.Fatalf("output tokens = %d, want 110", resp.Usage.OutputTokens)
+	}
+}

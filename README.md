@@ -6,7 +6,7 @@
 
 ## Features
 
-- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
+- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq), Sakana AI, Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
 - Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
@@ -71,6 +71,7 @@ Supported provider names:
 - `deepseek` (OpenAI-compatible)
 - `xai` (OpenAI-compatible)
 - `groq` (OpenAI-compatible)
+- `sakana` (Sakana AI Responses-compatible)
 - `gemini` (native Gemini API)
 - `azure`
 - `anthropic`
@@ -91,9 +92,10 @@ Practical differences:
 
 - `openai` uses `/v1/chat/completions`
 - `openai_resp` uses `/v1/responses`
-- `openai` is the safer choice for OpenAI-compatible endpoints such as DeepSeek, xAI, Groq, or custom compatible bases
-- `openai_resp` is the right choice for current OpenAI-only features such as `previous_response_id` and `WithReasoningDetails()`
+- `openai` is the safer choice for Chat Completions-compatible endpoints such as DeepSeek, xAI, Groq, or custom compatible bases
+- `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and `WithReasoningDetails()`
 - `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
+- `sakana` uses Sakana's Responses-compatible endpoint through the same request path as `openai_resp`
 
 Important GPT-5.4 edge case:
 
@@ -320,7 +322,7 @@ resp, err := client.Chat(ctx,
 
 Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
 
-Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
+Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`), Sakana (`sakana`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
 
 For OpenAI Chat Completions streaming providers (`openai`, OpenAI-compatible providers, and Azure), `StreamEvent.Raw` is the current SDK chunk on delta events. On the final `Done` event, `StreamEvent.Raw` and the returned `Result.Raw` contain the complete `[]openai.ChatCompletionChunk` stream.
 
@@ -470,6 +472,7 @@ All configuration is provided via `uniai.Config`. Only the fields required for t
 
 - Chat defaults: `Provider`, `Debug`, `ChatHeaders`, `Pricing` (`ChatHeaders` apply to chat provider HTTP requests only; `Pricing` overrides the embedded default pricing catalog used for `Usage.Cost`)
 - OpenAI/OpenAI-compatible: `OpenAIAPIKey`, `OpenAIAPIBase`, `OpenAIModel`
+- Sakana AI: use `Provider: "sakana"` with `OpenAIAPIKey`, `OpenAIModel`, and optional `OpenAIAPIBase` override
 - Azure OpenAI: `AzureOpenAIAPIKey`, `AzureOpenAIEndpoint`, `AzureOpenAIModel`
 - Anthropic: `AnthropicAPIKey`, `AnthropicAPIBase`, `AnthropicModel`
 - AWS Bedrock: `AwsKey`, `AwsSecret`, `AwsRegion`, `AwsBedrockModelArn`
@@ -541,7 +544,7 @@ GOCACHE=/tmp/go-build go test ./... -run TestOtherFeatures
 
 Integration tests are enabled by env vars. Common ones:
 
-- Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`, `TEST_GROQ_API_KEY`, `TEST_GROQ_MODEL`
+- Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`, `TEST_GROQ_API_KEY`, `TEST_GROQ_MODEL`, `TEST_SAKANA_API_KEY`, `TEST_SAKANA_MODEL`
 - Cloudflare chat/audio: `TEST_CLOUDFLARE_ACCOUNT_ID`, `TEST_CLOUDFLARE_API_TOKEN`, `TEST_CLOUDFLARE_TEXT_MODEL`, `TEST_CLOUDFLARE_AUDIO_MODEL`, `TEST_CLOUDFLARE_AUDIO_FILEPATH`, `TEST_CLOUDFLARE_API_BASE`
 - Embedding/image/rerank/classify: see `env.example.sh`
 

@@ -326,6 +326,22 @@ func pickChatConfigs() []chatConfig {
 		}
 	}
 
+	if key := env("TEST_SAKANA_API_KEY"); key != "" {
+		model := env("TEST_SAKANA_MODEL")
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "sakana",
+				model:    model,
+				cfg: Config{
+					Provider:      "sakana",
+					OpenAIAPIKey:  key,
+					OpenAIAPIBase: env("TEST_SAKANA_API_BASE"),
+					OpenAIModel:   model,
+				},
+			})
+		}
+	}
+
 	if key := env("TEST_AZURE_API_KEY"); key != "" {
 		endpoint := env("TEST_AZURE_ENDPOINT")
 		model := env("TEST_AZURE_MODEL")

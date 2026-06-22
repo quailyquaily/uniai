@@ -827,14 +827,7 @@ func toResult(resp *responses.Response) *chat.Result {
 		return &chat.Result{Warnings: []string{"openai responses response is nil"}}
 	}
 
-	usage := chat.Usage{
-		InputTokens:  int(resp.Usage.InputTokens),
-		OutputTokens: int(resp.Usage.OutputTokens),
-		TotalTokens:  int(resp.Usage.TotalTokens),
-	}
-	if cached := int(resp.Usage.InputTokensDetails.CachedTokens); cached > 0 {
-		usage.Cache.CachedInputTokens = cached
-	}
+	usage := responseUsageToChatUsage(resp.Usage)
 
 	result := &chat.Result{
 		ID:    resp.ID,
@@ -911,6 +904,45 @@ func toResult(resp *responses.Response) *chat.Result {
 	}
 	chat.EnsureResultParts(result)
 	return result
+}
+
+func responseUsageToChatUsage(usage responses.ResponseUsage) chat.Usage {
+	inputTokens := int(usage.InputTokens)
+	outputTokens := int(usage.OutputTokens)
+	cachedInputTokens := int(usage.InputTokensDetails.CachedTokens)
+
+	var inputDetails struct {
+		OrchestrationInputTokens       int `json:"orchestration_input_tokens"`
+		OrchestrationInputCachedTokens int `json:"orchestration_input_cached_tokens"`
+	}
+	if raw := strings.TrimSpace(usage.InputTokensDetails.RawJSON()); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &inputDetails)
+	}
+	if inputDetails.OrchestrationInputTokens > 0 {
+		inputTokens += inputDetails.OrchestrationInputTokens
+	}
+	if inputDetails.OrchestrationInputCachedTokens > 0 {
+		cachedInputTokens += inputDetails.OrchestrationInputCachedTokens
+	}
+
+	var outputDetails struct {
+		OrchestrationOutputTokens int `json:"orchestration_output_tokens"`
+	}
+	if raw := strings.TrimSpace(usage.OutputTokensDetails.RawJSON()); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &outputDetails)
+	}
+	if outputDetails.OrchestrationOutputTokens > 0 {
+		outputTokens += outputDetails.OrchestrationOutputTokens
+	}
+
+	return chat.Usage{
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  int(usage.TotalTokens),
+		Cache: chat.UsageCache{
+			CachedInputTokens: cachedInputTokens,
+		},
+	}
 }
 
 func extractOutputMessage(msg responses.ResponseOutputMessage) (string, []chat.Part) {

@@ -22,3 +22,18 @@ func TestConfigPreservesCustomAnthropicAPIBase(t *testing.T) {
 		t.Fatalf("Anthropic API base = %q", cfg.APIBase)
 	}
 }
+
+func TestConfigSakanaUsesBuiltInAPIBase(t *testing.T) {
+	client := New(Config{
+		Provider:    "sakana",
+		OpenAIModel: "fugu-ultra",
+	})
+
+	cfg := client.GetConfig()
+	if cfg.APIBase != sakanaAPIBase {
+		t.Fatalf("Sakana API base = %q, want %q", cfg.APIBase, sakanaAPIBase)
+	}
+	if cfg.Model != "fugu-ultra" {
+		t.Fatalf("Sakana model = %q", cfg.Model)
+	}
+}

@@ -840,6 +840,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"grok-4.2-non-reasoning",
 		"grok-4.1-fast-reasoning",
 		"grok-4-1-fast-reasoning",
+		"fugu-ultra",
+		"fugu-ultra-20260615",
 	}
 	for _, model := range mustHave {
 		if !catalogHasRule(catalog, model) {
@@ -908,6 +910,50 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT55PriceMath(t *testing.T) {
 	assertNearlyEqual(t, cost.Output, 300*30.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.0131)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesSakanaFuguUltraPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  140,
+		OutputTokens: 110,
+		TotalTokens:  250,
+		Cache: UsageCache{
+			CachedInputTokens: 15,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCostWithInferenceProvider("sakana", "fugu-ultra-20260615", usage)
+	if !ok {
+		t.Fatal("expected cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 125*5.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 15*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Output, 110*30.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 0.0039325)
+
+	longUsage := Usage{
+		InputTokens:  272001,
+		OutputTokens: 100,
+		TotalTokens:  272101,
+		Cache: UsageCache{
+			CachedInputTokens: 1,
+		},
+	}
+
+	longCost, ok := catalog.EstimateChatCost("fugu-ultra", longUsage)
+	if !ok {
+		t.Fatal("expected alias cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, longCost.Input, 272000*10.00/1_000_000)
+	assertNearlyEqual(t, longCost.CachedInput, 1*1.00/1_000_000)
+	assertNearlyEqual(t, longCost.Output, 100*45.00/1_000_000)
+	assertNearlyEqual(t, longCost.CacheCreationInput, 0)
+	assertNearlyEqual(t, longCost.Total, 2.724501)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesClaudeFableAndMythos5PriceMath(t *testing.T) {

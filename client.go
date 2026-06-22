@@ -236,6 +236,19 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		}
 		return p.Chat(ctx, req)
 
+	case "sakana":
+		p, err := openairesp.New(openairesp.Config{
+			APIKey:       c.cfg.OpenAIAPIKey,
+			BaseURL:      resolveSakanaAPIBase(c.cfg.OpenAIAPIBase),
+			DefaultModel: c.cfg.OpenAIModel,
+			Headers:      c.cfg.ChatHeaders,
+			Debug:        c.cfg.Debug,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p.Chat(ctx, req)
+
 	case "gemini":
 		apiKey := c.cfg.GeminiAPIKey
 		if apiKey == "" {

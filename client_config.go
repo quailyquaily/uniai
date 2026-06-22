@@ -4,6 +4,7 @@ const (
 	deepseekAPIBase = "https://api.deepseek.com"
 	xaiAPIBase      = "https://api.x.ai/v1"
 	groqAPIBase     = "https://api.groq.com/openai/v1"
+	sakanaAPIBase   = "https://api.sakana.ai/v1"
 )
 
 // ClientConfigView is a non-sensitive view of runtime client config.
@@ -39,6 +40,9 @@ func (c *Client) GetConfig() ClientConfigView {
 	case "groq":
 		out.Model = c.cfg.OpenAIModel
 		out.APIBase = groqAPIBase
+	case "sakana":
+		out.Model = c.cfg.OpenAIModel
+		out.APIBase = resolveSakanaAPIBase(c.cfg.OpenAIAPIBase)
 	case "gemini":
 		out.Model = c.cfg.GeminiModel
 		if out.Model == "" {
@@ -64,4 +68,11 @@ func (c *Client) GetConfig() ClientConfigView {
 	}
 
 	return out
+}
+
+func resolveSakanaAPIBase(openAIAPIBase string) string {
+	if openAIAPIBase == "" || openAIAPIBase == DefaultOpenAIAPIBase {
+		return sakanaAPIBase
+	}
+	return openAIAPIBase
 }

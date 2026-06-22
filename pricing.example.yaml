@@ -14,6 +14,7 @@
 # OpenAI GPT Image 1 and Gemini image-generation preview pricing added on
 # 2026-05-14 from the public pricing pages.
 # Gemini 3.5 Flash pricing added on 2026-05-20 from the public pricing page.
+# Sakana Fugu Ultra pricing added on 2026-06-22 from the public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
 # This example includes chat token rates and image-generation token rates that
@@ -45,6 +46,7 @@
 # - Groq: https://console.groq.com/docs/models
 # - Groq GPT-OSS cached pricing: https://console.groq.com/docs/model/openai/gpt-oss-120b
 # - Cloudflare: https://developers.cloudflare.com/workers-ai/platform/pricing/
+# - Sakana AI: https://console.sakana.ai/pricing
 #
 # Notes:
 # - This example includes current GPT-5.5 / GPT-5 / GPT-5.2 / GPT-4o text pricing and keeps
@@ -60,6 +62,9 @@
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
 # - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
+# - Sakana `fugu-ultra-20260615` higher-context pricing below uses `>272000`
+#   input tokens. The `fugu` model is not listed because Sakana prices it by
+#   the selected underlying model.
 # - Gemini Flash entries below use the text / image / video tier.
 # - Runtime price lookup matches by `model` / `aliases` by default, not by the
 #   client's driver/provider name. Callers can optionally pass an explicit
@@ -90,6 +95,7 @@ pricing_references:
     xai: "https://docs.x.ai/developers/models"
     groq: "https://console.groq.com/docs/models"
     cloudflare: "https://developers.cloudflare.com/workers-ai/platform/pricing/"
+    sakana: "https://console.sakana.ai/pricing"
     qwen: "https://help.aliyun.com/zh/model-studio/model-pricing"
     doubao: "https://www.volcengine.com/docs/82379/1544106"
 
@@ -183,6 +189,20 @@ chat:
     input_usd_per_million: 0.15
     cached_input_usd_per_million: 0.075
     output_usd_per_million: 0.60
+
+  # Sakana AI
+  - inference_provider: sakana
+    model: fugu-ultra-20260615
+    aliases:
+      - fugu-ultra
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 5.00
+        cached_input_usd_per_million: 0.50
+        output_usd_per_million: 30.00
+      - input_usd_per_million: 10.00
+        cached_input_usd_per_million: 1.00
+        output_usd_per_million: 45.00
 
   # Anthropic
   - inference_provider: anthropic
