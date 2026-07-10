@@ -66,7 +66,7 @@ For each message:
 
 ## Provider Support Matrix (Current)
 
-- OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`): supports `user` `text`, `image_url`, `image_base64`.
+- OpenAI-compatible (`openai`, `deepseek`, `xai`, `groq`, `meta`): supports `user` `text`, `image_url`, `image_base64`.
 - Azure (`azure`): same mapping path as OpenAI-compatible.
 - Gemini (`gemini`):
   - supports `user` `text` and `image_base64`
@@ -86,6 +86,7 @@ The table below combines model-level capability reference and current `uniai` su
 | OpenAI (GPT-5/5.1, GPT-4.1, GPT-4o, o3) | Supports image input | Supported | `openai`, `azure` | `image_url`, `image_base64` |
 | Google Gemini (3.1/2.5 family) | Supports image input | Partially supported | `gemini` | `image_base64` only (`image_url` rejected) |
 | xAI Grok | Some models support image input | Supported (OpenAI-compatible path) | `xai` | `image_url`, `image_base64` |
+| Meta Muse Spark | Supports multimodal input | Supported (OpenAI-compatible path) | `meta` | `image_url`, `image_base64` |
 | Anthropic Claude | Claude 3+ and current models support image input | Supported | `anthropic` | `image_url`, `image_base64` |
 | Moonshot Kimi K2.5 on Workers AI | Supports vision inputs | Supported on native Cloudflare `messages` path | `cloudflare` | `image_url`, `image_base64` |
 | Mistral Vision models | Vision-capable models available | Conditionally supported | `openai` + `OpenAIAPIBase` (when backend is OpenAI-compatible) | Backend-dependent (typically `image_url` / `image_base64`) |
@@ -97,6 +98,7 @@ References:
 - OpenAI GPT-5: <https://developers.openai.com/api/docs/models/gpt-5>
 - OpenAI GPT-4.1: <https://developers.openai.com/api/docs/models/gpt-4.1>
 - OpenAI o3: <https://developers.openai.com/api/docs/models/o3>
+- Meta Muse Spark 1.1: <https://ai.meta.com/blog/introducing-muse-spark-meta-model-api/>
 - Anthropic model overview: <https://platform.claude.com/docs/en/about-claude/models/overview>
 - Anthropic files docs (Claude 3+ image support note): <https://platform.claude.com/docs/en/build-with-claude/files>
 - Anthropic vision docs: <https://platform.claude.com/docs/en/build-with-claude/vision>

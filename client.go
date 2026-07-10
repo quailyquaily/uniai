@@ -200,7 +200,7 @@ func (c *Client) resolveChatRequestedModel(providerName string, req *chat.Reques
 
 func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Request) (*chat.Result, error) {
 	switch providerName {
-	case "openai", "deepseek", "xai", "groq":
+	case "openai", "deepseek", "xai", "groq", "meta":
 		base := c.cfg.OpenAIAPIBase
 		switch providerName {
 		case "deepseek":
@@ -209,6 +209,8 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			base = xaiAPIBase
 		case "groq":
 			base = groqAPIBase
+		case "meta":
+			base = resolveMetaAPIBase(c.cfg.OpenAIAPIBase)
 		}
 
 		p, err := openai.New(openai.Config{

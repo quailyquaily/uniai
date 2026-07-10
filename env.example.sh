@@ -30,6 +30,11 @@ export TEST_DEEPSEEK_API_BASE=""
 export TEST_GROQ_API_KEY=""
 export TEST_GROQ_MODEL="llama-3.3-70b-versatile"
 
+# Meta Model API (OpenAI-compatible)
+export TEST_META_API_KEY=""
+export TEST_META_MODEL="muse-spark-1.1"
+export TEST_META_API_BASE=""
+
 # Sakana AI (Responses-compatible)
 export TEST_SAKANA_API_KEY=""
 export TEST_SAKANA_MODEL="fugu-ultra"

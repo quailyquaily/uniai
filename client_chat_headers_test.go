@@ -213,3 +213,65 @@ func TestClientChatRoutesSakanaToOpenAICompatibleResponses(t *testing.T) {
 		t.Fatalf("output tokens = %d, want 110", resp.Usage.OutputTokens)
 	}
 }
+
+func TestClientChatRoutesMetaToOpenAICompatibleChatCompletions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer meta-key" {
+			t.Fatalf("expected Meta bearer token, got %q", got)
+		}
+
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload.Model != "muse-spark-1.1" {
+			t.Fatalf("model = %q, want muse-spark-1.1", payload.Model)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl_meta_test",
+			"object":  "chat.completion",
+			"created": 0,
+			"model":   "muse-spark-1.1",
+			"choices": []map[string]any{
+				{
+					"index": 0,
+					"message": map[string]any{
+						"role":    "assistant",
+						"content": "ok",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]any{
+				"prompt_tokens":     1,
+				"completion_tokens": 1,
+				"total_tokens":      2,
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Provider:      "meta",
+		OpenAIAPIKey:  "meta-key",
+		OpenAIAPIBase: server.URL + "/v1",
+		OpenAIModel:   "muse-spark-1.1",
+	})
+
+	resp, err := client.Chat(context.Background(), chat.WithMessages(chat.User("hello")))
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if resp.Text != "ok" {
+		t.Fatalf("unexpected text: %q", resp.Text)
+	}
+}

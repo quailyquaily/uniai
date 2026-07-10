@@ -857,6 +857,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"grok-4.2-non-reasoning",
 		"grok-4.1-fast-reasoning",
 		"grok-4-1-fast-reasoning",
+		"muse-spark-1.1",
 		"fugu-ultra",
 		"fugu-ultra-20260615",
 	}
@@ -878,6 +879,38 @@ func TestPricingExampleYAML(t *testing.T) {
 		if catalogHasRule(catalog, model) {
 			t.Fatalf("pricing.example.yaml should not contain rule %s", model)
 		}
+	}
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesMetaMuseSpark11PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+	}
+
+	cost, ok := catalog.EstimateChatCostWithInferenceProvider("meta", "muse-spark-1.1", usage)
+	if !ok {
+		t.Fatal("expected Meta Muse Spark 1.1 cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 1000*1.25/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*4.25/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.002525)
+}
+
+func TestPricingExampleYAMLMetaProviderDoesNotMatchGroqLlama(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	_, ok := catalog.EstimateChatCostWithInferenceProvider("meta", "llama-3.3-70b-versatile", Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+	})
+	if ok {
+		t.Fatal("Meta provider pricing should not match Groq-hosted Llama pricing")
 	}
 }
 

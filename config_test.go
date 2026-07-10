@@ -37,3 +37,31 @@ func TestConfigSakanaUsesBuiltInAPIBase(t *testing.T) {
 		t.Fatalf("Sakana model = %q", cfg.Model)
 	}
 }
+
+func TestConfigMetaUsesBuiltInAPIBase(t *testing.T) {
+	client := New(Config{
+		Provider:    "meta",
+		OpenAIModel: "muse-spark-1.1",
+	})
+
+	cfg := client.GetConfig()
+	if cfg.APIBase != metaAPIBase {
+		t.Fatalf("Meta API base = %q, want %q", cfg.APIBase, metaAPIBase)
+	}
+	if cfg.Model != "muse-spark-1.1" {
+		t.Fatalf("Meta model = %q", cfg.Model)
+	}
+}
+
+func TestConfigMetaPreservesCustomOpenAIAPIBase(t *testing.T) {
+	client := New(Config{
+		Provider:      "meta",
+		OpenAIAPIBase: "https://example.test/meta/v1",
+		OpenAIModel:   "muse-spark-1.1",
+	})
+
+	cfg := client.GetConfig()
+	if cfg.APIBase != "https://example.test/meta/v1" {
+		t.Fatalf("Meta API base = %q", cfg.APIBase)
+	}
+}

@@ -5,6 +5,7 @@ const (
 	xaiAPIBase      = "https://api.x.ai/v1"
 	groqAPIBase     = "https://api.groq.com/openai/v1"
 	sakanaAPIBase   = "https://api.sakana.ai/v1"
+	metaAPIBase     = "https://api.ai.meta.com/v1"
 )
 
 // ClientConfigView is a non-sensitive view of runtime client config.
@@ -43,6 +44,9 @@ func (c *Client) GetConfig() ClientConfigView {
 	case "sakana":
 		out.Model = c.cfg.OpenAIModel
 		out.APIBase = resolveSakanaAPIBase(c.cfg.OpenAIAPIBase)
+	case "meta":
+		out.Model = c.cfg.OpenAIModel
+		out.APIBase = resolveMetaAPIBase(c.cfg.OpenAIAPIBase)
 	case "gemini":
 		out.Model = c.cfg.GeminiModel
 		if out.Model == "" {
@@ -73,6 +77,13 @@ func (c *Client) GetConfig() ClientConfigView {
 func resolveSakanaAPIBase(openAIAPIBase string) string {
 	if openAIAPIBase == "" || openAIAPIBase == DefaultOpenAIAPIBase {
 		return sakanaAPIBase
+	}
+	return openAIAPIBase
+}
+
+func resolveMetaAPIBase(openAIAPIBase string) string {
+	if openAIAPIBase == "" || openAIAPIBase == DefaultOpenAIAPIBase {
+		return metaAPIBase
 	}
 	return openAIAPIBase
 }

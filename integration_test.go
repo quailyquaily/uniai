@@ -326,6 +326,22 @@ func pickChatConfigs() []chatConfig {
 		}
 	}
 
+	if key := env("TEST_META_API_KEY"); key != "" {
+		model := env("TEST_META_MODEL")
+		if model != "" {
+			out = append(out, chatConfig{
+				provider: "meta",
+				model:    model,
+				cfg: Config{
+					Provider:      "meta",
+					OpenAIAPIKey:  key,
+					OpenAIAPIBase: env("TEST_META_API_BASE"),
+					OpenAIModel:   model,
+				},
+			})
+		}
+	}
+
 	if key := env("TEST_SAKANA_API_KEY"); key != "" {
 		model := env("TEST_SAKANA_MODEL")
 		if model != "" {
