@@ -522,6 +522,9 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	if !catalogHasRule(catalog, "gpt-5.5") {
 		t.Fatal("expected embedded default pricing catalog to include gpt-5.5")
 	}
+	if !catalogHasRule(catalog, "gpt-5.6") {
+		t.Fatal("expected embedded default pricing catalog to include gpt-5.6")
+	}
 
 	catalog.Chat = nil
 
@@ -531,6 +534,9 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	}
 	if !catalogHasRule(again, "gpt-5.5") {
 		t.Fatal("expected embedded default pricing catalog clone to stay intact")
+	}
+	if !catalogHasRule(again, "gpt-5.6") {
+		t.Fatal("expected embedded default pricing catalog clone to include gpt-5.6")
 	}
 }
 
@@ -777,7 +783,12 @@ func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	mustHave := []string{
+		"gpt-5.6",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
 		"gpt-5.5",
+		"gpt-5.5-pro",
 		"gpt-5.4",
 		"gpt-5.4-pro",
 		"gpt-5.2",
@@ -796,6 +807,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-sonnet-4-5",
 		"claude-sonnet-4-6-20260201",
 		"claude-sonnet-4-6",
+		"claude-sonnet-5",
 		"claude-haiku-4-5",
 		"gemini-3.5-flash",
 		"gemini-3-pro-preview",
@@ -824,6 +836,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"deepseek-v4-pro",
 		"deepseek-chat",
 		"deepseek-reasoner",
+		"grok-4.5",
+		"grok-4.5-latest",
 		"grok-4.3",
 		"grok-4.3-latest",
 		"grok-latest",
@@ -834,6 +848,9 @@ func TestPricingExampleYAML(t *testing.T) {
 		"grok-4.2",
 		"grok-4.2-reasoning",
 		"grok-4.20-0309",
+		"grok-4.20-multi-agent-0309",
+		"grok-4.20-multi-agent",
+		"grok-4.20-multi-agent-latest",
 		"grok-4.20-0309-non-reasoning",
 		"grok-4.20-non-reasoning",
 		"grok-4.20-non-reasoning-latest",
@@ -912,6 +929,31 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT55PriceMath(t *testing.T) {
 	assertNearlyEqual(t, cost.Total, 0.0131)
 }
 
+func TestPricingExampleYAMLEstimateChatCostMatchesGPT56PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens:        200,
+			CacheCreationInputTokens: 100,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("gpt-5.6", usage)
+	if !ok {
+		t.Fatal("expected cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 700*5.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 100*6.25/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*30.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.013225)
+}
+
 func TestPricingExampleYAMLEstimateChatCostMatchesSakanaFuguUltraPriceMath(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
@@ -984,6 +1026,34 @@ func TestPricingExampleYAMLEstimateChatCostMatchesClaudeFableAndMythos5PriceMath
 		assertNearlyEqual(t, cost.Output, 300*50.00/1_000_000)
 		assertNearlyEqual(t, cost.Total, 0.02375)
 	}
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesClaudeSonnet5PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens:        200,
+			CacheCreationInputTokens: 100,
+			Details: map[string]int{
+				"ephemeral_1h_input_tokens": 40,
+			},
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("claude-sonnet-5", usage)
+	if !ok {
+		t.Fatal("expected cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 700*2.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.20/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, (40*4.00+60*2.50)/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*10.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00475)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesClaudeOpus48PriceMath(t *testing.T) {
@@ -1141,6 +1211,29 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok43PriceMath(t *testing.T) 
 	assertNearlyEqual(t, cost.Total, 0.00179)
 }
 
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok45PriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.5-latest", usage)
+	if !ok {
+		t.Fatal("expected grok-4.5 cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800*2.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*6.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.0035)
+}
+
 func TestPricingExampleYAMLEstimateChatCostMatchesGrok43LongContextPriceMath(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
@@ -1191,6 +1284,35 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok420PriceMath(t *testing.T)
 		t.Fatal("expected grok-4.20 non-reasoning cost estimate from pricing.example.yaml")
 	}
 	assertNearlyEqual(t, nonReasoningCost.Total, cost.Total)
+
+	multiAgentCost, ok := catalog.EstimateChatCost("grok-4.20-multi-agent", usage)
+	if !ok {
+		t.Fatal("expected grok-4.20 multi-agent cost estimate from pricing.example.yaml")
+	}
+	assertNearlyEqual(t, multiAgentCost.Total, cost.Total)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok420MultiAgentLongContextPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  200001,
+		OutputTokens: 300,
+		TotalTokens:  200301,
+		Cache: UsageCache{
+			CachedInputTokens: 1000,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.20-multi-agent", usage)
+	if !ok {
+		t.Fatal("expected grok-4.20 multi-agent long-context cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 199001*2.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 1000*0.40/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*5.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.4994025)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesMistralPriceMath(t *testing.T) {
@@ -1409,6 +1531,33 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesGPTImage1PriceMath(t *t
 	assertNearlyEqual(t, resp.Usage.Cost.CachedInput, (2*1.25+1*2.50)/1_000_000)
 	assertNearlyEqual(t, resp.Usage.Cost.Output, 100*40.00/1_000_000)
 	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.004085)
+}
+
+func TestPricingExampleYAMLAnnotateImageResultCostMatchesGPTImage15ImageOutputPriceMath(t *testing.T) {
+	client := New(Config{
+		Pricing: loadExamplePricingCatalog(t),
+	})
+	resp := &imagepkg.Result{
+		Usage: imagepkg.CreateImageUsage{
+			InputTokens:       15,
+			InputTextTokens:   10,
+			InputImageTokens:  5,
+			CachedTextTokens:  2,
+			CachedImageTokens: 1,
+			OutputTokens:      100,
+			TotalTokens:       115,
+		},
+	}
+
+	client.annotateImageResultCost("openai", "gpt-image-1.5", resp)
+	if resp.Usage.Cost == nil {
+		t.Fatal("expected gpt-image-1.5 image usage cost from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, resp.Usage.Cost.Input, (8*5.00+4*8.00)/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.CachedInput, (2*1.25+1*2.00)/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Output, 100*32.00/1_000_000)
+	assertNearlyEqual(t, resp.Usage.Cost.Total, 0.0032765)
 }
 
 func TestPricingExampleYAMLEstimateImageCostMatchesGeminiImagePriceMath(t *testing.T) {
