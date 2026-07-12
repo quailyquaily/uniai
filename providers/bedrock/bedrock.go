@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/bedrockruntime"
-	"github.com/aws/aws-sdk-go/service/bedrockruntime/bedrockruntimeiface"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
@@ -29,10 +28,37 @@ type Config struct {
 }
 
 type Provider struct {
-	client   bedrockruntimeiface.BedrockRuntimeAPI
+	client   bedrockRuntimeClient
 	modelArn string
 	headers  map[string]string
 	debug    bool
+}
+
+type bedrockRuntimeClient interface {
+	InvokeModel(context.Context, *bedrockruntime.InvokeModelInput, ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error)
+	InvokeModelWithResponseStream(context.Context, *bedrockruntime.InvokeModelWithResponseStreamInput, ...func(*bedrockruntime.Options)) (bedrockResponseStream, error)
+}
+
+type bedrockRuntimeClientAdapter struct {
+	client *bedrockruntime.Client
+}
+
+func (c bedrockRuntimeClientAdapter) InvokeModel(ctx context.Context, input *bedrockruntime.InvokeModelInput, optFns ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error) {
+	return c.client.InvokeModel(ctx, input, optFns...)
+}
+
+func (c bedrockRuntimeClientAdapter) InvokeModelWithResponseStream(ctx context.Context, input *bedrockruntime.InvokeModelWithResponseStreamInput, optFns ...func(*bedrockruntime.Options)) (bedrockResponseStream, error) {
+	out, err := c.client.InvokeModelWithResponseStream(ctx, input, optFns...)
+	if err != nil {
+		return nil, err
+	}
+	return out.GetStream(), nil
+}
+
+type bedrockResponseStream interface {
+	Events() <-chan types.ResponseStream
+	Close() error
+	Err() error
 }
 
 func New(cfg Config) *Provider {
@@ -40,12 +66,12 @@ func New(cfg Config) *Provider {
 	if region == "" {
 		region = "us-east-1"
 	}
-	sess := session.Must(session.NewSession(&aws.Config{
-		Region:      aws.String(region),
-		Credentials: credentials.NewStaticCredentials(cfg.AwsKey, cfg.AwsSecret, cfg.AwsSessionToken),
-	}))
+	awsCfg := aws.Config{
+		Region:      region,
+		Credentials: credentials.NewStaticCredentialsProvider(cfg.AwsKey, cfg.AwsSecret, cfg.AwsSessionToken),
+	}
 	return &Provider{
-		client:   bedrockruntime.New(sess),
+		client:   bedrockRuntimeClientAdapter{client: bedrockruntime.NewFromConfig(awsCfg)},
 		modelArn: cfg.ModelArn,
 		headers:  httputil.CloneHeaders(cfg.Headers),
 		debug:    cfg.Debug,
@@ -155,7 +181,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return result, nil
 	}
 
-	resp, err := p.client.InvokeModelWithContext(ctx, &bedrockruntime.InvokeModelInput{
+	resp, err := p.client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
 		ModelId:     aws.String(p.modelArn),
 		Body:        body,
 		Accept:      aws.String("application/json"),
@@ -218,7 +244,7 @@ type bedrockStreamEvent struct {
 }
 
 func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.OnStreamFunc, tools []chat.Tool) (*chat.Result, error) {
-	resp, err := p.client.InvokeModelWithResponseStreamWithContext(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
+	stream, err := p.client.InvokeModelWithResponseStream(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
 		ModelId:     aws.String(p.modelArn),
 		Body:        body,
 		Accept:      aws.String("application/json"),
@@ -227,7 +253,6 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 	if err != nil {
 		return nil, err
 	}
-	stream := resp.GetStream()
 	defer stream.Close()
 
 	var (
@@ -237,13 +262,13 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 	)
 
 	for event := range stream.Events() {
-		chunk, ok := event.(*bedrockruntime.PayloadPart)
-		if !ok || len(chunk.Bytes) == 0 {
+		chunk, ok := event.(*types.ResponseStreamMemberChunk)
+		if !ok || len(chunk.Value.Bytes) == 0 {
 			continue
 		}
 
 		var ev bedrockStreamEvent
-		if err := json.Unmarshal(chunk.Bytes, &ev); err != nil {
+		if err := json.Unmarshal(chunk.Value.Bytes, &ev); err != nil {
 			continue
 		}
 
@@ -348,11 +373,18 @@ func isASCIIDigit(ch byte) bool {
 	return ch >= '0' && ch <= '9'
 }
 
-func (p *Provider) requestOptions() []request.Option {
+func (p *Provider) requestOptions() []func(*bedrockruntime.Options) {
 	if len(p.headers) == 0 {
 		return nil
 	}
-	return []request.Option{request.WithSetRequestHeaders(p.headers)}
+	headers := httputil.CloneHeaders(p.headers)
+	return []func(*bedrockruntime.Options){
+		func(opts *bedrockruntime.Options) {
+			for key, value := range headers {
+				opts.APIOptions = append(opts.APIOptions, smithyhttp.SetHeaderValue(key, value))
+			}
+		},
+	}
 }
 
 func validateBedrockCacheControl(req *chat.Request, modelArn string) error {
