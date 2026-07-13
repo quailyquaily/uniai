@@ -914,6 +914,7 @@ func responseUsageToChatUsage(usage responses.ResponseUsage) chat.Usage {
 	var inputDetails struct {
 		OrchestrationInputTokens       int `json:"orchestration_input_tokens"`
 		OrchestrationInputCachedTokens int `json:"orchestration_input_cached_tokens"`
+		CacheWriteTokens               int `json:"cache_write_tokens"`
 	}
 	if raw := strings.TrimSpace(usage.InputTokensDetails.RawJSON()); raw != "" {
 		_ = json.Unmarshal([]byte(raw), &inputDetails)
@@ -940,7 +941,8 @@ func responseUsageToChatUsage(usage responses.ResponseUsage) chat.Usage {
 		OutputTokens: outputTokens,
 		TotalTokens:  int(usage.TotalTokens),
 		Cache: chat.UsageCache{
-			CachedInputTokens: cachedInputTokens,
+			CachedInputTokens:        cachedInputTokens,
+			CacheCreationInputTokens: inputDetails.CacheWriteTokens,
 		},
 	}
 }

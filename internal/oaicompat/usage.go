@@ -37,13 +37,31 @@ func ChatCompletionCachedInputTokens(usage openai.CompletionUsage) int {
 	return int(*fallback.CachedTokens)
 }
 
+// ChatCompletionCacheWriteTokens extracts prompt tokens written to cache from
+// an OpenAI Chat Completions usage payload.
+func ChatCompletionCacheWriteTokens(usage openai.CompletionUsage) int {
+	raw := strings.TrimSpace(usage.PromptTokensDetails.RawJSON())
+	if raw == "" {
+		return 0
+	}
+
+	var details struct {
+		CacheWriteTokens int `json:"cache_write_tokens"`
+	}
+	if err := json.Unmarshal([]byte(raw), &details); err != nil {
+		return 0
+	}
+	return details.CacheWriteTokens
+}
+
 func ChatCompletionUsageToChatUsage(usage openai.CompletionUsage) chat.Usage {
 	return chat.Usage{
 		InputTokens:  int(usage.PromptTokens),
 		OutputTokens: int(usage.CompletionTokens),
 		TotalTokens:  int(usage.TotalTokens),
 		Cache: chat.UsageCache{
-			CachedInputTokens: ChatCompletionCachedInputTokens(usage),
+			CachedInputTokens:        ChatCompletionCachedInputTokens(usage),
+			CacheCreationInputTokens: ChatCompletionCacheWriteTokens(usage),
 		},
 	}
 }

@@ -183,7 +183,13 @@ emulate inline cache boundaries inside the message list.
 For Chat Completions-compatible backends, `uniai` reads cache-hit usage from the
 standard `prompt_tokens_details.cached_tokens` field. If a compatible backend
 instead returns a top-level `usage.cached_tokens`, `uniai` uses that as a
-fallback.
+fallback. It reads cache-write usage from
+`prompt_tokens_details.cache_write_tokens` when the upstream response includes
+that field.
+
+For the OpenAI Responses API, `uniai` reads the corresponding cache-hit and
+cache-write counters from `input_tokens_details.cached_tokens` and
+`input_tokens_details.cache_write_tokens`.
 
 For streaming Chat Completions requests on the shared OpenAI-compatible path,
 `uniai` enables `stream_options.include_usage=true` so the final stream event can
@@ -195,9 +201,9 @@ Current support is:
 
 - `anthropic`: cache stats + explicit cache control
 - `bedrock`: cache stats + limited explicit cache control
-- `openai`: cache-hit stats only, no shared explicit cache control
-- `openai_resp`: cache-hit stats only, no shared explicit cache control
-- `azure`: cache-hit stats only, no shared explicit cache control
+- `openai`: cache-hit and cache-write stats, no shared explicit cache control
+- `openai_resp`: cache-hit and cache-write stats, no shared explicit cache control
+- `azure`: cache-hit and compatible cache-write stats, no shared explicit cache control
 - `gemini`: no current shared cache API in `uniai`
 - `cloudflare`: no current cache feature mapping in `uniai`
 

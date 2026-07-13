@@ -987,6 +987,88 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT56PriceMath(t *testing.T) {
 	assertNearlyEqual(t, cost.Total, 0.013225)
 }
 
+func TestPricingExampleYAMLEstimateChatCostUsesGPT56LongContextBoundary(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	tests := []struct {
+		model                                            string
+		shortInput, shortCached, shortWrite, shortOutput float64
+		longInput, longCached, longWrite, longOutput     float64
+	}{
+		{
+			model:       "gpt-5.6",
+			shortInput:  5.00,
+			shortCached: 0.50,
+			shortWrite:  6.25,
+			shortOutput: 30.00,
+			longInput:   10.00,
+			longCached:  1.00,
+			longWrite:   12.50,
+			longOutput:  45.00,
+		},
+		{
+			model:       "gpt-5.6-terra",
+			shortInput:  2.50,
+			shortCached: 0.25,
+			shortWrite:  3.125,
+			shortOutput: 15.00,
+			longInput:   5.00,
+			longCached:  0.50,
+			longWrite:   6.25,
+			longOutput:  22.50,
+		},
+		{
+			model:       "gpt-5.6-luna",
+			shortInput:  1.00,
+			shortCached: 0.10,
+			shortWrite:  1.25,
+			shortOutput: 6.00,
+			longInput:   2.00,
+			longCached:  0.20,
+			longWrite:   2.50,
+			longOutput:  9.00,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			shortCost, ok := catalog.EstimateChatCost(tt.model, Usage{
+				InputTokens:  272000,
+				OutputTokens: 100,
+				TotalTokens:  272100,
+				Cache: UsageCache{
+					CachedInputTokens:        1000,
+					CacheCreationInputTokens: 1000,
+				},
+			})
+			if !ok {
+				t.Fatal("expected short-context cost estimate from pricing.example.yaml")
+			}
+			assertNearlyEqual(t, shortCost.Input, 270000*tt.shortInput/1_000_000)
+			assertNearlyEqual(t, shortCost.CachedInput, 1000*tt.shortCached/1_000_000)
+			assertNearlyEqual(t, shortCost.CacheCreationInput, 1000*tt.shortWrite/1_000_000)
+			assertNearlyEqual(t, shortCost.Output, 100*tt.shortOutput/1_000_000)
+
+			longCost, ok := catalog.EstimateChatCost(tt.model, Usage{
+				InputTokens:  272001,
+				OutputTokens: 100,
+				TotalTokens:  272101,
+				Cache: UsageCache{
+					CachedInputTokens:        1000,
+					CacheCreationInputTokens: 1000,
+				},
+			})
+			if !ok {
+				t.Fatal("expected long-context cost estimate from pricing.example.yaml")
+			}
+			assertNearlyEqual(t, longCost.Input, 270001*tt.longInput/1_000_000)
+			assertNearlyEqual(t, longCost.CachedInput, 1000*tt.longCached/1_000_000)
+			assertNearlyEqual(t, longCost.CacheCreationInput, 1000*tt.longWrite/1_000_000)
+			assertNearlyEqual(t, longCost.Output, 100*tt.longOutput/1_000_000)
+		})
+	}
+}
+
 func TestPricingExampleYAMLEstimateChatCostMatchesSakanaFuguUltraPriceMath(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 

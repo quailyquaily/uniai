@@ -874,9 +874,12 @@ func TestToResultParsesResponsesOutput(t *testing.T) {
 			},
 		},
 		"usage": map[string]any{
-			"input_tokens":         10,
-			"input_tokens_details": map[string]any{"cached_tokens": 6},
-			"output_tokens":        5,
+			"input_tokens": 10,
+			"input_tokens_details": map[string]any{
+				"cached_tokens":      6,
+				"cache_write_tokens": 4,
+			},
+			"output_tokens": 5,
 			"output_tokens_details": map[string]any{
 				"reasoning_tokens": 0,
 			},
@@ -910,6 +913,9 @@ func TestToResultParsesResponsesOutput(t *testing.T) {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
 	}
 	if result.Usage.Cache.CachedInputTokens != 6 {
+		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
+	}
+	if result.Usage.Cache.CacheCreationInputTokens != 4 {
 		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
 	}
 }
