@@ -68,6 +68,19 @@ func TestBuildRequestRejectsEmptyCachedTextPart(t *testing.T) {
 	}
 }
 
+func TestValidateSystemPromptCacheControlRejectsInlineTTL(t *testing.T) {
+	req := &Request{
+		Messages: []Message{
+			SystemParts(WithPartCacheControl(TextPart("stable prefix"), CacheTTL5m())),
+		},
+	}
+
+	err := ValidateSystemPromptCacheControl(req, "openai")
+	if err == nil || !strings.Contains(err.Error(), "prompt_cache_options.ttl") {
+		t.Fatalf("expected root prompt cache ttl error, got %v", err)
+	}
+}
+
 func TestNormalizeTextOnlyMessages(t *testing.T) {
 	msgs, err := NormalizeTextOnlyMessages([]Message{
 		UserParts(TextPart("hello")),

@@ -454,6 +454,19 @@ func toOpenAIOptions(req openai.ChatCompletionNewParams) structs.JSONMap {
 	if req.PromptCacheKey.Valid() {
 		opts["prompt_cache_key"] = req.PromptCacheKey.Value
 	}
+	if req.PromptCacheRetention != "" {
+		opts["prompt_cache_retention"] = string(req.PromptCacheRetention)
+	}
+	if req.PromptCacheOptions.Mode != "" || req.PromptCacheOptions.Ttl != "" {
+		cacheOptions := map[string]any{}
+		if req.PromptCacheOptions.Mode != "" {
+			cacheOptions["mode"] = req.PromptCacheOptions.Mode
+		}
+		if req.PromptCacheOptions.Ttl != "" {
+			cacheOptions["ttl"] = req.PromptCacheOptions.Ttl
+		}
+		opts["prompt_cache_options"] = cacheOptions
+	}
 	if req.SafetyIdentifier.Valid() {
 		opts["safety_identifier"] = req.SafetyIdentifier.Value
 	}

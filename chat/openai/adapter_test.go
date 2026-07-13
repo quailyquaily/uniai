@@ -58,6 +58,37 @@ func TestToChatOptions(t *testing.T) {
 	}
 }
 
+func TestToChatOptionsMapsPromptCacheOptions(t *testing.T) {
+	req := openai.ChatCompletionNewParams{
+		Model:                openai.ChatModel("gpt-5.6"),
+		Messages:             []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+		PromptCacheRetention: openai.ChatCompletionNewParamsPromptCacheRetention24h,
+		PromptCacheOptions: openai.ChatCompletionNewParamsPromptCacheOptions{
+			Mode: "explicit",
+			Ttl:  "30m",
+		},
+	}
+
+	opts, err := toChatOptions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	chatReq, err := chat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if got := chatReq.Options.OpenAI.GetString("prompt_cache_retention"); got != "24h" {
+		t.Fatalf("unexpected prompt_cache_retention: %q", got)
+	}
+	cacheOptions, ok := chatReq.Options.OpenAI["prompt_cache_options"].(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected prompt_cache_options: %#v", chatReq.Options.OpenAI["prompt_cache_options"])
+	}
+	if cacheOptions["mode"] != "explicit" || cacheOptions["ttl"] != "30m" {
+		t.Fatalf("unexpected prompt_cache_options: %#v", cacheOptions)
+	}
+}
+
 func TestToChatOptionsWithUserImageParts(t *testing.T) {
 	req := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel("gpt-5.2"),

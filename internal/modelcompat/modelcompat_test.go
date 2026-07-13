@@ -44,3 +44,61 @@ func TestOpenAIRequires24hPromptCacheRetention(t *testing.T) {
 		t.Fatalf("expected gpt-5.4 not to require 24h prompt cache retention")
 	}
 }
+
+func TestOpenAIUsesPromptCacheOptions(t *testing.T) {
+	for _, model := range []string{
+		"gpt-5.6",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"openai/gpt-5.6-luna",
+	} {
+		if !OpenAIUsesPromptCacheOptions(model) {
+			t.Fatalf("expected %q to use prompt_cache_options", model)
+		}
+	}
+	if OpenAIUsesPromptCacheOptions("gpt-5.5") {
+		t.Fatalf("expected gpt-5.5 to keep using prompt_cache_retention")
+	}
+}
+
+func TestOpenAIReasoningEffortSupported(t *testing.T) {
+	for _, effort := range []string{"none", "low", "medium", "high", "xhigh", "max"} {
+		if !OpenAIReasoningEffortSupported("gpt-5.6", effort) {
+			t.Fatalf("expected GPT-5.6 reasoning effort %q to be supported", effort)
+		}
+	}
+	for _, effort := range []string{"minimal", "unknown", "HIGH"} {
+		if OpenAIReasoningEffortSupported("gpt-5.6-sol", effort) {
+			t.Fatalf("expected GPT-5.6 reasoning effort %q to be rejected", effort)
+		}
+	}
+	if !OpenAIReasoningEffortSupported("gpt-5", "minimal") {
+		t.Fatalf("expected legacy GPT-5 minimal reasoning effort to remain supported")
+	}
+}
+
+func TestOpenAIReasoningModeSupported(t *testing.T) {
+	for _, mode := range []string{"", "standard", "pro"} {
+		if !OpenAIReasoningModeSupported("gpt-5.6", mode) {
+			t.Fatalf("expected GPT-5.6 reasoning mode %q to be supported", mode)
+		}
+	}
+	for _, mode := range []string{"automatic", "PRO"} {
+		if OpenAIReasoningModeSupported("gpt-5.6", mode) {
+			t.Fatalf("expected GPT-5.6 reasoning mode %q to be rejected", mode)
+		}
+	}
+}
+
+func TestOpenAIReasoningContextSupported(t *testing.T) {
+	for _, context := range []string{"", "auto", "current_turn", "all_turns"} {
+		if !OpenAIReasoningContextSupported("gpt-5.6", context) {
+			t.Fatalf("expected GPT-5.6 reasoning context %q to be supported", context)
+		}
+	}
+	for _, context := range []string{"conversation", "ALL_TURNS"} {
+		if OpenAIReasoningContextSupported("gpt-5.6", context) {
+			t.Fatalf("expected GPT-5.6 reasoning context %q to be rejected", context)
+		}
+	}
+}

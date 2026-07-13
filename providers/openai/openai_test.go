@@ -293,6 +293,201 @@ func TestBuildParamsForcesGPT55PromptCacheRetentionTo24h(t *testing.T) {
 	}
 }
 
+func TestBuildParamsMapsGPT56PromptCacheOptions(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_options": map[string]any{
+					"mode": "explicit",
+					"ttl":  "30m",
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	payload := string(data)
+	if !strings.Contains(payload, `"prompt_cache_options"`) ||
+		!strings.Contains(payload, `"mode":"explicit"`) ||
+		!strings.Contains(payload, `"ttl":"30m"`) {
+		t.Fatalf("expected GPT-5.6 prompt_cache_options, got %s", payload)
+	}
+}
+
+func TestBuildParamsMapsGPT56SystemPromptCacheBreakpoint(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6",
+		Messages: []chat.Message{
+			chat.SystemParts(chat.WithPartCacheControl(
+				chat.TextPart("stable system prompt"),
+				chat.CacheControl{},
+			)),
+			chat.User("dynamic user input"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_key": "cache-key",
+				"prompt_cache_options": map[string]any{
+					"mode": "explicit",
+					"ttl":  "30m",
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	payload := string(data)
+	if !strings.Contains(payload, `"content":[{"text":"stable system prompt","prompt_cache_breakpoint":{"mode":"explicit"},"type":"text"}]`) {
+		t.Fatalf("expected system prompt cache breakpoint, got %s", payload)
+	}
+	if strings.Count(payload, `"prompt_cache_breakpoint"`) != 1 {
+		t.Fatalf("expected exactly one prompt cache breakpoint, got %s", payload)
+	}
+}
+
+func TestBuildParamsMapsGPT56LegacyPromptCacheRetention(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-terra",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_retention": "in_memory",
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	payload := string(data)
+	if strings.Contains(payload, `"prompt_cache_retention"`) {
+		t.Fatalf("expected legacy prompt_cache_retention to be removed, got %s", payload)
+	}
+	if !strings.Contains(payload, `"prompt_cache_options"`) || !strings.Contains(payload, `"ttl":"30m"`) {
+		t.Fatalf("expected legacy retention to map to prompt_cache_options.ttl=30m, got %s", payload)
+	}
+}
+
+func TestBuildParamsPrefersGPT56PromptCacheOptionsOverLegacyRetention(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-luna",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"prompt_cache_retention": "24h",
+				"prompt_cache_options": map[string]any{
+					"mode": "explicit",
+				},
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	payload := string(data)
+	if strings.Contains(payload, `"prompt_cache_retention"`) {
+		t.Fatalf("expected legacy prompt_cache_retention to be removed, got %s", payload)
+	}
+	if !strings.Contains(payload, `"mode":"explicit"`) {
+		t.Fatalf("expected explicit prompt_cache_options to win, got %s", payload)
+	}
+}
+
+func TestBuildParamsRejectsGPT56MinimalReasoningEffort(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningEffort: func() *chat.ReasoningEffort {
+				v := chat.ReasoningEffortMinimal
+				return &v
+			}(),
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil || !strings.Contains(err.Error(), "minimal") || !strings.Contains(err.Error(), "gpt-5.6") {
+		t.Fatalf("expected GPT-5.6 minimal reasoning effort error, got %v", err)
+	}
+}
+
+func TestBuildParamsRejectsInvalidGPT56PromptCacheOptions(t *testing.T) {
+	cases := []struct {
+		name    string
+		options map[string]any
+		want    string
+	}{
+		{
+			name: "ttl",
+			options: map[string]any{
+				"ttl": "24h",
+			},
+			want: "ttl",
+		},
+		{
+			name: "mode",
+			options: map[string]any{
+				"mode": "automatic",
+			},
+			want: "mode",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &chat.Request{
+				Model:    "gpt-5.6",
+				Messages: []chat.Message{chat.User("hello")},
+				Options: chat.Options{
+					OpenAI: structs.JSONMap{
+						"prompt_cache_options": tc.options,
+					},
+				},
+			}
+
+			_, err := buildParams(req, "")
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("expected invalid %s error, got %v", tc.want, err)
+			}
+		})
+	}
+}
+
 func TestBuildParamsRejectsReasoningBudget(t *testing.T) {
 	budget := 4096
 	req := &chat.Request{

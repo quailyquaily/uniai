@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.55.0
 	github.com/aws/smithy-go v1.27.3
 	github.com/lyricat/goutils v1.2.3
-	github.com/openai/openai-go/v3 v3.2.0
+	github.com/openai/openai-go/v3 v3.42.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

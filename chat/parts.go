@@ -126,6 +126,38 @@ func ValidateNoScopedCacheControl(req *Request, provider string) error {
 	return fmt.Errorf("%s provider does not support explicit cache control", name)
 }
 
+func ValidateSystemPromptCacheControl(req *Request, provider string) error {
+	if req == nil {
+		return nil
+	}
+	name := strings.TrimSpace(provider)
+	if name == "" {
+		name = "provider"
+	}
+	for _, msg := range req.Messages {
+		for _, part := range msg.Parts {
+			if part.CacheControl == nil {
+				continue
+			}
+			if msg.Role != RoleSystem {
+				return fmt.Errorf("%s provider only supports explicit cache control on system message parts", name)
+			}
+			if strings.TrimSpace(part.CacheControl.TTL) != "" {
+				return fmt.Errorf("%s provider prompt cache breakpoint ttl must be set through prompt_cache_options.ttl", name)
+			}
+			if err := ValidatePart(part); err != nil {
+				return err
+			}
+		}
+	}
+	for _, tool := range req.Tools {
+		if tool.CacheControl != nil {
+			return fmt.Errorf("%s provider does not support explicit cache control on tools", name)
+		}
+	}
+	return nil
+}
+
 func AddUsageCacheDetails(dst *Usage, details map[string]int) {
 	if dst == nil || len(details) == 0 {
 		return

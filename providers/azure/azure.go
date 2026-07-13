@@ -108,7 +108,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		params.ToolChoice = oaicompat.ToToolChoice(req.ToolChoice)
 	}
 
-	applyAzureOptions(&params, req.Options.Azure, req.Options.OpenAI)
+	if err := applyAzureOptions(&params, req.Options.Azure, req.Options.OpenAI); err != nil {
+		return nil, err
+	}
 	diag.LogJSON(p.debug, debugFn, "azure.chat.request", params)
 
 	if req.Options.OnStream != nil {
@@ -133,12 +135,12 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	return toResult(resp), nil
 }
 
-func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openaiOpts structs.JSONMap) {
+func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openaiOpts structs.JSONMap) error {
 	opts := azureOpts
 	if len(opts) == 0 && len(openaiOpts) > 0 {
 		opts = openaiOpts
 	}
-	oaicompat.ApplyOptions(params, opts)
+	return oaicompat.ApplyOptions(params, opts)
 }
 
 func toResult(resp *openai.ChatCompletion) *chat.Result {

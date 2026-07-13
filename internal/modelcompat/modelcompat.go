@@ -49,6 +49,47 @@ func OpenAIRequires24hPromptCacheRetention(model string) bool {
 	return modelHasPrefix(model, "gpt-5-5")
 }
 
+func OpenAIUsesPromptCacheOptions(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gpt-5-6")
+}
+
+func OpenAIReasoningEffortSupported(model, effort string) bool {
+	if !OpenAIUsesPromptCacheOptions(model) {
+		return true
+	}
+	switch effort {
+	case "", "none", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
+}
+
+func OpenAIReasoningModeSupported(model, mode string) bool {
+	if !OpenAIUsesPromptCacheOptions(model) {
+		return true
+	}
+	switch mode {
+	case "", "standard", "pro":
+		return true
+	default:
+		return false
+	}
+}
+
+func OpenAIReasoningContextSupported(model, context string) bool {
+	if !OpenAIUsesPromptCacheOptions(model) {
+		return true
+	}
+	switch context {
+	case "", "auto", "current_turn", "all_turns":
+		return true
+	default:
+		return false
+	}
+}
+
 func openAIGPT5AllowsSamplingWithNoReasoning(model string) bool {
 	return modelHasPrefix(model, "gpt-5-1") ||
 		modelHasPrefix(model, "gpt-5-2") ||

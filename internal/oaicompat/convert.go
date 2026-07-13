@@ -17,18 +17,24 @@ import (
 
 const geminiThoughtSignatureValidatorBypass = "skip_thought_signature_validator"
 
+// PromptCacheOptions holds normalized OpenAI prompt caching options.
+type PromptCacheOptions struct {
+	Mode string `json:"mode"`
+	TTL  string `json:"ttl"`
+}
+
 // ToMessages converts chat.Message slice to OpenAI SDK message params.
 func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMessageParamUnion, error) {
 	out := make([]openai.ChatCompletionMessageParamUnion, 0, len(input))
 	for _, m := range input {
 		switch m.Role {
 		case chat.RoleSystem:
-			text, err := chat.MessageText(m)
+			content, err := toSystemContent(m)
 			if err != nil {
 				return nil, fmt.Errorf("role %q: %w", m.Role, err)
 			}
 			msg := openai.ChatCompletionSystemMessageParam{
-				Content: openai.ChatCompletionSystemMessageParamContentUnion{OfString: openai.String(text)},
+				Content: content,
 			}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
@@ -83,6 +89,40 @@ func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMess
 		}
 	}
 	return out, nil
+}
+
+func toSystemContent(m chat.Message) (openai.ChatCompletionSystemMessageParamContentUnion, error) {
+	parts := chat.NormalizeMessageParts(m)
+	hasCacheControl := false
+	for _, part := range parts {
+		if part.CacheControl != nil {
+			hasCacheControl = true
+			break
+		}
+	}
+	if !hasCacheControl {
+		text, err := chat.MessageText(m)
+		if err != nil {
+			return openai.ChatCompletionSystemMessageParamContentUnion{}, err
+		}
+		return openai.ChatCompletionSystemMessageParamContentUnion{OfString: openai.String(text)}, nil
+	}
+
+	content := make([]openai.ChatCompletionContentPartTextParam, 0, len(parts))
+	for i, part := range parts {
+		if err := chat.ValidatePart(part); err != nil {
+			return openai.ChatCompletionSystemMessageParamContentUnion{}, fmt.Errorf("part[%d]: %w", i, err)
+		}
+		if part.Type != chat.PartTypeText {
+			return openai.ChatCompletionSystemMessageParamContentUnion{}, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
+		}
+		item := openai.ChatCompletionContentPartTextParam{Text: part.Text}
+		if part.CacheControl != nil {
+			item.PromptCacheBreakpoint = openai.NewChatCompletionContentPartTextPromptCacheBreakpointParam()
+		}
+		content = append(content, item)
+	}
+	return openai.ChatCompletionSystemMessageParamContentUnion{OfArrayOfContentParts: content}, nil
 }
 
 func toUserContent(m chat.Message) (openai.ChatCompletionUserMessageParamContentUnion, error) {
@@ -251,10 +291,42 @@ func resolveGeminiThoughtSignature(call chat.ToolCall) string {
 	return geminiThoughtSignatureValidatorBypass
 }
 
+// ParsePromptCacheOptions parses and validates the prompt caching options shared
+// by the Chat Completions and Responses APIs.
+func ParsePromptCacheOptions(value any) (PromptCacheOptions, error) {
+	var options PromptCacheOptions
+	if value == nil {
+		return options, fmt.Errorf("prompt_cache_options must be an object")
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return options, fmt.Errorf("prompt_cache_options must be an object: %w", err)
+	}
+	if err := json.Unmarshal(data, &options); err != nil {
+		return options, fmt.Errorf("prompt_cache_options must be an object: %w", err)
+	}
+
+	options.Mode = strings.ToLower(strings.TrimSpace(options.Mode))
+	switch options.Mode {
+	case "", "implicit", "explicit":
+	default:
+		return PromptCacheOptions{}, fmt.Errorf("prompt_cache_options.mode must be implicit or explicit, got %q", options.Mode)
+	}
+
+	options.TTL = strings.ToLower(strings.TrimSpace(options.TTL))
+	switch options.TTL {
+	case "", "30m":
+	default:
+		return PromptCacheOptions{}, fmt.Errorf("prompt_cache_options.ttl must be 30m, got %q", options.TTL)
+	}
+
+	return options, nil
+}
+
 // ApplyOptions applies shared OpenAI-compatible option fields to params.
-func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) {
+func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) error {
 	if params == nil || len(opts) == 0 {
-		return
+		return nil
 	}
 	opt := &opts
 	if opt.HasKey("n") {
@@ -286,9 +358,17 @@ func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) 
 	}
 	if opt.HasKey("prompt_cache_retention") {
 		if val := strings.TrimSpace(opt.GetString("prompt_cache_retention")); val != "" {
-			params.SetExtraFields(map[string]any{
-				"prompt_cache_retention": val,
-			})
+			params.PromptCacheRetention = openai.ChatCompletionNewParamsPromptCacheRetention(val)
+		}
+	}
+	if opt.HasKey("prompt_cache_options") {
+		options, err := ParsePromptCacheOptions((*opt)["prompt_cache_options"])
+		if err != nil {
+			return err
+		}
+		params.PromptCacheOptions = openai.ChatCompletionNewParamsPromptCacheOptions{
+			Mode: options.Mode,
+			Ttl:  options.TTL,
 		}
 	}
 	if opt.HasKey("safety_identifier") {
@@ -329,6 +409,7 @@ func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) 
 	if opt.HasKey("response_format") {
 		ApplyResponseFormat(params, (*opt)["response_format"])
 	}
+	return nil
 }
 
 // ApplyResponseFormat sets the response format on params from a raw option value.

@@ -135,6 +135,7 @@ var openAIResponsesOptionKeys = map[string]struct{}{
 	"previous_response_id":   {},
 	"prompt":                 {},
 	"prompt_cache_key":       {},
+	"prompt_cache_options":   {},
 	"prompt_cache_retention": {},
 	"reasoning":              {},
 	"response_format":        {},
@@ -171,8 +172,14 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 	if req.Options.FrequencyPenalty != nil {
 		return responses.ResponseNewParams{}, fmt.Errorf("openai_resp provider does not support frequency penalty on the Responses API")
 	}
-	if err := chat.ValidateNoScopedCacheControl(req, "openai_resp"); err != nil {
-		return responses.ResponseNewParams{}, err
+	var cacheControlErr error
+	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai_resp")
+	} else {
+		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai_resp")
+	}
+	if cacheControlErr != nil {
+		return responses.ResponseNewParams{}, cacheControlErr
 	}
 
 	opts := req.Options.OpenAI
@@ -220,6 +227,15 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		}
 		params.Reasoning = reasoning
 	}
+	if !modelcompat.OpenAIReasoningEffortSupported(model, string(params.Reasoning.Effort)) {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support reasoning effort %q", model, params.Reasoning.Effort)
+	}
+	if !modelcompat.OpenAIReasoningModeSupported(model, string(params.Reasoning.Mode)) {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support reasoning mode %q", model, params.Reasoning.Mode)
+	}
+	if !modelcompat.OpenAIReasoningContextSupported(model, string(params.Reasoning.Context)) {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support reasoning context %q", model, params.Reasoning.Context)
+	}
 
 	if opts.HasKey("text") {
 		text, err := decodeJSONValue[responses.ResponseTextConfigParam](opts["text"])
@@ -238,11 +254,23 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 	}
 
 	if opts.HasKey("input") {
-		input, err := decodeJSONValue[responses.ResponseNewParamsInputUnion](opts["input"])
+		data, err := json.Marshal(opts["input"])
 		if err != nil {
 			return responses.ResponseNewParams{}, fmt.Errorf("openai input: %w", err)
 		}
-		params.Input = input
+		hasPromptCacheBreakpoint, err := validatePromptCacheBreakpoints(data)
+		if err != nil {
+			return responses.ResponseNewParams{}, err
+		}
+		var input responses.ResponseNewParamsInputUnion
+		if err := json.Unmarshal(data, &input); err == nil {
+			params.Input = input
+		} else {
+			if !hasPromptCacheBreakpoint {
+				return responses.ResponseNewParams{}, fmt.Errorf("openai input: %w", err)
+			}
+			params.Input = param.Override[responses.ResponseNewParamsInputUnion](json.RawMessage(data))
+		}
 	} else {
 		input, err := buildInputFromMessages(req.Messages)
 		if err != nil {
@@ -276,16 +304,59 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		}
 	}
 
-	applyModelParameterOverlay(&params)
+	applyModelParameterOverlay(&params, opts.HasKey("prompt_cache_options"))
 	return params, nil
 }
 
-func applyModelParameterOverlay(params *responses.ResponseNewParams) {
+func validatePromptCacheBreakpoints(data []byte) (bool, error) {
+	var input any
+	if err := json.Unmarshal(data, &input); err != nil {
+		return false, fmt.Errorf("openai input: %w", err)
+	}
+
+	found := false
+	var walk func(any) error
+	walk = func(value any) error {
+		switch value := value.(type) {
+		case []any:
+			for _, item := range value {
+				if err := walk(item); err != nil {
+					return err
+				}
+			}
+		case map[string]any:
+			for key, item := range value {
+				if key == "prompt_cache_breakpoint" {
+					found = true
+					breakpoint, ok := item.(map[string]any)
+					if !ok || breakpoint["mode"] != "explicit" {
+						return fmt.Errorf("openai input prompt_cache_breakpoint.mode must be explicit")
+					}
+				}
+				if err := walk(item); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+
+	if err := walk(input); err != nil {
+		return found, err
+	}
+	return found, nil
+}
+
+func applyModelParameterOverlay(params *responses.ResponseNewParams, hasPromptCacheOptions bool) {
 	if params == nil {
 		return
 	}
 	model := string(params.Model)
-	reasoningRequested := params.Reasoning.Effort != "" || params.Reasoning.Summary != ""
+	reasoningRequested := params.Reasoning.Effort != "" ||
+		params.Reasoning.Summary != "" ||
+		params.Reasoning.GenerateSummary != "" ||
+		params.Reasoning.Mode != "" ||
+		params.Reasoning.Context != ""
 	if modelcompat.KimiK2UsesFixedSampling(model) ||
 		modelcompat.OpenAIGPT5DropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
 		params.Temperature = param.Opt[float64]{}
@@ -293,16 +364,15 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams) {
 		params.TopLogprobs = param.Opt[int64]{}
 	}
 	if modelcompat.OpenAIRequires24hPromptCacheRetention(model) {
-		current := params.ExtraFields()
-		_, hasRetention := current["prompt_cache_retention"]
-		if params.PromptCacheKey.Valid() || hasRetention {
-			extra := map[string]any{}
-			for key, value := range current {
-				extra[key] = value
-			}
-			extra["prompt_cache_retention"] = "24h"
-			params.SetExtraFields(extra)
+		if params.PromptCacheKey.Valid() || params.PromptCacheRetention != "" {
+			params.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention24h
 		}
+	}
+	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+		if !hasPromptCacheOptions && params.PromptCacheRetention != "" {
+			params.PromptCacheOptions.Ttl = "30m"
+		}
+		params.PromptCacheRetention = ""
 	}
 }
 
@@ -405,9 +475,17 @@ func applyRawRootOptions(params *responses.ResponseNewParams, opts structs.JSONM
 	}
 	if opts.HasKey("prompt_cache_retention") {
 		if val := strings.TrimSpace(opts.GetString("prompt_cache_retention")); val != "" {
-			params.SetExtraFields(map[string]any{
-				"prompt_cache_retention": val,
-			})
+			params.PromptCacheRetention = responses.ResponseNewParamsPromptCacheRetention(val)
+		}
+	}
+	if opts.HasKey("prompt_cache_options") {
+		options, err := oaicompat.ParsePromptCacheOptions(opts["prompt_cache_options"])
+		if err != nil {
+			return err
+		}
+		params.PromptCacheOptions = responses.ResponseNewParamsPromptCacheOptions{
+			Mode: options.Mode,
+			Ttl:  options.TTL,
 		}
 	}
 	if opts.HasKey("safety_identifier") {
@@ -709,6 +787,14 @@ func buildInputFromMessages(messages []chat.Message) (responses.ResponseNewParam
 
 		switch msg.Role {
 		case chat.RoleSystem:
+			content, hasCacheControl, err := buildSystemInputContent(msg)
+			if err != nil {
+				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
+			}
+			if hasCacheControl {
+				items = append(items, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleSystem))
+				continue
+			}
 			text, err := chat.MessageText(msg)
 			if err != nil {
 				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
@@ -778,6 +864,36 @@ func buildInputFromMessages(messages []chat.Message) (responses.ResponseNewParam
 	return responses.ResponseNewParamsInputUnion{
 		OfInputItemList: items,
 	}, nil
+}
+
+func buildSystemInputContent(msg chat.Message) (responses.ResponseInputMessageContentListParam, bool, error) {
+	parts := chat.NormalizeMessageParts(msg)
+	hasCacheControl := false
+	for _, part := range parts {
+		if part.CacheControl != nil {
+			hasCacheControl = true
+			break
+		}
+	}
+	if !hasCacheControl {
+		return nil, false, nil
+	}
+
+	out := make(responses.ResponseInputMessageContentListParam, 0, len(parts))
+	for i, part := range parts {
+		if err := chat.ValidatePart(part); err != nil {
+			return nil, false, fmt.Errorf("part[%d]: %w", i, err)
+		}
+		if part.Type != chat.PartTypeText {
+			return nil, false, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
+		}
+		item := responses.ResponseInputTextParam{Text: part.Text}
+		if part.CacheControl != nil {
+			item.PromptCacheBreakpoint = responses.NewResponseInputTextPromptCacheBreakpointParam()
+		}
+		out = append(out, responses.ResponseInputContentUnionParam{OfInputText: &item})
+	}
+	return out, true, nil
 }
 
 func buildUserInputContent(msg chat.Message) (responses.ResponseInputMessageContentListParam, bool, error) {

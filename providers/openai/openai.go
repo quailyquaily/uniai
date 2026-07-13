@@ -128,8 +128,14 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if req.Options.ReasoningDetails {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
 	}
-	if err := chat.ValidateNoScopedCacheControl(req, "openai"); err != nil {
-		return openai.ChatCompletionNewParams{}, err
+	var cacheControlErr error
+	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai")
+	} else {
+		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai")
+	}
+	if cacheControlErr != nil {
+		return openai.ChatCompletionNewParams{}, cacheControlErr
 	}
 
 	messages, err := oaicompat.ToMessages(req.Messages, model)
@@ -186,13 +192,19 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 		params.ToolChoice = oaicompat.ToToolChoice(req.ToolChoice)
 	}
 
-	oaicompat.ApplyOptions(&params, req.Options.OpenAI)
-	applyModelParameterOverlay(&params)
+	openAIOptions := req.Options.OpenAI
+	if err := oaicompat.ApplyOptions(&params, openAIOptions); err != nil {
+		return openai.ChatCompletionNewParams{}, err
+	}
+	if !modelcompat.OpenAIReasoningEffortSupported(model, string(params.ReasoningEffort)) {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support reasoning effort %q", model, params.ReasoningEffort)
+	}
+	applyModelParameterOverlay(&params, openAIOptions.HasKey("prompt_cache_options"))
 
 	return params, nil
 }
 
-func applyModelParameterOverlay(params *openai.ChatCompletionNewParams) {
+func applyModelParameterOverlay(params *openai.ChatCompletionNewParams, hasPromptCacheOptions bool) {
 	if params == nil {
 		return
 	}
@@ -211,16 +223,15 @@ func applyModelParameterOverlay(params *openai.ChatCompletionNewParams) {
 		params.TopLogprobs = param.Opt[int64]{}
 	}
 	if modelcompat.OpenAIRequires24hPromptCacheRetention(model) {
-		current := params.ExtraFields()
-		_, hasRetention := current["prompt_cache_retention"]
-		if params.PromptCacheKey.Valid() || hasRetention {
-			extra := map[string]any{}
-			for key, value := range current {
-				extra[key] = value
-			}
-			extra["prompt_cache_retention"] = "24h"
-			params.SetExtraFields(extra)
+		if params.PromptCacheKey.Valid() || params.PromptCacheRetention != "" {
+			params.PromptCacheRetention = openai.ChatCompletionNewParamsPromptCacheRetention24h
 		}
+	}
+	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+		if !hasPromptCacheOptions && params.PromptCacheRetention != "" {
+			params.PromptCacheOptions.Ttl = "30m"
+		}
+		params.PromptCacheRetention = ""
 	}
 }
 
