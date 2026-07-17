@@ -12,6 +12,7 @@
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
 - Tool calling with emulation, to support models which do not natively support tool calling (see [`docs/tool_emulation.md`](docs/tool_emulation.md)).
+- Prompt-cache usage reporting and explicit cache boundaries for supported providers (see [`docs/cache.md`](docs/cache.md)).
 
 ## Install
 
@@ -328,8 +329,6 @@ Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deeps
 For OpenAI Chat Completions streaming providers (`openai`, OpenAI-compatible providers, and Azure), `StreamEvent.Raw` is the current SDK chunk on delta events. On the final `Done` event, `StreamEvent.Raw` and the returned `Result.Raw` contain the complete `[]openai.ChatCompletionChunk` stream.
 
 When combined with tool emulation (`WithToolsEmulationMode`), only the final text response streams. The final `Usage` / `Usage.Cost` values reflect the whole `Client.Chat()` call, including internal tool-emulation requests.
-
-Prompt-caching usage, explicit cache control, and provider support notes live in [`docs/cache.md`](docs/cache.md).
 
 ## Cost estimation
 

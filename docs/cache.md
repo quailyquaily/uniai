@@ -44,6 +44,23 @@ Currently supported TTL values are:
 - `"5m"`
 - `"1h"`
 
+### Provider Differences
+
+`WithPartCacheControl(...)` gives providers a shared way to mark a cache
+boundary. It does not make their cache policies identical.
+
+| Provider path | Shared boundary support | Value passed to `WithPartCacheControl` | TTL location |
+| --- | --- | --- | --- |
+| `anthropic` | system, user, and assistant parts; tools | `CacheTTL5m()` or `CacheTTL1h()` | each marked part or tool |
+| Anthropic models through `bedrock` | user and assistant text parts | `CacheTTL5m()` or `CacheTTL1h()` | each marked part |
+| GPT-5.6 through `openai` | system text parts | `CacheControl{}` | request-wide; defaults to `30m` |
+| GPT-5.6 through `openai_resp` | system text parts; additional shapes through raw `input` | `CacheControl{}` for shared system parts | request-wide; defaults to `30m` |
+
+Do not pass `CacheTTL5m()` or `CacheTTL1h()` to a GPT-5.6 breakpoint. OpenAI
+uses the non-nil, empty `CacheControl{}` only as a boundary marker and rejects a
+part-level TTL. Its request-wide TTL defaults to `30m`. Anthropic and Bedrock
+use the TTL stored in `CacheControl`.
+
 ## Reading Cache Usage
 
 Example:
@@ -109,6 +126,21 @@ resp, err := client.Chat(ctx,
 )
 ```
 
+Anthropic writes the TTL directly on each marked block:
+
+```json
+{
+  "type": "text",
+  "text": "Shared instructions and reusable context.",
+  "cache_control": {
+    "type": "ephemeral",
+    "ttl": "1h"
+  }
+}
+```
+
+No additional request-level cache policy is required for this explicit marker.
+
 ### Bedrock
 
 Bedrock currently supports explicit cache control only in the current Anthropic
@@ -138,43 +170,132 @@ resp, err := client.Chat(ctx,
 )
 ```
 
-## OpenAI-Family Cache Options
+## OpenAI-Family Caching
 
 `openai`, `openai_resp`, and `azure` support provider-specific root cache
-options. For GPT-5.6, `openai` and `openai_resp` also map shared cache control
-on system text parts to OpenAI prompt cache breakpoints. Other message roles,
-tools, and Azure do not use that shared breakpoint mapping.
+options. GPT-5.6 through `openai` and `openai_resp` also supports explicit
+breakpoints through the shared message API. Adding a breakpoint does not require
+root cache options.
 
-What they do support is provider-specific request options such as:
+### GPT-5.6 Explicit Breakpoints
 
-- `prompt_cache_key`
-- `prompt_cache_retention` (legacy)
-- `prompt_cache_options`
-
-Use provider options for that path. These examples use
-`github.com/lyricat/goutils/structs` for `structs.JSONMap`:
+For `openai` and `openai_resp`, a shared cache boundary can be placed on a
+GPT-5.6 system text part. Only the marked system message changes from string
+content to structured parts; unmarked messages keep their existing form.
 
 ```go
 resp, err := client.Chat(ctx,
-	uniai.WithProvider("openai_resp"),
+	uniai.WithProvider("openai"),
 	uniai.WithModel("gpt-5.6"),
-	uniai.WithMessages(uniai.User("hello")),
-	uniai.WithOpenAIOptions(structs.JSONMap{
-		"prompt_cache_key": "tenant-a:shared-prefix:v1",
-		"prompt_cache_options": map[string]any{
-			"mode": "implicit",
-			"ttl":  "30m",
-		},
-	}),
+	uniai.WithMessages(
+		uniai.SystemParts(
+			uniai.WithPartCacheControl(
+				uniai.TextPart("Shared instructions and reusable context."),
+				uniai.CacheControl{},
+			),
+			uniai.TextPart("Request-specific system suffix."),
+		),
+		uniai.User("Answer using the shared context."),
+	),
 )
+```
+
+For Chat Completions, `uniai` serializes the marked system message as:
+
+```json
+{
+  "role": "system",
+  "content": [
+    {
+      "type": "text",
+      "text": "Shared instructions and reusable context.",
+      "prompt_cache_breakpoint": {
+        "mode": "explicit"
+      }
+    },
+    {
+      "type": "text",
+      "text": "Request-specific system suffix."
+    }
+  ]
+}
+```
+
+The breakpoint includes the marked block and everything before it in the
+reusable prefix. Content after it may change. The empty shared `CacheControl`
+marks only this boundary; its `TTL` field must remain empty for OpenAI.
+
+GPT-5.6 uses implicit mode by default. In that mode, OpenAI places an automatic
+breakpoint on the latest message and also uses the explicit breakpoint above.
+Adding an explicit breakpoint is therefore separate from setting the request
+mode to `"explicit"`.
+
+Shared OpenAI breakpoints are limited to system text parts. User and assistant
+messages and tools cannot use shared `CacheControl` on this path.
+
+### GPT-5.6 Request Policy
+
+Use `WithOpenAIOptions(...)` only when the request needs OpenAI-specific cache
+policy, such as:
+
+- a stable `prompt_cache_key`
+- `mode: "explicit"` to disable the automatic implicit breakpoint
+- an explicit `ttl` value
+
+These examples use `github.com/lyricat/goutils/structs` for `structs.JSONMap`.
+Add the following option to the preceding request when it should use only the
+breakpoints supplied by the caller:
+
+```go
+uniai.WithOpenAIOptions(structs.JSONMap{
+	"prompt_cache_key": "tenant-a:shared-prefix:v1",
+	"prompt_cache_options": map[string]any{
+		"mode": "explicit",
+		"ttl":  "30m",
+	},
+})
 ```
 
 For GPT-5.6, `prompt_cache_options` accepts:
 
 - `mode`: `"implicit"` or `"explicit"`
-- `ttl`: `"30m"`, currently the only supported value
+- `ttl`: `"30m"`, currently the only supported value and also the default
 
-Invalid values return an error before the request is sent.
+In explicit mode, provide at least one breakpoint. Without one, the request does
+not use prompt caching. Invalid option values return an error before the request
+is sent.
+
+### Raw Responses Breakpoints
+
+Callers that need other Responses API input shapes can use raw `input` through
+`WithOpenAIOptions(...)` on `openai_resp`:
+
+```go
+resp, err := client.Chat(ctx,
+	uniai.WithProvider("openai_resp"),
+	uniai.WithModel("gpt-5.6"),
+	uniai.WithOpenAIOptions(structs.JSONMap{
+		"input": []map[string]any{
+			{
+				"role": "user",
+				"content": []map[string]any{
+					{
+						"type": "input_text",
+						"text": "Shared instructions and reusable context.",
+						"prompt_cache_breakpoint": map[string]any{
+							"mode": "explicit",
+						},
+					},
+				},
+			},
+		},
+	}),
+)
+```
+
+Raw `openai.input` cannot be combined with shared chat messages. A
+`prompt_cache_breakpoint` accepts only `mode: "explicit"`. The request-wide
+policy remains optional and can be added as described above.
 
 ### GPT-5.6 Legacy Option Compatibility
 
@@ -205,70 +326,7 @@ The optional OpenAI-compatible adapter in `chat/openai` also preserves
 `PromptCacheRetention` and `PromptCacheOptions` from the official OpenAI Go SDK
 request type.
 
-### GPT-5.6 Explicit Breakpoints
-
-For `openai` and `openai_resp`, a shared cache boundary can be placed on a
-GPT-5.6 system text part:
-
-```go
-resp, err := client.Chat(ctx,
-	uniai.WithProvider("openai_resp"),
-	uniai.WithModel("gpt-5.6"),
-	uniai.WithMessages(
-		uniai.SystemParts(
-			uniai.WithPartCacheControl(
-				uniai.TextPart("Shared instructions and reusable context."),
-				uniai.CacheControl{},
-			),
-		),
-		uniai.User("Answer using the shared context."),
-	),
-	uniai.WithOpenAIOptions(structs.JSONMap{
-		"prompt_cache_options": map[string]any{
-			"mode": "explicit",
-			"ttl":  "30m",
-		},
-	}),
-)
-```
-
-The empty shared `CacheControl` marks the breakpoint. Set its lifetime through
-the root `prompt_cache_options.ttl`; the shared `5m` and `1h` TTL helpers are for
-providers such as Anthropic and Bedrock.
-
-Shared OpenAI breakpoints are limited to system text parts. Callers that need
-other Responses API input shapes can use raw `input` through
-`WithOpenAIOptions(...)`:
-
-```go
-resp, err := client.Chat(ctx,
-	uniai.WithProvider("openai_resp"),
-	uniai.WithModel("gpt-5.6"),
-	uniai.WithOpenAIOptions(structs.JSONMap{
-		"input": []map[string]any{
-			{
-				"role": "user",
-				"content": []map[string]any{
-					{
-						"type": "input_text",
-						"text": "Shared instructions and reusable context.",
-						"prompt_cache_breakpoint": map[string]any{
-							"mode": "explicit",
-						},
-					},
-				},
-			},
-		},
-		"prompt_cache_options": map[string]any{
-			"mode": "explicit",
-			"ttl":  "30m",
-		},
-	}),
-)
-```
-
-Raw `openai.input` cannot be combined with shared chat messages. A
-`prompt_cache_breakpoint` accepts only `mode: "explicit"`.
+### Azure
 
 Azure uses the same idea through Azure options:
 
@@ -288,6 +346,8 @@ Azure forwards these provider options to the selected deployment. It does not
 apply the GPT-5.6 legacy conversion because Azure deployment names do not
 reliably identify the underlying model. Support for each option therefore
 depends on the Azure API version and deployment.
+
+### Usage Mapping
 
 For these providers, `uniai` standardizes usage reporting. Apart from the
 GPT-5.6 system text mapping described above, it does not infer or emulate inline
@@ -339,8 +399,8 @@ Unsupported shared cache control currently includes:
 ## Notes
 
 - `WithPartCacheControl(...)` requires a non-empty text part when used on text.
-- OpenAI GPT-5.6 breakpoint lifetime comes from
-  `prompt_cache_options.ttl`, not the shared `CacheControl.TTL` field.
+- OpenAI GPT-5.6 breakpoint lifetime is request-wide and defaults to `30m`. Do
+  not set it through the shared `CacheControl.TTL` field.
 - `Usage.Cache` is best-effort and depends on the upstream provider returning
   cache metrics.
 - Gemini `cachedContents` is a separate resource flow and is not part of the
