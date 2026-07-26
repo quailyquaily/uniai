@@ -357,7 +357,7 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams, hasPromptCa
 		params.Reasoning.GenerateSummary != "" ||
 		params.Reasoning.Mode != "" ||
 		params.Reasoning.Context != ""
-	if modelcompat.KimiK2UsesFixedSampling(model) ||
+	if modelcompat.KimiUsesFixedSampling(model) ||
 		modelcompat.OpenAIGPT5DropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}

@@ -192,22 +192,27 @@ func TestBuildRequestRejectsEmptyCachedTextPart(t *testing.T) {
 }
 
 func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
-	req := &chat.Request{
-		Model: "claude-sonnet-4-6-20260201",
-		Messages: []chat.Message{
-			chat.User("hello"),
-		},
-		Options: chat.Options{
-			ReasoningDetails: true,
-		},
-	}
+	for _, model := range []string{"claude-sonnet-4-6-20260201", "claude-opus-5"} {
+		req := &chat.Request{
+			Model: model,
+			Messages: []chat.Message{
+				chat.User("hello"),
+			},
+			Options: chat.Options{
+				ReasoningDetails: true,
+			},
+		}
 
-	body, err := buildRequest(req, req.Model)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if body.Thinking == nil || body.Thinking.Type != "adaptive" {
-		t.Fatalf("expected adaptive thinking, got %#v", body.Thinking)
+		body, err := buildRequest(req, req.Model)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", model, err)
+		}
+		if body.Thinking == nil || body.Thinking.Type != "adaptive" {
+			t.Fatalf("expected %s adaptive thinking, got %#v", model, body.Thinking)
+		}
+		if model == "claude-opus-5" && body.Thinking.Display != "summarized" {
+			t.Fatalf("expected %s summarized thinking details, got %#v", model, body.Thinking)
+		}
 	}
 }
 
@@ -216,6 +221,7 @@ func TestBuildRequestAppliesSamplingOverlayForEffortModels(t *testing.T) {
 	topP := 0.9
 
 	for _, model := range []string{
+		"claude-opus-5",
 		"models/Claude-Opus-4.7",
 		"claude-opus-4-8",
 		"claude-fable-5",
@@ -272,6 +278,7 @@ func TestBuildRequestMapsReasoningEffortForNewEffortModels(t *testing.T) {
 	effort := chat.ReasoningEffortMedium
 
 	for _, model := range []string{
+		"claude-opus-5",
 		"claude-opus-4-8",
 		"claude-fable-5",
 		"claude-mythos-5",
@@ -362,24 +369,27 @@ func TestBuildRequestRejectsReasoningDetailsWithoutBudgetOnManualModel(t *testin
 	}
 }
 
-func TestBuildRequestRejectsReasoningBudgetOnEffortModel(t *testing.T) {
+func TestBuildRequestRejectsReasoningBudgetOnEffortModels(t *testing.T) {
 	budget := 4096
-	req := &chat.Request{
-		Model: "claude-sonnet-4-6-20260201",
-		Messages: []chat.Message{
-			chat.User("hello"),
-		},
-		Options: chat.Options{
-			ReasoningBudget: &budget,
-		},
-	}
 
-	_, err := buildRequest(req, req.Model)
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-	if !strings.Contains(err.Error(), "reasoning effort") {
-		t.Fatalf("unexpected error: %v", err)
+	for _, model := range []string{"claude-sonnet-4-6-20260201", "claude-opus-5"} {
+		req := &chat.Request{
+			Model: model,
+			Messages: []chat.Message{
+				chat.User("hello"),
+			},
+			Options: chat.Options{
+				ReasoningBudget: &budget,
+			},
+		}
+
+		_, err := buildRequest(req, req.Model)
+		if err == nil {
+			t.Fatalf("expected error for %s", model)
+		}
+		if !strings.Contains(err.Error(), "reasoning effort") {
+			t.Fatalf("unexpected error for %s: %v", model, err)
+		}
 	}
 }
 

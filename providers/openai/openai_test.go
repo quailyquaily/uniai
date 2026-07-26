@@ -152,6 +152,60 @@ func TestBuildParamsDropsKimiK26FixedSamplingParams(t *testing.T) {
 	}
 }
 
+func TestBuildParamsDropsKimiK3FixedSamplingParamsAndMapsXHighEffort(t *testing.T) {
+	temp := 0.2
+	topP := 0.9
+	presence := 0.1
+	frequency := 0.2
+	effort := chat.ReasoningEffortXHigh
+	req := &chat.Request{
+		Model: "moonshotai/kimi-k3",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			Temperature:      &temp,
+			TopP:             &topP,
+			PresencePenalty:  &presence,
+			FrequencyPenalty: &frequency,
+			ReasoningEffort:  &effort,
+			OpenAI: structs.JSONMap{
+				"n": 2,
+			},
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if params.Temperature.Valid() || params.TopP.Valid() || params.N.Valid() ||
+		params.PresencePenalty.Valid() || params.FrequencyPenalty.Valid() {
+		t.Fatalf("expected fixed Kimi K3 sampling params to be omitted, got %#v", params)
+	}
+	if params.ReasoningEffort != "max" {
+		t.Fatalf("expected Kimi K3 xhigh effort to map to max, got %q", params.ReasoningEffort)
+	}
+}
+
+func TestBuildParamsRejectsUnsupportedKimiK3ReasoningEffort(t *testing.T) {
+	effort := chat.ReasoningEffortMedium
+	req := &chat.Request{
+		Model: "kimi-k3",
+		Messages: []chat.Message{
+			chat.User("hello"),
+		},
+		Options: chat.Options{
+			ReasoningEffort: &effort,
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil || !strings.Contains(err.Error(), "kimi-k3") || !strings.Contains(err.Error(), "medium") {
+		t.Fatalf("expected unsupported Kimi K3 reasoning effort error, got %v", err)
+	}
+}
+
 func TestBuildParamsDropsGPT5ReasoningSamplingParams(t *testing.T) {
 	temp := 0.2
 	topP := 0.9

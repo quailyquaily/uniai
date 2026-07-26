@@ -24,9 +24,27 @@ func Normalize(model string) string {
 	return b.String()
 }
 
-func KimiK2UsesFixedSampling(model string) bool {
+func KimiUsesFixedSampling(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "kimi-k2-6") || modelHasPrefix(model, "kimi-k2-5")
+	return modelHasPrefix(model, "kimi-k3") ||
+		modelHasPrefix(model, "kimi-k2-6") ||
+		modelHasPrefix(model, "kimi-k2-5")
+}
+
+func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
+	if !modelHasPrefix(Normalize(model), "kimi-k3") {
+		return effort, true
+	}
+
+	effort = strings.TrimSpace(strings.ToLower(effort))
+	switch effort {
+	case "", "low", "high", "max":
+		return effort, true
+	case "xhigh":
+		return "max", true
+	default:
+		return effort, false
+	}
 }
 
 func OpenAIGPT5DropsSampling(model, reasoningEffort string, reasoningRequested bool) bool {

@@ -9,11 +9,14 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
-func TestKimiK2UsesFixedSampling(t *testing.T) {
-	if !KimiK2UsesFixedSampling("moonshotai/kimi-k2.6") {
+func TestKimiUsesFixedSampling(t *testing.T) {
+	if !KimiUsesFixedSampling("moonshotai/kimi-k2.6") {
 		t.Fatalf("expected kimi-k2.6 to use fixed sampling")
 	}
-	if KimiK2UsesFixedSampling("kimi-k2-0905-preview") {
+	if !KimiUsesFixedSampling("kimi-k3") {
+		t.Fatalf("expected kimi-k3 to use fixed sampling")
+	}
+	if KimiUsesFixedSampling("kimi-k2-0905-preview") {
 		t.Fatalf("expected kimi-k2-0905-preview not to match K2.5/K2.6 fixed sampling")
 	}
 }

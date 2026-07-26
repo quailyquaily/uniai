@@ -196,6 +196,11 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if err := oaicompat.ApplyOptions(&params, openAIOptions); err != nil {
 		return openai.ChatCompletionNewParams{}, err
 	}
+	reasoningEffort, ok := modelcompat.NormalizeKimiReasoningEffort(model, string(params.ReasoningEffort))
+	if !ok {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("model %q does not support reasoning effort %q", model, params.ReasoningEffort)
+	}
+	params.ReasoningEffort = shared.ReasoningEffort(reasoningEffort)
 	if !modelcompat.OpenAIReasoningEffortSupported(model, string(params.ReasoningEffort)) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support reasoning effort %q", model, params.ReasoningEffort)
 	}
@@ -209,7 +214,7 @@ func applyModelParameterOverlay(params *openai.ChatCompletionNewParams, hasPromp
 		return
 	}
 	model := string(params.Model)
-	if modelcompat.KimiK2UsesFixedSampling(model) {
+	if modelcompat.KimiUsesFixedSampling(model) {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}
 		params.N = param.Opt[int64]{}
