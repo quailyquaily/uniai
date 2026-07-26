@@ -828,6 +828,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"command-r-plus-08-2024",
 		"glm-5",
 		"glm-4.5-air",
+		"kimi-k3",
 		"kimi-k2.6",
 		"kimi-k2.5",
 		"kimi-k2-0905-preview",
@@ -1248,6 +1249,38 @@ func TestPricingExampleYAMLEstimateChatCostMatchesMoonshotK26PriceMath(t *testin
 	assertNearlyEqual(t, cost.Output, 300*4.00/1_000_000)
 	assertNearlyEqual(t, cost.CacheCreationInput, 0)
 	assertNearlyEqual(t, cost.Total, 0.001992)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesKimiK3FlatPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	rule := catalog.findChatPricingRule("kimi-k3")
+	if rule == nil {
+		t.Fatal("expected kimi-k3 pricing rule")
+	}
+	if len(rule.Tiers) != 0 {
+		t.Fatalf("expected kimi-k3 to use flat pricing, got %d tiers", len(rule.Tiers))
+	}
+
+	usage := Usage{
+		InputTokens:  1_000_000,
+		OutputTokens: 20_000,
+		TotalTokens:  1_020_000,
+		Cache: UsageCache{
+			CachedInputTokens: 200_000,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("kimi-k3", usage)
+	if !ok {
+		t.Fatal("expected model-based cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 800_000*3.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200_000*0.30/1_000_000)
+	assertNearlyEqual(t, cost.Output, 20_000*15.00/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 0)
+	assertNearlyEqual(t, cost.Total, 2.76)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing.T) {
