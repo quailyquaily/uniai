@@ -470,6 +470,9 @@ func applyRawRootOptions(params *responses.ResponseNewParams, opts structs.JSONM
 	}
 	if opts.HasKey("prompt_cache_key") {
 		if val := strings.TrimSpace(opts.GetString("prompt_cache_key")); val != "" {
+			if err := oaicompat.ValidatePromptCacheKey(val); err != nil {
+				return err
+			}
 			params.PromptCacheKey = openai.String(val)
 		}
 	}

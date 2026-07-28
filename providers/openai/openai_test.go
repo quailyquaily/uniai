@@ -317,6 +317,49 @@ func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
 	}
 }
 
+func TestBuildParamsValidatesPromptCacheKeyLength(t *testing.T) {
+	tests := []struct {
+		name    string
+		key     string
+		wantErr bool
+	}{
+		{name: "64 ASCII characters", key: strings.Repeat("a", 64)},
+		{name: "65 ASCII characters", key: strings.Repeat("a", 65), wantErr: true},
+		{name: "64 Unicode characters", key: strings.Repeat("界", 64)},
+		{name: "65 Unicode characters", key: strings.Repeat("界", 65), wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &chat.Request{
+				Model: "gpt-4.1-mini",
+				Messages: []chat.Message{
+					chat.User("hello"),
+				},
+				Options: chat.Options{
+					OpenAI: structs.JSONMap{
+						"prompt_cache_key": tt.key,
+					},
+				},
+			}
+
+			_, err := buildParams(req, "")
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("expected prompt_cache_key length error")
+			}
+			if !strings.Contains(err.Error(), "prompt_cache_key must not exceed 64 characters") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestBuildParamsForcesGPT55PromptCacheRetentionTo24h(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.5",

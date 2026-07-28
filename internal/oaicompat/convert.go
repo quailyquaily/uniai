@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/lyricat/goutils/structs"
 	openai "github.com/openai/openai-go/v3"
@@ -16,11 +17,25 @@ import (
 )
 
 const geminiThoughtSignatureValidatorBypass = "skip_thought_signature_validator"
+const maxPromptCacheKeyCharacters = 64
 
 // PromptCacheOptions holds normalized OpenAI prompt caching options.
 type PromptCacheOptions struct {
 	Mode string `json:"mode"`
 	TTL  string `json:"ttl"`
+}
+
+// ValidatePromptCacheKey checks the OpenAI prompt cache key length limit.
+func ValidatePromptCacheKey(value string) error {
+	length := utf8.RuneCountInString(value)
+	if length > maxPromptCacheKeyCharacters {
+		return fmt.Errorf(
+			"openai prompt_cache_key must not exceed %d characters (got %d)",
+			maxPromptCacheKeyCharacters,
+			length,
+		)
+	}
+	return nil
 }
 
 // ToMessages converts chat.Message slice to OpenAI SDK message params.
@@ -353,6 +368,9 @@ func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) 
 	}
 	if opt.HasKey("prompt_cache_key") {
 		if val := strings.TrimSpace(opt.GetString("prompt_cache_key")); val != "" {
+			if err := ValidatePromptCacheKey(val); err != nil {
+				return err
+			}
 			params.PromptCacheKey = openai.String(val)
 		}
 	}
