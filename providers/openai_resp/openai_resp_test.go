@@ -558,6 +558,24 @@ func TestBuildParamsMapsGPT56SystemPromptCacheBreakpoint(t *testing.T) {
 	}
 }
 
+func TestBuildParamsRejectsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-luna",
+		Messages: []chat.Message{
+			chat.SystemParts(chat.WithPartCacheControl(
+				chat.TextPart("stable system prompt"),
+				chat.CacheControl{},
+			)),
+			chat.User("dynamic user input"),
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil || !strings.Contains(err.Error(), "gpt-5.6-luna") || !strings.Contains(err.Error(), "prompt_cache_breakpoint") {
+		t.Fatalf("expected Luna prompt cache breakpoint error, got %v", err)
+	}
+}
+
 func TestBuildParamsMapsGPT56LegacyPromptCacheRetention(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.6-sol",
@@ -690,6 +708,35 @@ func TestBuildParamsMapsGPT56RawPromptCacheBreakpoint(t *testing.T) {
 	}
 	if !strings.Contains(string(data), `"prompt_cache_breakpoint":{"mode":"explicit"}`) {
 		t.Fatalf("expected raw prompt cache breakpoint, got %s", string(data))
+	}
+}
+
+func TestBuildParamsRejectsGPT56LunaRawPromptCacheBreakpoint(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-luna",
+		Options: chat.Options{
+			OpenAI: structs.JSONMap{
+				"input": []map[string]any{
+					{
+						"role": "user",
+						"content": []map[string]any{
+							{
+								"type": "input_text",
+								"text": "stable prompt prefix",
+								"prompt_cache_breakpoint": map[string]any{
+									"mode": "explicit",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil || !strings.Contains(err.Error(), "gpt-5.6-luna") || !strings.Contains(err.Error(), "prompt_cache_breakpoint") {
+		t.Fatalf("expected Luna prompt cache breakpoint error, got %v", err)
 	}
 }
 

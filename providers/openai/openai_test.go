@@ -460,6 +460,24 @@ func TestBuildParamsMapsGPT56SystemPromptCacheBreakpoint(t *testing.T) {
 	}
 }
 
+func TestBuildParamsRejectsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-luna",
+		Messages: []chat.Message{
+			chat.SystemParts(chat.WithPartCacheControl(
+				chat.TextPart("stable system prompt"),
+				chat.CacheControl{},
+			)),
+			chat.User("dynamic user input"),
+		},
+	}
+
+	_, err := buildParams(req, "")
+	if err == nil || !strings.Contains(err.Error(), "gpt-5.6-luna") || !strings.Contains(err.Error(), "prompt_cache_breakpoint") {
+		t.Fatalf("expected Luna prompt cache breakpoint error, got %v", err)
+	}
+}
+
 func TestBuildParamsMapsGPT56LegacyPromptCacheRetention(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.6-terra",

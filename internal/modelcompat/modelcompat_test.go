@@ -64,6 +64,27 @@ func TestOpenAIUsesPromptCacheOptions(t *testing.T) {
 	}
 }
 
+func TestOpenAISupportsPromptCacheBreakpoints(t *testing.T) {
+	for _, model := range []string{
+		"gpt-5.6",
+		"gpt-5.6-sol",
+		"openai/gpt-5.6-terra",
+	} {
+		if !OpenAISupportsPromptCacheBreakpoints(model) {
+			t.Fatalf("expected %q to support prompt cache breakpoints", model)
+		}
+	}
+	for _, model := range []string{
+		"gpt-5.6-luna",
+		"openai/gpt-5.6-luna",
+		"gpt-5.5",
+	} {
+		if OpenAISupportsPromptCacheBreakpoints(model) {
+			t.Fatalf("expected %q not to support prompt cache breakpoints", model)
+		}
+	}
+}
+
 func TestOpenAIReasoningEffortSupported(t *testing.T) {
 	for _, effort := range []string{"none", "low", "medium", "high", "xhigh", "max"} {
 		if !OpenAIReasoningEffortSupported("gpt-5.6", effort) {

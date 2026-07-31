@@ -129,8 +129,10 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
 	}
 	var cacheControlErr error
-	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+	if modelcompat.OpenAISupportsPromptCacheBreakpoints(model) {
 		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai")
+	} else if modelcompat.OpenAIUsesPromptCacheOptions(model) && chat.RequestHasExplicitCacheControl(req) {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_breakpoint", model)
 	} else {
 		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai")
 	}

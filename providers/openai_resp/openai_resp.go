@@ -173,8 +173,10 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		return responses.ResponseNewParams{}, fmt.Errorf("openai_resp provider does not support frequency penalty on the Responses API")
 	}
 	var cacheControlErr error
-	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+	if modelcompat.OpenAISupportsPromptCacheBreakpoints(model) {
 		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai_resp")
+	} else if modelcompat.OpenAIUsesPromptCacheOptions(model) && chat.RequestHasExplicitCacheControl(req) {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_breakpoint", model)
 	} else {
 		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai_resp")
 	}
@@ -261,6 +263,9 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		hasPromptCacheBreakpoint, err := validatePromptCacheBreakpoints(data)
 		if err != nil {
 			return responses.ResponseNewParams{}, err
+		}
+		if hasPromptCacheBreakpoint && !modelcompat.OpenAISupportsPromptCacheBreakpoints(model) {
+			return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_breakpoint", model)
 		}
 		var input responses.ResponseNewParamsInputUnion
 		if err := json.Unmarshal(data, &input); err == nil {
