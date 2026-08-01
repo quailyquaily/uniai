@@ -836,8 +836,6 @@ func TestPricingExampleYAML(t *testing.T) {
 		"MiniMax-M2.5-highspeed",
 		"deepseek-v4-flash",
 		"deepseek-v4-pro",
-		"deepseek-chat",
-		"deepseek-reasoner",
 		"grok-4.5",
 		"grok-4.5-latest",
 		"grok-4.3",
@@ -1304,12 +1302,6 @@ func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing
 	assertNearlyEqual(t, flash.Output, 300*0.28/1_000_000)
 	assertNearlyEqual(t, flash.Total, 0.00019656)
 
-	alias, ok := catalog.EstimateChatCost("deepseek-reasoner", usage)
-	if !ok {
-		t.Fatal("expected deepseek-reasoner alias cost estimate from pricing.example.yaml")
-	}
-	assertNearlyEqual(t, alias.Total, flash.Total)
-
 	pro, ok := catalog.EstimateChatCost("deepseek-v4-pro", usage)
 	if !ok {
 		t.Fatal("expected pro cost estimate from pricing.example.yaml")
@@ -1318,6 +1310,16 @@ func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing
 	assertNearlyEqual(t, pro.CachedInput, 200*0.003625/1_000_000)
 	assertNearlyEqual(t, pro.Output, 300*0.87/1_000_000)
 	assertNearlyEqual(t, pro.Total, 0.000609725)
+}
+
+func TestPricingExampleYAMLDoesNotMatchRetiredDeepSeekAliases(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	for _, model := range []string{"deepseek-chat", "deepseek-reasoner"} {
+		if rule := catalog.findChatPricingRule(model); rule != nil {
+			t.Errorf("expected retired DeepSeek model %q not to match current pricing, got %q", model, rule.Model)
+		}
+	}
 }
 
 func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *testing.T) {

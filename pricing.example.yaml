@@ -12,7 +12,8 @@
 # Claude Opus 5 standard rates added on 2026-07-25 from the public model docs.
 # Claude Sonnet 5 introductory rates added on 2026-07-10 from the public
 # pricing page.
-# DeepSeek V4 entries refreshed on 2026-06-30 from the public pricing page.
+# DeepSeek V4-Flash-0731 and V4-Pro entries verified on 2026-08-01 from the
+# public pricing page and change log.
 # xAI Grok 4.5 and Grok 4.20 Multi-Agent entries added on 2026-07-10 from the
 # official docs pages.
 # Meta Muse Spark 1.1 pricing added on 2026-07-10 from public launch reporting;
@@ -51,6 +52,7 @@
 # - Moonshot Kimi K3: https://platform.kimi.ai/docs/pricing/chat-k3
 # - MiniMax: https://platform.minimax.io/docs/guides/pricing-paygo
 # - DeepSeek: https://api-docs.deepseek.com/quick_start/pricing/
+# - DeepSeek change log: https://api-docs.deepseek.com/updates/
 # - xAI: https://docs.x.ai/developers/models
 # - xAI pricing: https://docs.x.ai/developers/pricing
 # - xAI Grok 4.5: https://docs.x.ai/developers/grok-4-5
@@ -89,9 +91,10 @@
 #   client's driver/provider name. Callers can optionally pass an explicit
 #   `inference_provider` hint. If that provider exists in the catalog, matching
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
-# - DeepSeek entries use the current Models & Pricing page. The V4 release news
-#   image showed higher launch prices for V4-Pro, but the current pricing page
-#   lists lower per-token deduction rates.
+# - DeepSeek `deepseek-v4-flash` now serves V4-Flash-0731. The retired
+#   `deepseek-chat` and `deepseek-reasoner` model names are not pricing aliases.
+# - DeepSeek has announced a future 2x peak-hours multiplier but has not
+#   published an effective date, so this catalog keeps the current regular rates.
 # - Mistral entries below use explicit dated model IDs to avoid guessing where a
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
 # - OpenAI image generation pricing uses separate rates for text input, image
@@ -623,9 +626,6 @@ chat:
   # DeepSeek
   - inference_provider: deepseek
     model: deepseek-v4-flash
-    aliases:
-      - deepseek-chat
-      - deepseek-reasoner
     input_usd_per_million: 0.14
     cached_input_usd_per_million: 0.0028
     output_usd_per_million: 0.28

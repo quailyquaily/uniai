@@ -23,7 +23,7 @@ export TEST_XAI_API_BASE=""
 
 # Deepseek (OpenAI-compatible)
 export TEST_DEEPSEEK_API_KEY=""
-export TEST_DEEPSEEK_MODEL="deepseek-chat"
+export TEST_DEEPSEEK_MODEL="deepseek-v4-flash"
 export TEST_DEEPSEEK_API_BASE=""
 
 # Groq (OpenAI-compatible)
