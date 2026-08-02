@@ -34,6 +34,8 @@ type (
 	ToolsEmulationMode = chat.ToolsEmulationMode
 	OnStreamFunc       = chat.OnStreamFunc
 	StreamEvent        = chat.StreamEvent
+	ReasoningDelta     = chat.ReasoningDelta
+	ReasoningDeltaType = chat.ReasoningDeltaType
 	ToolCallDelta      = chat.ToolCallDelta
 )
 
@@ -58,6 +60,11 @@ const (
 	ReasoningEffortHigh    = chat.ReasoningEffortHigh
 	ReasoningEffortMax     = chat.ReasoningEffortMax
 	ReasoningEffortXHigh   = chat.ReasoningEffortXHigh
+)
+
+const (
+	ReasoningDeltaSummary  = chat.ReasoningDeltaSummary
+	ReasoningDeltaThinking = chat.ReasoningDeltaThinking
 )
 
 const (

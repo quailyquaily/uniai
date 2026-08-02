@@ -167,6 +167,44 @@ func TestChatInvokesBedrockRuntimeV2Client(t *testing.T) {
 	}
 }
 
+func TestChatParsesBedrockReasoningDetails(t *testing.T) {
+	fake := &fakeBedrockRuntimeClient{
+		invokeModelOutput: &bedrockruntime.InvokeModelOutput{
+			Body: []byte(`{
+				"content": [
+					{"type": "thinking", "thinking": "inspect", "signature": "sig_1"},
+					{"type": "redacted_thinking", "data": "opaque"},
+					{"type": "text", "text": "answer"}
+				],
+				"usage": {"input_tokens": 3, "output_tokens": 2}
+			}`),
+		},
+	}
+	p := &Provider{
+		client:   fake,
+		modelArn: "anthropic.claude-sonnet-4-6-v1:0",
+	}
+
+	result, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{chat.User("hi")},
+		Options: chat.Options{
+			ReasoningDetails: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if result.Text != "answer" {
+		t.Fatalf("unexpected text: %q", result.Text)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Summary) != 1 || result.Reasoning.Summary[0] != "inspect" {
+		t.Fatalf("unexpected reasoning summary: %#v", result.Reasoning)
+	}
+	if len(result.Reasoning.Blocks) != 2 || result.Reasoning.Blocks[0].Signature != "sig_1" || result.Reasoning.Blocks[1].Data != "opaque" {
+		t.Fatalf("unexpected reasoning blocks: %#v", result.Reasoning)
+	}
+}
+
 func TestChatStreamConsumesBedrockRuntimeV2Stream(t *testing.T) {
 	stream := newFakeBedrockResponseStream(
 		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
@@ -174,11 +212,32 @@ func TestChatStreamConsumesBedrockRuntimeV2Stream(t *testing.T) {
 			"message": {"model": "claude-test", "usage": {"input_tokens": 3}}
 		}`)}},
 		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
+			"type": "content_block_start",
+			"index": 0,
+			"content_block": {"type": "thinking", "thinking": ""}
+		}`)}},
+		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
 			"type": "content_block_delta",
+			"index": 0,
+			"delta": {"type": "thinking_delta", "thinking": "inspect"}
+		}`)}},
+		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
+			"type": "content_block_delta",
+			"index": 0,
+			"delta": {"type": "signature_delta", "signature": "sig_1"}
+		}`)}},
+		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
+			"type": "content_block_stop",
+			"index": 0
+		}`)}},
+		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
+			"type": "content_block_delta",
+			"index": 1,
 			"delta": {"type": "text_delta", "text": "hel"}
 		}`)}},
 		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
 			"type": "content_block_delta",
+			"index": 1,
 			"delta": {"type": "text_delta", "text": "lo"}
 		}`)}},
 		&types.ResponseStreamMemberChunk{Value: types.PayloadPart{Bytes: []byte(`{
@@ -189,13 +248,14 @@ func TestChatStreamConsumesBedrockRuntimeV2Stream(t *testing.T) {
 	fake := &fakeBedrockRuntimeClient{stream: stream}
 	p := &Provider{
 		client:   fake,
-		modelArn: "anthropic.claude-sonnet-4-20250514-v1:0",
+		modelArn: "anthropic.claude-sonnet-4-6-v1:0",
 	}
 
 	var events []chat.StreamEvent
 	result, err := p.Chat(context.Background(), &chat.Request{
 		Messages: []chat.Message{chat.User("hi")},
 		Options: chat.Options{
+			ReasoningDetails: true,
 			OnStream: func(ev chat.StreamEvent) error {
 				events = append(events, ev)
 				return nil
@@ -211,14 +271,42 @@ func TestChatStreamConsumesBedrockRuntimeV2Stream(t *testing.T) {
 	if result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 2 || result.Usage.TotalTokens != 5 {
 		t.Fatalf("unexpected usage: %#v", result.Usage)
 	}
-	if len(events) != 3 || events[0].Delta != "hel" || events[1].Delta != "lo" || !events[2].Done {
+	if len(events) != 4 || events[0].ReasoningDelta == nil || events[0].ReasoningDelta.Delta != "inspect" || events[1].Delta != "hel" || events[2].Delta != "lo" || !events[3].Done {
 		t.Fatalf("unexpected stream events: %#v", events)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Text != "inspect" || result.Reasoning.Blocks[0].Signature != "sig_1" {
+		t.Fatalf("unexpected reasoning result: %#v", result.Reasoning)
 	}
 	if !stream.closed {
 		t.Fatalf("expected stream to be closed")
 	}
 	if fake.streamInput == nil || fake.streamInput.ModelId == nil || *fake.streamInput.ModelId != p.modelArn {
 		t.Fatalf("unexpected stream input: %#v", fake.streamInput)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(fake.streamInput.Body, &payload); err != nil {
+		t.Fatalf("unmarshal stream request: %v", err)
+	}
+	thinking, ok := payload["thinking"].(map[string]any)
+	if !ok || thinking["type"] != "adaptive" {
+		t.Fatalf("unexpected reasoning request: %#v", payload)
+	}
+}
+
+func TestChatReasoningDetailsRequiresBudgetForManualModel(t *testing.T) {
+	p := &Provider{
+		client:   &fakeBedrockRuntimeClient{},
+		modelArn: "anthropic.claude-sonnet-4-20250514-v1:0",
+	}
+
+	_, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{chat.User("hi")},
+		Options: chat.Options{
+			ReasoningDetails: true,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "WithReasoningBudgetTokens") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

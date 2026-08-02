@@ -31,6 +31,46 @@ func KimiUsesFixedSampling(model string) bool {
 		modelHasPrefix(model, "kimi-k2-5")
 }
 
+func OpenAIChatCompletionReasoningDetailsSupported(provider, model string) bool {
+	if strings.EqualFold(strings.TrimSpace(provider), "deepseek") {
+		return true
+	}
+	model = Normalize(model)
+	return modelHasPrefix(model, "deepseek") || modelHasPrefix(model, "kimi")
+}
+
+func AnthropicDropsSamplingParameters(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "mythos-5") ||
+		strings.Contains(model, "opus-5") ||
+		strings.Contains(model, "sonnet-5") ||
+		strings.Contains(model, "opus-4-8") ||
+		strings.Contains(model, "opus-4-7")
+}
+
+func AnthropicSupportsReasoningEffort(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "opus-4-5") || AnthropicPrefersReasoningEffort(model)
+}
+
+func AnthropicPrefersReasoningEffort(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "mythos-5") ||
+		strings.Contains(model, "opus-5") ||
+		strings.Contains(model, "sonnet-5") ||
+		strings.Contains(model, "opus-4-8") ||
+		strings.Contains(model, "opus-4-7") ||
+		strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "sonnet-4-6")
+}
+
+func AnthropicSummarizesThinkingDetails(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "opus-5") || strings.Contains(model, "opus-4-7")
+}
+
 func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
 	if !modelHasPrefix(Normalize(model), "kimi-k3") {
 		return effort, true

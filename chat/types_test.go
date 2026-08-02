@@ -123,6 +123,23 @@ func TestReasoningOptions(t *testing.T) {
 	}
 }
 
+func TestStreamEventCarriesReasoningDelta(t *testing.T) {
+	event := StreamEvent{
+		ReasoningDelta: &ReasoningDelta{
+			Index: 2,
+			Type:  ReasoningDeltaThinking,
+			Delta: "considering",
+		},
+	}
+
+	if event.ReasoningDelta == nil {
+		t.Fatalf("expected reasoning delta")
+	}
+	if event.ReasoningDelta.Index != 2 || event.ReasoningDelta.Type != ReasoningDeltaThinking || event.ReasoningDelta.Delta != "considering" {
+		t.Fatalf("unexpected reasoning delta: %#v", event.ReasoningDelta)
+	}
+}
+
 func TestBuildRequestRejectsInvalidCacheControlTTL(t *testing.T) {
 	_, err := BuildRequest(
 		WithMessages(UserParts(WithPartCacheControl(TextPart("prefix"), CacheControl{TTL: "30m"}))),

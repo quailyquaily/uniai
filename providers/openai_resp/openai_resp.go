@@ -68,7 +68,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogJSON(p.debug, debugFn, "openai.responses.request", params)
 
 	if req.Options.OnStream != nil {
-		result, err := streamChat(ctx, &p.client, params, req.Options.OnStream)
+		result, err := streamChat(ctx, &p.client, params, req.Options.ReasoningDetails, req.Options.OnStream)
 		if err != nil {
 			diag.LogError(p.debug, debugFn, "openai.responses.response", err)
 			return nil, err
@@ -76,7 +76,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return result, nil
 	}
 
-	result, raw, err := p.response(ctx, params)
+	result, raw, err := p.response(ctx, params, req.Options.ReasoningDetails)
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "openai.responses.response", err)
 		return nil, err
@@ -90,7 +90,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	return result, nil
 }
 
-func (p *Provider) response(ctx context.Context, params responses.ResponseNewParams) (*chat.Result, string, error) {
+func (p *Provider) response(ctx context.Context, params responses.ResponseNewParams, reasoningDetails bool) (*chat.Result, string, error) {
 	var rawResp *http.Response
 	if err := p.client.Execute(ctx, http.MethodPost, "responses", params, &rawResp); err != nil {
 		return nil, "", err
@@ -101,9 +101,9 @@ func (p *Provider) response(ctx context.Context, params responses.ResponseNewPar
 	defer rawResp.Body.Close()
 
 	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
-		result, err := streamChatFromResponse(rawResp)
+		result, err := streamChatFromResponse(rawResp, reasoningDetails)
 		if isEmptyMissingCompletedStream(err) {
-			result, err = streamChat(ctx, &p.client, params, nil)
+			result, err = streamChat(ctx, &p.client, params, reasoningDetails, nil)
 			return result, "", err
 		}
 		return result, "", err
@@ -1119,7 +1119,34 @@ type responseStreamState struct {
 	toolCalls map[int]streamToolCallState
 	completed *responses.Response
 	text      strings.Builder
+	summaries responseReasoningTextState
+	thinking  responseReasoningTextState
 	events    int
+}
+
+type responseReasoningKey struct {
+	itemID      string
+	outputIndex int64
+	partIndex   int64
+}
+
+type responseReasoningTextState struct {
+	indexes map[responseReasoningKey]int
+	values  []string
+}
+
+func (s *responseReasoningTextState) append(key responseReasoningKey, delta string) int {
+	if s.indexes == nil {
+		s.indexes = make(map[responseReasoningKey]int)
+	}
+	index, ok := s.indexes[key]
+	if !ok {
+		index = len(s.values)
+		s.indexes[key] = index
+		s.values = append(s.values, "")
+	}
+	s.values[index] += delta
+	return index
 }
 
 type missingCompletedStreamError struct {
@@ -1145,21 +1172,22 @@ func streamChat(
 	ctx context.Context,
 	client *openai.Client,
 	params responses.ResponseNewParams,
+	reasoningDetails bool,
 	onStream chat.OnStreamFunc,
 ) (*chat.Result, error) {
 	stream := client.Responses.NewStreaming(ctx, params)
-	return consumeResponseStream(stream, onStream)
+	return consumeResponseStream(stream, reasoningDetails, onStream)
 }
 
-func streamChatFromResponse(resp *http.Response) (*chat.Result, error) {
+func streamChatFromResponse(resp *http.Response, reasoningDetails bool) (*chat.Result, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, fmt.Errorf("openai responses stream response is empty")
 	}
 	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](ssestream.NewDecoder(resp), nil)
-	return consumeResponseStream(stream, nil)
+	return consumeResponseStream(stream, reasoningDetails, nil)
 }
 
-func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], onStream chat.OnStreamFunc) (*chat.Result, error) {
+func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	state := &responseStreamState{
 		toolCalls: map[int]streamToolCallState{},
 	}
@@ -1167,7 +1195,7 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 	for stream.Next() {
 		ev := stream.Current()
 		state.events++
-		if err := processStreamEvent(ev, state, onStream); err != nil {
+		if err := processStreamEvent(ev, state, reasoningDetails, onStream); err != nil {
 			stream.Close()
 			return nil, err
 		}
@@ -1183,6 +1211,7 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 		if err := onStream(chat.StreamEvent{
 			Done:  true,
 			Usage: &result.Usage,
+			Raw:   state.completed,
 		}); err != nil {
 			return nil, err
 		}
@@ -1190,7 +1219,7 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 	return result, nil
 }
 
-func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseStreamState, onStream chat.OnStreamFunc) error {
+func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseStreamState, reasoningDetails bool, onStream chat.OnStreamFunc) error {
 	switch event := ev.AsAny().(type) {
 	case responses.ResponseOutputItemAddedEvent:
 		registerStreamOutputItem(event.Item, int(event.OutputIndex), state)
@@ -1206,7 +1235,53 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		if onStream == nil {
 			return nil
 		}
-		return onStream(chat.StreamEvent{Delta: event.Delta})
+		return onStream(chat.StreamEvent{Delta: event.Delta, Raw: ev})
+	case responses.ResponseReasoningSummaryTextDeltaEvent:
+		if !reasoningDetails || event.Delta == "" {
+			return nil
+		}
+		index := 0
+		if state != nil {
+			index = state.summaries.append(responseReasoningKey{
+				itemID:      event.ItemID,
+				outputIndex: event.OutputIndex,
+				partIndex:   event.SummaryIndex,
+			}, event.Delta)
+		}
+		if onStream == nil {
+			return nil
+		}
+		return onStream(chat.StreamEvent{
+			ReasoningDelta: &chat.ReasoningDelta{
+				Index: index,
+				Type:  chat.ReasoningDeltaSummary,
+				Delta: event.Delta,
+			},
+			Raw: ev,
+		})
+	case responses.ResponseReasoningTextDeltaEvent:
+		if !reasoningDetails || event.Delta == "" {
+			return nil
+		}
+		index := 0
+		if state != nil {
+			index = state.thinking.append(responseReasoningKey{
+				itemID:      event.ItemID,
+				outputIndex: event.OutputIndex,
+				partIndex:   event.ContentIndex,
+			}, event.Delta)
+		}
+		if onStream == nil {
+			return nil
+		}
+		return onStream(chat.StreamEvent{
+			ReasoningDelta: &chat.ReasoningDelta{
+				Index: index,
+				Type:  chat.ReasoningDeltaThinking,
+				Delta: event.Delta,
+			},
+			Raw: ev,
+		})
 	case responses.ResponseFunctionCallArgumentsDeltaEvent:
 		meta := state.toolCalls[int(event.OutputIndex)]
 		id := strings.TrimSpace(meta.CallID)
@@ -1228,6 +1303,7 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 				Name:      meta.Name,
 				ArgsChunk: event.Delta,
 			},
+			Raw: ev,
 		})
 	case responses.ResponseFunctionCallArgumentsDoneEvent:
 		meta := state.toolCalls[int(event.OutputIndex)]
@@ -1252,6 +1328,7 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 				ID:    id,
 				Name:  meta.Name,
 			},
+			Raw: ev,
 		})
 	case responses.ResponseCompletedEvent:
 		state.completed = &event.Response
@@ -1283,11 +1360,57 @@ func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {
 		result.Text = state.text.String()
 		chat.EnsureResultParts(result)
 	}
+	applyStreamReasoningFallback(result, state)
 	if fallback := accumulatedStreamToolCalls(state); len(fallback) > 0 {
 		result.ToolCalls = mergeStreamToolCalls(result.ToolCalls, fallback)
 		ensureResultToolCallMessage(result)
 	}
 	return result, nil
+}
+
+func applyStreamReasoningFallback(result *chat.Result, state *responseStreamState) {
+	if result == nil || state == nil {
+		return
+	}
+
+	reasoning := result.Reasoning
+	if len(state.summaries.values) > 0 && (reasoning == nil || len(reasoning.Summary) == 0) {
+		if reasoning == nil {
+			reasoning = &chat.ReasoningResult{}
+		}
+		for _, summary := range state.summaries.values {
+			if strings.TrimSpace(summary) != "" {
+				reasoning.Summary = append(reasoning.Summary, summary)
+			}
+		}
+	}
+
+	hasThinking := false
+	if reasoning != nil {
+		for _, block := range reasoning.Blocks {
+			if block.Type == "thinking" && strings.TrimSpace(block.Text) != "" {
+				hasThinking = true
+				break
+			}
+		}
+	}
+	if len(state.thinking.values) > 0 && !hasThinking {
+		if reasoning == nil {
+			reasoning = &chat.ReasoningResult{}
+		}
+		for _, thinking := range state.thinking.values {
+			if strings.TrimSpace(thinking) != "" {
+				reasoning.Blocks = append(reasoning.Blocks, chat.ReasoningBlock{
+					Type: "thinking",
+					Text: thinking,
+				})
+			}
+		}
+	}
+
+	if reasoning != nil && (len(reasoning.Summary) > 0 || len(reasoning.Blocks) > 0) {
+		result.Reasoning = reasoning
+	}
 }
 
 func accumulatedStreamToolCalls(state *responseStreamState) []chat.ToolCall {

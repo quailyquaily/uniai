@@ -114,7 +114,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogJSON(p.debug, debugFn, "azure.chat.request", params)
 
 	if req.Options.OnStream != nil {
-		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream)
+		result, err := oaicompat.ChatStream(ctx, &p.client, params, false, req.Options.OnStream)
 		if err != nil {
 			diag.LogError(p.debug, debugFn, "azure.chat.response", err)
 			return nil, err

@@ -4,113 +4,263 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/quailyquaily/uniai"
 )
 
 const (
-	defaultTimeoutSecond = 180
-	defaultMaxTokens     = 4096
-	defaultPrompt        = "Write a detailed engineering playbook for building and operating a large-scale API platform. Produce exactly 120 numbered items, each item must have 2 full sentences. Every 20 items, add a 5-row markdown table summarizing key risks, signals, and mitigations. Finish with a section titled 'Top 30 Failure Patterns' that lists 30 anti-patterns and one concrete fix for each."
+	defaultConfigPath   = "config.yaml"
+	defaultTimeout      = 180 * time.Second
+	defaultMaxTokens    = 2048
+	defaultPrompt       = "Find the smallest positive integer divisible by every integer from 1 through 12. Give the result and a brief verification."
+	defaultProviderName = "openai"
 )
 
+type streamObservation struct {
+	reasoning        strings.Builder
+	content          strings.Builder
+	reasoningChunks  int
+	contentChunks    int
+	done             bool
+	section          string
+	endedWithNewline bool
+	usage            *uniai.Usage
+}
+
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func run(args []string) error {
+func run(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("stream", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	modelFlag := fs.String("model", "", "OpenAI model")
+	fs.SetOutput(stderr)
+	configPath := fs.String("config", defaultConfigPath, "path to config yaml")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if len(fs.Args()) != 0 {
-		return fmt.Errorf("usage: stream [--model model]")
+
+	rest := fs.Args()
+	if len(rest) == 0 || rest[0] != "run" || len(rest) > 2 {
+		return fmt.Errorf("usage: stream [--config path] run [test_name]")
+	}
+	selectedName := ""
+	if len(rest) == 2 {
+		selectedName = rest[1]
 	}
 
-	apiKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
-	if apiKey == "" {
-		return fmt.Errorf("openai provider: missing required env OPENAI_API_KEY")
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
 	}
-
-	model := strings.TrimSpace(*modelFlag)
-	if model == "" {
-		model = strings.TrimSpace(os.Getenv("OPENAI_MODEL"))
-	}
-	if model == "" {
-		return fmt.Errorf("openai provider: model is required (use --model or OPENAI_MODEL)")
-	}
-
-	client := uniai.New(uniai.Config{
-		Provider:      "openai",
-		OpenAIAPIKey:  apiKey,
-		OpenAIAPIBase: strings.TrimSpace(os.Getenv("OPENAI_API_BASE")),
-		OpenAIModel:   model,
-	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(defaultTimeoutSecond)*time.Second)
-	defer cancel()
-
-	start := time.Now()
-	streamed := false
-	endedWithNewline := false
-
-	resp, err := client.Chat(ctx,
-		uniai.WithProvider("openai"),
-		uniai.WithModel(model),
-		uniai.WithMessages(
-			uniai.System("You are a precise technical writer. Follow the requested format exactly and output the full content."),
-			uniai.User(defaultPrompt),
-		),
-		uniai.WithMaxTokens(defaultMaxTokens),
-		uniai.WithOnStream(func(ev uniai.StreamEvent) error {
-			if ev.Delta != "" {
-				streamed = true
-				endedWithNewline = strings.HasSuffix(ev.Delta, "\n")
-				fmt.Print(ev.Delta)
-			}
-			if ev.Done && ev.Usage != nil {
-				fmt.Fprintf(
-					os.Stderr,
-					"\nusage: input=%d output=%d total=%d\n",
-					ev.Usage.InputTokens,
-					ev.Usage.OutputTokens,
-					ev.Usage.TotalTokens,
-				)
-			}
-			return nil
-		}),
-	)
+	tests, err := selectTests(cfg.Tests, selectedName)
 	if err != nil {
 		return err
 	}
 
-	if !streamed && resp != nil && resp.Text != "" {
-		fmt.Print(resp.Text)
-		endedWithNewline = strings.HasSuffix(resp.Text, "\n")
+	type testFailure struct {
+		name string
+		err  error
 	}
-	if !endedWithNewline {
-		fmt.Println()
+	failures := make([]testFailure, 0)
+	for i, test := range tests {
+		if i > 0 {
+			if _, err := fmt.Fprintln(stdout); err != nil {
+				return err
+			}
+		}
+		if err := runOne(cfg, test, stdout); err != nil {
+			failures = append(failures, testFailure{name: test.Name, err: err})
+			if _, writeErr := fmt.Fprintf(stdout, "FAIL: %v\n", err); writeErr != nil {
+				return writeErr
+			}
+		}
 	}
 
-	if resp == nil {
-		return fmt.Errorf("empty response")
+	if len(failures) > 0 {
+		first := failures[0]
+		return fmt.Errorf("%d stream reasoning test(s) failed; %s: %w", len(failures), first.name, first.err)
 	}
-
-	fmt.Fprintf(
-		os.Stderr,
-		"done: model=%s elapsed=%s chars=%d\n",
-		resp.Model,
-		time.Since(start).Round(time.Millisecond),
-		len(resp.Text),
-	)
-
 	return nil
+}
+
+func runOne(cfg *fileConfig, test testConfig, stdout io.Writer) error {
+	clientConfig, err := buildClientConfig(test)
+	if err != nil {
+		return err
+	}
+
+	prompt := strings.TrimSpace(test.Prompt)
+	if prompt == "" {
+		prompt = strings.TrimSpace(cfg.Prompt)
+	}
+	if prompt == "" {
+		prompt = defaultPrompt
+	}
+
+	maxTokens := test.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = cfg.MaxTokens
+	}
+	if maxTokens == 0 {
+		maxTokens = defaultMaxTokens
+	}
+
+	timeout := test.TimeoutSeconds
+	if timeout == 0 {
+		timeout = cfg.TimeoutSeconds
+	}
+	requestTimeout := defaultTimeout
+	if timeout > 0 {
+		requestTimeout = time.Duration(timeout) * time.Second
+	}
+
+	provider := test.Provider
+	if provider == "" {
+		provider = defaultProviderName
+	}
+	if _, err := fmt.Fprintf(
+		stdout,
+		"%s (%s / %s)\n\n",
+		test.Name,
+		provider,
+		test.Model,
+	); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+
+	observation := streamObservation{}
+	writeStreamText := func(section, delta string) error {
+		if delta == "" {
+			return nil
+		}
+		if observation.section != section {
+			if observation.section != "" {
+				if !observation.endedWithNewline {
+					if _, err := fmt.Fprintln(stdout); err != nil {
+						return err
+					}
+				}
+				if _, err := fmt.Fprintln(stdout); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(stdout, "%s:\n", section); err != nil {
+				return err
+			}
+			observation.section = section
+			observation.endedWithNewline = true
+		}
+		if _, err := fmt.Fprint(stdout, delta); err != nil {
+			return err
+		}
+		observation.endedWithNewline = strings.HasSuffix(delta, "\n")
+		return nil
+	}
+	options := []uniai.ChatOption{
+		uniai.WithProvider(provider),
+		uniai.WithModel(test.Model),
+		uniai.WithMessages(uniai.User(prompt)),
+		uniai.WithMaxTokens(maxTokens),
+		uniai.WithReasoningDetails(),
+		uniai.WithOnStream(func(event uniai.StreamEvent) error {
+			if event.ReasoningDelta != nil && event.ReasoningDelta.Delta != "" {
+				observation.reasoningChunks++
+				observation.reasoning.WriteString(event.ReasoningDelta.Delta)
+				if err := writeStreamText("Reasoning", event.ReasoningDelta.Delta); err != nil {
+					return err
+				}
+			}
+			if event.Delta != "" {
+				observation.contentChunks++
+				observation.content.WriteString(event.Delta)
+				if err := writeStreamText("Answer", event.Delta); err != nil {
+					return err
+				}
+			}
+			if event.Done {
+				observation.done = true
+				if event.Usage != nil {
+					usage := *event.Usage
+					observation.usage = &usage
+				}
+			}
+			return nil
+		}),
+	}
+	if test.ReasoningEffort != "" {
+		options = append(options, uniai.WithReasoningEffort(uniai.ReasoningEffort(test.ReasoningEffort)))
+	}
+	if test.ReasoningBudgetTokens != nil {
+		options = append(options, uniai.WithReasoningBudgetTokens(*test.ReasoningBudgetTokens))
+	}
+
+	client := uniai.New(clientConfig)
+	startedAt := time.Now()
+	response, err := client.Chat(ctx, options...)
+	if observation.section != "" {
+		if !observation.endedWithNewline {
+			if _, writeErr := fmt.Fprintln(stdout); writeErr != nil && err == nil {
+				err = writeErr
+			}
+		}
+		if _, writeErr := fmt.Fprintln(stdout); writeErr != nil && err == nil {
+			err = writeErr
+		}
+	}
+	if err != nil {
+		return err
+	}
+	if response == nil {
+		return fmt.Errorf("provider returned an empty response")
+	}
+	if !observation.done {
+		return fmt.Errorf("stream ended without a done event")
+	}
+	if strings.TrimSpace(observation.reasoning.String()) == "" {
+		return fmt.Errorf("no non-empty reasoning delta received through WithOnStream")
+	}
+	if observation.usage != nil {
+		if _, err := fmt.Fprintf(
+			stdout,
+			"Usage: input %d, output %d, total %d tokens\n",
+			observation.usage.InputTokens,
+			observation.usage.OutputTokens,
+			observation.usage.TotalTokens,
+		); err != nil {
+			return err
+		}
+	}
+
+	reasoningChunkLabel := "chunks"
+	if observation.reasoningChunks == 1 {
+		reasoningChunkLabel = "chunk"
+	}
+	contentChunkLabel := "chunks"
+	if observation.contentChunks == 1 {
+		contentChunkLabel = "chunk"
+	}
+
+	_, err = fmt.Fprintf(
+		stdout,
+		"PASS: reasoning %d chars (%d %s), answer %d chars (%d %s), elapsed %s\n",
+		utf8.RuneCountInString(observation.reasoning.String()),
+		observation.reasoningChunks,
+		reasoningChunkLabel,
+		utf8.RuneCountInString(observation.content.String()),
+		observation.contentChunks,
+		contentChunkLabel,
+		time.Since(startedAt).Round(time.Millisecond),
+	)
+	return err
 }

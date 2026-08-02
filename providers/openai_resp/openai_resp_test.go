@@ -672,6 +672,29 @@ func TestBuildParamsMapsGPT56ReasoningOptions(t *testing.T) {
 	}
 }
 
+func TestBuildParamsMapsGPT56LunaReasoningDetails(t *testing.T) {
+	effort := chat.ReasoningEffortMedium
+	req := &chat.Request{
+		Model:    "gpt-5.6-luna",
+		Messages: []chat.Message{chat.User("hello")},
+		Options: chat.Options{
+			ReasoningEffort:  &effort,
+			ReasoningDetails: true,
+		},
+	}
+
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	if string(params.Model) != "gpt-5.6-luna" {
+		t.Fatalf("unexpected model: %q", params.Model)
+	}
+	if params.Reasoning.Effort != "medium" || params.Reasoning.Summary != "auto" {
+		t.Fatalf("unexpected Luna reasoning config: %#v", params.Reasoning)
+	}
+}
+
 func TestBuildParamsMapsGPT56RawPromptCacheBreakpoint(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.6",
@@ -1467,17 +1490,41 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 			"arguments":       `{"city":"Tokyo"}`,
 		}),
 		mustDecodeStreamEvent(t, map[string]any{
-			"type":            "response.output_text.delta",
+			"type":            "response.reasoning_summary_text.delta",
+			"output_index":    1,
+			"summary_index":   0,
+			"sequence_number": 4,
+			"item_id":         "rs_1",
+			"delta":           "first summary",
+		}),
+		mustDecodeStreamEvent(t, map[string]any{
+			"type":            "response.reasoning_summary_text.delta",
+			"output_index":    2,
+			"summary_index":   0,
+			"sequence_number": 5,
+			"item_id":         "rs_2",
+			"delta":           "second summary",
+		}),
+		mustDecodeStreamEvent(t, map[string]any{
+			"type":            "response.reasoning_text.delta",
 			"output_index":    1,
 			"content_index":   0,
-			"sequence_number": 4,
+			"sequence_number": 6,
+			"item_id":         "rs_1",
+			"delta":           "private thought",
+		}),
+		mustDecodeStreamEvent(t, map[string]any{
+			"type":            "response.output_text.delta",
+			"output_index":    3,
+			"content_index":   0,
+			"sequence_number": 7,
 			"item_id":         "msg_1",
 			"delta":           "Hello",
 			"logprobs":        []any{},
 		}),
 		mustDecodeStreamEvent(t, map[string]any{
 			"type":            "response.completed",
-			"sequence_number": 5,
+			"sequence_number": 8,
 			"response": map[string]any{
 				"id":                  "resp_456",
 				"model":               "gpt-5.4",
@@ -1522,10 +1569,17 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	state := &responseStreamState{toolCalls: map[int]streamToolCallState{}}
 	var textDeltas []string
 	var toolDeltas []chat.ToolCallDelta
+	var reasoningDeltas []chat.ReasoningDelta
 	for _, ev := range events {
-		err := processStreamEvent(ev, state, func(event chat.StreamEvent) error {
+		err := processStreamEvent(ev, state, true, func(event chat.StreamEvent) error {
 			if event.Delta != "" {
 				textDeltas = append(textDeltas, event.Delta)
+			}
+			if event.ReasoningDelta != nil {
+				reasoningDeltas = append(reasoningDeltas, *event.ReasoningDelta)
+				if event.Raw == nil {
+					t.Fatalf("reasoning event must preserve its raw event")
+				}
 			}
 			if event.ToolCallDelta != nil {
 				toolDeltas = append(toolDeltas, *event.ToolCallDelta)
@@ -1543,6 +1597,18 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	if state.text.String() != "Hello" {
 		t.Fatalf("unexpected accumulated stream text: %q", state.text.String())
 	}
+	if len(reasoningDeltas) != 3 {
+		t.Fatalf("unexpected reasoning deltas: %#v", reasoningDeltas)
+	}
+	if reasoningDeltas[0].Type != chat.ReasoningDeltaSummary || reasoningDeltas[0].Index != 0 || reasoningDeltas[0].Delta != "first summary" {
+		t.Fatalf("unexpected first summary delta: %#v", reasoningDeltas[0])
+	}
+	if reasoningDeltas[1].Type != chat.ReasoningDeltaSummary || reasoningDeltas[1].Index != 1 || reasoningDeltas[1].Delta != "second summary" {
+		t.Fatalf("unexpected second summary delta: %#v", reasoningDeltas[1])
+	}
+	if reasoningDeltas[2].Type != chat.ReasoningDeltaThinking || reasoningDeltas[2].Index != 0 || reasoningDeltas[2].Delta != "private thought" {
+		t.Fatalf("unexpected thinking delta: %#v", reasoningDeltas[2])
+	}
 	if len(toolDeltas) != 2 {
 		t.Fatalf("unexpected tool deltas: %#v", toolDeltas)
 	}
@@ -1557,6 +1623,59 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	}
 	if state.completed == nil || state.completed.ID != "resp_456" {
 		t.Fatalf("expected completed response, got %#v", state.completed)
+	}
+	result, err := finalizeStreamResult(state)
+	if err != nil {
+		t.Fatalf("finalize stream result: %v", err)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Summary) != 2 || result.Reasoning.Summary[0] != "first summary" || result.Reasoning.Summary[1] != "second summary" {
+		t.Fatalf("unexpected fallback summaries: %#v", result.Reasoning)
+	}
+	if len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Text != "private thought" {
+		t.Fatalf("unexpected fallback thinking: %#v", result.Reasoning)
+	}
+}
+
+func TestFinalizeStreamResultKeepsCompletedReasoningAuthoritative(t *testing.T) {
+	state := &responseStreamState{
+		toolCalls: map[int]streamToolCallState{},
+		completed: mustDecodeResponse(t, map[string]any{
+			"id":                  "resp_reasoning",
+			"model":               "gpt-5.4",
+			"object":              "response",
+			"parallel_tool_calls": true,
+			"status":              "completed",
+			"output": []any{
+				map[string]any{
+					"id":      "rs_1",
+					"type":    "reasoning",
+					"status":  "completed",
+					"summary": []any{map[string]any{"type": "summary_text", "text": "complete summary"}},
+					"content": []any{map[string]any{"type": "reasoning_text", "text": "complete thought"}},
+				},
+			},
+			"usage": map[string]any{
+				"input_tokens":          1,
+				"input_tokens_details":  map[string]any{},
+				"output_tokens":         1,
+				"output_tokens_details": map[string]any{},
+				"total_tokens":          2,
+			},
+			"text": map[string]any{"format": map[string]any{"type": "text"}},
+		}),
+	}
+	state.summaries.append(responseReasoningKey{itemID: "rs_1", outputIndex: 0, partIndex: 0}, "stream summary")
+	state.thinking.append(responseReasoningKey{itemID: "rs_1", outputIndex: 0, partIndex: 0}, "stream thought")
+
+	result, err := finalizeStreamResult(state)
+	if err != nil {
+		t.Fatalf("finalize stream result: %v", err)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Summary) != 1 || result.Reasoning.Summary[0] != "complete summary" {
+		t.Fatalf("completed summary was not authoritative: %#v", result.Reasoning)
+	}
+	if len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Text != "complete thought" {
+		t.Fatalf("completed thinking was not authoritative: %#v", result.Reasoning)
 	}
 }
 

@@ -1,11 +1,13 @@
 package gemini
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -117,6 +119,7 @@ type geminiResponse struct {
 	Candidates []geminiCandidate `json:"candidates,omitempty"`
 	Usage      geminiUsage       `json:"usageMetadata,omitempty"`
 	Model      string            `json:"modelVersion,omitempty"`
+	Error      *geminiError      `json:"error,omitempty"`
 }
 
 type geminiCandidate struct {
@@ -131,17 +134,16 @@ type geminiUsage struct {
 	ThoughtsTokens int `json:"thoughtsTokenCount,omitempty"`
 }
 
+type geminiError struct {
+	Message string `json:"message,omitempty"`
+}
+
 type geminiErrorEnvelope struct {
-	Error struct {
-		Message string `json:"message,omitempty"`
-	} `json:"error"`
+	Error geminiError `json:"error"`
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	if req.Options.OnStream != nil {
-		return nil, fmt.Errorf("gemini provider does not support streaming yet")
-	}
 	if err := chat.ValidateNoScopedCacheControl(req, "gemini"); err != nil {
 		return nil, err
 	}
@@ -166,10 +168,17 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogText(p.cfg.Debug, debugFn, "gemini.chat.request", string(reqBody))
 
 	base := normalizeGeminiBase(p.cfg.BaseURL)
-	endpoint := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s",
+	operation := "generateContent"
+	query := url.Values{"key": []string{p.cfg.APIKey}}
+	if req.Options.OnStream != nil {
+		operation = "streamGenerateContent"
+		query.Set("alt", "sse")
+	}
+	endpoint := fmt.Sprintf("%s/v1beta/models/%s:%s?%s",
 		base,
 		url.PathEscape(normalizeGeminiModel(model)),
-		url.QueryEscape(p.cfg.APIKey),
+		operation,
+		query.Encode(),
 	)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(reqBody))
@@ -185,6 +194,22 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if req.Options.OnStream != nil {
+		if resp.StatusCode != http.StatusOK {
+			respData, err := httputil.ReadBody(resp.Body)
+			if err != nil {
+				return nil, err
+			}
+			diag.LogText(p.cfg.Debug, debugFn, "gemini.chat.response", string(respData))
+			return nil, fmt.Errorf("gemini api error: status %d: %s", resp.StatusCode, parseGeminiError(respData))
+		}
+		result, err := p.chatStream(resp.Body, model, req.Options.ReasoningDetails, req.Options.OnStream)
+		if err != nil {
+			diag.LogError(p.cfg.Debug, debugFn, "gemini.chat.response", err)
+			return nil, err
+		}
+		return result, nil
+	}
 
 	respData, err := httputil.ReadBody(resp.Body)
 	if err != nil {
@@ -207,6 +232,168 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	result.Raw = out
 	return result, nil
+}
+
+func (p *Provider) chatStream(body io.Reader, fallbackModel string, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	var (
+		parts                []geminiPart
+		usage                geminiUsage
+		model                string
+		rawChunks            []json.RawMessage
+		toolIndex            int
+		activeThoughtPart    = -1
+		activeReasoningIndex = -1
+		nextReasoningIndex   int
+	)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if data == "" || data == "[DONE]" {
+			continue
+		}
+
+		raw := json.RawMessage(append([]byte(nil), data...))
+		var chunk geminiResponse
+		if err := json.Unmarshal(raw, &chunk); err != nil {
+			return nil, fmt.Errorf("gemini stream response: %w", err)
+		}
+		if chunk.Error != nil {
+			if message := strings.TrimSpace(chunk.Error.Message); message != "" {
+				return nil, fmt.Errorf("gemini stream error: %s", message)
+			}
+			return nil, fmt.Errorf("gemini stream error")
+		}
+		rawChunks = append(rawChunks, raw)
+		if chunk.Model != "" {
+			model = chunk.Model
+		}
+		mergeGeminiUsage(&usage, chunk.Usage)
+		if len(chunk.Candidates) == 0 {
+			continue
+		}
+
+		for _, part := range chunk.Candidates[0].Content.Parts {
+			partIndex, merged := appendGeminiStreamPart(&parts, part)
+			if part.Text != "" {
+				if part.Thought {
+					if reasoningDetails {
+						if !merged || activeThoughtPart != partIndex {
+							activeThoughtPart = partIndex
+							activeReasoningIndex = nextReasoningIndex
+							nextReasoningIndex++
+						}
+						if err := onStream(chat.StreamEvent{
+							ReasoningDelta: &chat.ReasoningDelta{
+								Index: activeReasoningIndex,
+								Type:  chat.ReasoningDeltaSummary,
+								Delta: part.Text,
+							},
+							Raw: raw,
+						}); err != nil {
+							return nil, err
+						}
+					}
+				} else {
+					activeThoughtPart = -1
+					activeReasoningIndex = -1
+					if err := onStream(chat.StreamEvent{Delta: part.Text, Raw: raw}); err != nil {
+						return nil, err
+					}
+				}
+			}
+
+			if part.FunctionCall != nil {
+				activeThoughtPart = -1
+				activeReasoningIndex = -1
+				args, err := json.Marshal(part.FunctionCall.Args)
+				if err != nil {
+					return nil, err
+				}
+				if len(args) == 0 || string(args) == "null" {
+					args = []byte("{}")
+				}
+				signature := strings.TrimSpace(part.ThoughtSignature)
+				if err := onStream(chat.StreamEvent{
+					ToolCallDelta: &chat.ToolCallDelta{
+						Index:     toolIndex,
+						ID:        encodeToolCallID(fmt.Sprintf("call_%d", partIndex+1), signature),
+						Name:      part.FunctionCall.Name,
+						ArgsChunk: string(args),
+					},
+					Raw: raw,
+				}); err != nil {
+					return nil, err
+				}
+				toolIndex++
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+
+	accumulated := &geminiResponse{
+		Candidates: []geminiCandidate{{Content: geminiContent{Parts: parts}}},
+		Usage:      usage,
+		Model:      model,
+	}
+	result, err := toChatResult(accumulated, fallbackModel, reasoningDetails)
+	if err != nil {
+		return nil, err
+	}
+	result.Raw = rawChunks
+	if err := onStream(chat.StreamEvent{
+		Done:  true,
+		Usage: &result.Usage,
+		Raw:   rawChunks,
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func appendGeminiStreamPart(parts *[]geminiPart, part geminiPart) (int, bool) {
+	if parts != nil && len(*parts) > 0 && isGeminiTextOnlyPart(part) {
+		last := &(*parts)[len(*parts)-1]
+		if isGeminiTextOnlyPart(*last) && last.Thought == part.Thought {
+			last.Text += part.Text
+			if last.ThoughtSignature == "" {
+				last.ThoughtSignature = part.ThoughtSignature
+			}
+			return len(*parts) - 1, true
+		}
+	}
+	*parts = append(*parts, part)
+	return len(*parts) - 1, false
+}
+
+func isGeminiTextOnlyPart(part geminiPart) bool {
+	return part.Text != "" && part.InlineData == nil && part.FunctionCall == nil && part.FunctionResponse == nil
+}
+
+func mergeGeminiUsage(dst *geminiUsage, src geminiUsage) {
+	if dst == nil {
+		return
+	}
+	if src.InputTokens != 0 {
+		dst.InputTokens = src.InputTokens
+	}
+	if src.OutputTokens != 0 {
+		dst.OutputTokens = src.OutputTokens
+	}
+	if src.TotalTokens != 0 {
+		dst.TotalTokens = src.TotalTokens
+	}
+	if src.ThoughtsTokens != 0 {
+		dst.ThoughtsTokens = src.ThoughtsTokens
+	}
 }
 
 func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {

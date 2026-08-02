@@ -28,7 +28,7 @@ func TestChatStreamText(t *testing.T) {
 	var gotUsage *chat.Usage
 
 	p := &Provider{}
-	result, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+	result, err := p.chatStream(strings.NewReader(sse), false, func(ev chat.StreamEvent) error {
 		if ev.Done {
 			gotDone = true
 			gotUsage = ev.Usage
@@ -75,7 +75,7 @@ func TestChatStreamToolCall(t *testing.T) {
 
 	var toolDeltas []chat.ToolCallDelta
 	p := &Provider{}
-	result, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+	result, err := p.chatStream(strings.NewReader(sse), false, func(ev chat.StreamEvent) error {
 		if ev.ToolCallDelta != nil {
 			toolDeltas = append(toolDeltas, *ev.ToolCallDelta)
 		}
@@ -120,7 +120,7 @@ func TestChatStreamCacheUsage(t *testing.T) {
 
 	var gotUsage *chat.Usage
 	p := &Provider{}
-	result, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+	result, err := p.chatStream(strings.NewReader(sse), false, func(ev chat.StreamEvent) error {
 		if ev.Done {
 			gotUsage = ev.Usage
 		}
@@ -155,7 +155,7 @@ func TestChatStreamCallbackError(t *testing.T) {
 
 	cancelErr := fmt.Errorf("cancelled")
 	p := &Provider{}
-	_, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+	_, err := p.chatStream(strings.NewReader(sse), false, func(ev chat.StreamEvent) error {
 		if ev.Delta != "" {
 			return cancelErr
 		}
@@ -178,7 +178,7 @@ func TestChatStreamDoneError(t *testing.T) {
 
 	doneErr := fmt.Errorf("done error")
 	p := &Provider{}
-	_, err := p.chatStream(strings.NewReader(sse), func(ev chat.StreamEvent) error {
+	_, err := p.chatStream(strings.NewReader(sse), false, func(ev chat.StreamEvent) error {
 		if ev.Done {
 			return doneErr
 		}
@@ -186,5 +186,56 @@ func TestChatStreamDoneError(t *testing.T) {
 	})
 	if err != doneErr {
 		t.Fatalf("expected done error to propagate, got: %v", err)
+	}
+}
+
+func TestChatStreamReasoningDetails(t *testing.T) {
+	sse := strings.Join([]string{
+		sseEvent("message_start", `{"type":"message_start","message":{"model":"claude-sonnet-4-6","usage":{"input_tokens":4}}}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"inspect first"}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig_1"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"opaque"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":1}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"answer"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":2}`),
+		sseEvent("message_delta", `{"type":"message_delta","usage":{"output_tokens":3}}`),
+		sseEvent("message_stop", `{"type":"message_stop"}`),
+	}, "")
+
+	var contentEvents []string
+	p := &Provider{}
+	result, err := p.chatStream(strings.NewReader(sse), true, func(ev chat.StreamEvent) error {
+		if ev.ReasoningDelta != nil {
+			contentEvents = append(contentEvents, "reasoning:"+ev.ReasoningDelta.Delta)
+			if ev.Raw == nil {
+				t.Fatalf("reasoning event must preserve raw input")
+			}
+		}
+		if ev.Delta != "" {
+			contentEvents = append(contentEvents, "text:"+ev.Delta)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("chat stream: %v", err)
+	}
+	wantEvents := []string{"reasoning:inspect first", "text:answer"}
+	if len(contentEvents) != len(wantEvents) || contentEvents[0] != wantEvents[0] || contentEvents[1] != wantEvents[1] {
+		t.Fatalf("unexpected content events: %#v", contentEvents)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Summary) != 1 || result.Reasoning.Summary[0] != "inspect first" {
+		t.Fatalf("unexpected reasoning summary: %#v", result.Reasoning)
+	}
+	if len(result.Reasoning.Blocks) != 2 {
+		t.Fatalf("unexpected reasoning blocks: %#v", result.Reasoning)
+	}
+	if block := result.Reasoning.Blocks[0]; block.Type != "thinking" || block.Text != "inspect first" || block.Signature != "sig_1" {
+		t.Fatalf("unexpected thinking block: %#v", block)
+	}
+	if block := result.Reasoning.Blocks[1]; block.Type != "redacted_thinking" || block.Data != "opaque" {
+		t.Fatalf("unexpected redacted block: %#v", block)
 	}
 }

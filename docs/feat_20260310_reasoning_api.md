@@ -6,6 +6,15 @@
 - Scope: `chat` API only
 - Target providers: `openai`, `gemini`, `anthropic`
 
+## Current Implementation Note (2026-08-02)
+
+The public reasoning API proposed here is implemented. The original design history remains in this document; current provider behavior differs in these places:
+
+- `openai` still uses Chat Completions and rejects `WithReasoningDetails()`.
+- `openai_resp` uses the Responses API and normalizes supported reasoning output. GPT-5.6 Luna uses this route and exposes provider-generated reasoning summaries.
+- Claude Sonnet 5 uses adaptive thinking controlled by `WithReasoningEffort(...)`; it does not use a manual thinking budget.
+- Streaming reasoning uses the existing `WithOnStream(...)` callback and `StreamEvent.ReasoningDelta`. See [Streaming Reasoning Capture](feat/feat_20260802_streaming_reasoning_capture.md).
+
 ## Goal
 
 Add a small, explicit API for controlling reasoning and optionally retrieving reasoning details, without silently leaking provider-specific reasoning settings into requests that did not ask for them.
@@ -135,10 +144,11 @@ The following guidance is what the docs and API comments should communicate clea
 
 | Provider | Preferred control | Secondary control | `WithReasoningDetails()` | Notes |
 | --- | --- | --- | --- | --- |
-| OpenAI | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Supported only on a Responses-based implementation | OpenAI reasoning is effort-based, not budget-based |
+| OpenAI Chat Completions (`openai`) | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Unsupported | The Chat Completions route does not expose normalized reasoning details |
+| OpenAI Responses (`openai_resp`) | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Supported via reasoning summaries | GPT-5.6 Luna uses this route; raw chain-of-thought is not exposed |
 | Gemini 3.x | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported in the current native path | Supported via thought summaries | Native control is level-based |
 | Gemini 2.5 | `WithReasoningBudgetTokens` | `WithReasoningEffort` as compatibility mapping only | Supported via thought summaries | Native control is token-budget-based |
-| Anthropic Claude 4.6 | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported in the current native path | Supported via thinking blocks | Official docs recommend effort with adaptive thinking |
+| Anthropic Claude Sonnet 5 and Claude 4.6 adaptive-thinking models | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported in the current native path | Supported via thinking blocks | Adaptive thinking is controlled by effort |
 | Anthropic manual thinking models | `WithReasoningBudgetTokens` | `WithReasoningEffort` where supported | Supported via thinking blocks | Best fit for Opus 4.5 and earlier manual-thinking Claude 4 models |
 
 ## Provider Mapping Details
@@ -161,10 +171,11 @@ Output behavior:
 - the supported normalized output is reasoning summary text
 - raw reasoning text must not be promised as part of the stable `uniai` abstraction
 
-Implementation note:
+Provider routes:
 
-- the current `providers/openai` implementation uses Chat Completions
-- `WithReasoningDetails()` should therefore be documented as blocked until an OpenAI Responses-based path exists
+- `providers/openai` uses Chat Completions and rejects `WithReasoningDetails()`
+- `providers/openai_resp` uses Responses and supports normalized reasoning summaries
+- GPT-5.6 Luna should use `openai_resp`; its readable reasoning output is a summary, not raw chain-of-thought
 
 ### Gemini
 
@@ -214,7 +225,7 @@ Anthropic has two distinct but related controls:
 
 Preferred API guidance:
 
-- Claude Opus 4.6 and Sonnet 4.6: prefer `WithReasoningEffort(...)`
+- Claude Sonnet 5, Opus 4.6, and Sonnet 4.6: prefer `WithReasoningEffort(...)`
 - Opus 4.5 and other manual-thinking Claude 4 models: prefer `WithReasoningBudgetTokens(...)`
 - docs should describe Anthropic reasoning control as model-family-specific, not one-size-fits-all
 
@@ -222,6 +233,7 @@ Request mapping:
 
 - `WithReasoningBudgetTokens(v)` -> `thinking: {"type":"enabled","budget_tokens": v}`
 - `WithReasoningEffort(v)` -> `output_config.effort = ...` only for models that support effort
+- for Claude Sonnet 5, use adaptive thinking and omit sampling parameters that Anthropic rejects with that mode
 
 Output behavior:
 
@@ -277,7 +289,7 @@ Unified API guidance:
 
 ### Anthropic
 
-Anthropic supports budget-based control on manual-thinking models, but Claude 4.6 models now recommend effort instead.
+Anthropic supports budget-based control on manual-thinking models, but Claude Sonnet 5 and Claude 4.6 adaptive-thinking models use effort instead.
 
 Recommended values:
 
@@ -291,7 +303,7 @@ Provider caveats:
 - `budget_tokens` must generally be less than `max_tokens`
 - `0` is invalid
 - `-1` is invalid for the budget field; adaptive thinking is a separate Anthropic mode and should not be overloaded onto `WithReasoningBudgetTokens(...)`
-- on Claude Opus 4.6 and Sonnet 4.6, budget-based control is treated as unsupported in the current implementation; use effort plus adaptive thinking
+- on Claude Sonnet 5, Opus 4.6, and Sonnet 4.6, budget-based control is treated as unsupported in the current implementation; use effort plus adaptive thinking
 
 Unified API guidance:
 
@@ -365,7 +377,8 @@ This means:
 
 Allowed, but provider-specific behavior applies:
 
-- OpenAI: blocked until Responses-based support exists
+- OpenAI Chat Completions (`openai`): unsupported
+- OpenAI Responses (`openai_resp`): request reasoning summaries with provider defaults
 - Gemini: enable thought summaries with provider defaults
 - Anthropic: enable appropriate thinking mode if the model allows it; otherwise require explicit budget
 
@@ -377,17 +390,16 @@ Provider-specific validation applies:
 - Gemini: error
 - Anthropic: allowed only where the model supports both semantics meaningfully; otherwise error
 
-## Implementation Notes for This Repository
+## Repository State When Proposed
 
-Current repository state:
+On 2026-03-10, when this proposal was written:
 
-- OpenAI currently has a request-side `reasoning_effort` path, but no normalized reasoning output path
-- OpenAI currently has a request-side `reasoning_effort` path, but no normalized reasoning details path
-- Gemini currently preserves `thought_signature` for tool calling, but does not expose thought summaries
-- Anthropic currently parses visible text and tool use, but not thinking blocks
-- `chat.Result` currently has no normalized reasoning field
+- OpenAI had a request-side `reasoning_effort` path, but no normalized reasoning output path
+- Gemini preserved `thought_signature` for tool calling, but did not expose thought summaries
+- Anthropic parsed visible text and tool use, but not thinking blocks
+- `chat.Result` had no normalized reasoning field
 
-This proposal does not require changing existing non-reasoning behavior.
+These statements are historical. The current implementation is summarized at the start of this document.
 
 ## Documentation Rules
 
@@ -399,7 +411,7 @@ When this feature lands, public docs must explicitly say:
 4. OpenAI is best matched by `WithReasoningEffort(...)`
 5. Gemini 3 is best matched by `WithReasoningEffort(...)`
 6. Gemini 2.5 is best matched by `WithReasoningBudgetTokens(...)`
-7. Anthropic thinking is best matched by `WithReasoningBudgetTokens(...)`, while Anthropic effort is model-specific
+7. Anthropic manual thinking is controlled with `WithReasoningBudgetTokens(...)`; adaptive-thinking models use `WithReasoningEffort(...)`
 8. `ReasoningBudgetTokens` recommended values are provider-specific, especially `-1` and `0`
 
 ## References
@@ -414,3 +426,8 @@ Verified against official provider docs on 2026-03-10:
 - Anthropic extended thinking: <https://platform.claude.com/docs/en/build-with-claude/extended-thinking>
 - Anthropic effort: <https://platform.claude.com/docs/en/build-with-claude/effort>
 - Anthropic Claude 4.6 notes: <https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-6>
+
+Additional model behavior verified against official provider docs on 2026-08-02:
+
+- OpenAI GPT-5.6 Luna: <https://developers.openai.com/api/docs/models/gpt-5.6-luna>
+- Anthropic Claude Sonnet 5: <https://platform.claude.com/docs/en/about-claude/models/whats-new-sonnet-5>

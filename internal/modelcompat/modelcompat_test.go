@@ -21,6 +21,41 @@ func TestKimiUsesFixedSampling(t *testing.T) {
 	}
 }
 
+func TestOpenAIChatCompletionReasoningDetailsSupported(t *testing.T) {
+	for _, tc := range []struct {
+		provider string
+		model    string
+	}{
+		{provider: "deepseek", model: "custom-model"},
+		{provider: "openai", model: "deepseek-reasoner"},
+		{provider: "openai", model: "moonshotai/kimi-k2.6"},
+		{provider: "openai", model: "kimi-k3"},
+	} {
+		if !OpenAIChatCompletionReasoningDetailsSupported(tc.provider, tc.model) {
+			t.Fatalf("expected provider %q model %q to support reasoning details", tc.provider, tc.model)
+		}
+	}
+	if OpenAIChatCompletionReasoningDetailsSupported("openai", "gpt-5.4") {
+		t.Fatalf("official OpenAI Chat Completions must reject reasoning details")
+	}
+}
+
+func TestAnthropicSonnet5UsesAdaptiveThinkingWithoutSampling(t *testing.T) {
+	model := "claude-sonnet-5"
+	if !AnthropicPrefersReasoningEffort(model) {
+		t.Fatalf("expected %q to prefer reasoning effort", model)
+	}
+	if !AnthropicSupportsReasoningEffort(model) {
+		t.Fatalf("expected %q to support reasoning effort", model)
+	}
+	if !AnthropicDropsSamplingParameters(model) {
+		t.Fatalf("expected %q to drop sampling parameters", model)
+	}
+	if AnthropicSummarizesThinkingDetails(model) {
+		t.Fatalf("expected %q to keep standard thinking blocks", model)
+	}
+}
+
 func TestOpenAIGPT5DropsSampling(t *testing.T) {
 	if !OpenAIGPT5DropsSampling("gpt-5.2", "high", true) {
 		t.Fatalf("expected gpt-5.2 with reasoning to drop sampling")

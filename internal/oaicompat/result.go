@@ -2,6 +2,7 @@ package oaicompat
 
 import (
 	"encoding/json"
+	"strings"
 
 	openai "github.com/openai/openai-go/v3"
 	"github.com/quailyquaily/uniai/chat"
@@ -82,4 +83,25 @@ func applyReasoningContentToResult(result *chat.Result, reasoningContent string)
 		ToolCalls:        chat.CloneToolCalls(result.ToolCalls),
 		ReasoningContent: reasoningContent,
 	})
+}
+
+// ApplyReasoningDetails normalizes preserved OpenAI-compatible
+// reasoning_content fields into the public reasoning result.
+func ApplyReasoningDetails(result *chat.Result) {
+	if result == nil {
+		return
+	}
+	var blocks []chat.ReasoningBlock
+	for _, message := range result.Messages {
+		if message.Role != chat.RoleAssistant || strings.TrimSpace(message.ReasoningContent) == "" {
+			continue
+		}
+		blocks = append(blocks, chat.ReasoningBlock{
+			Type: "thinking",
+			Text: message.ReasoningContent,
+		})
+	}
+	if len(blocks) > 0 {
+		result.Reasoning = &chat.ReasoningResult{Blocks: blocks}
+	}
 }

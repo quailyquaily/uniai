@@ -135,11 +135,13 @@ Behavior notes:
 
 Provider guidance:
 
-- OpenAI Chat Completions (`openai`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported on this path.
-- OpenAI Responses (`openai_resp`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is supported.
+- Official OpenAI Chat Completions (`openai`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported on this path.
+- DeepSeek and Kimi through the OpenAI-compatible provider: `WithReasoningDetails()` captures returned `reasoning_content`.
+- OpenAI Responses (`openai_resp`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is supported. For `gpt-5.6-luna`, normalized reasoning details are provider-generated summaries, not raw chain-of-thought.
 - Gemini 3.x: use `WithReasoningEffort(...)`.
 - Gemini 2.5: use `WithReasoningBudgetTokens(...)`.
-- Anthropic Claude 4.6: use `WithReasoningEffort(...)`.
+- Anthropic Claude Sonnet 5 and Claude 4.6 adaptive-thinking models: use
+  `WithReasoningEffort(...)`.
 - Anthropic manual-thinking models: use `WithReasoningBudgetTokens(...)`.
 
 Example:
@@ -290,15 +292,23 @@ See [`docs/tool_emulation.md`](docs/tool_emulation.md) for other emulation optio
 
 Pass `WithOnStream` to receive tokens incrementally. The `Chat()` signature stays the same — it still returns the complete `Result` after the stream ends.
 
+On providers that expose readable reasoning, combine it with `WithReasoningDetails()`. Reasoning continues through the same callback; there is no separate streaming method.
+
 ```go
 resp, err := client.Chat(ctx,
-    uniai.WithModel("gpt-5.2"),
+    uniai.WithProvider("openai_resp"),
+    uniai.WithModel("gpt-5.6-luna"),
     uniai.WithMessages(uniai.User("Tell me a story.")),
+    uniai.WithReasoningEffort(uniai.ReasoningEffortHigh),
+    uniai.WithReasoningDetails(),
     uniai.WithOnStream(func(ev uniai.StreamEvent) error {
         if ev.Done {
             // stream finished; ev.Usage contains final token counts and, when known, cost
             // ev.Raw contains provider-specific raw stream data when available
             return nil
+        }
+        if ev.ReasoningDelta != nil {
+            fmt.Print(ev.ReasoningDelta.Delta) // provider-exposed reasoning text
         }
         if ev.Delta != "" {
             fmt.Print(ev.Delta) // incremental text
@@ -317,14 +327,20 @@ resp, err := client.Chat(ctx,
 | Field | Description |
 |---|---|
 | `Delta` | Incremental text content |
+| `ReasoningDelta` | Incremental provider-exposed reasoning (`Index`, `Type`, `Delta`) |
 | `ToolCallDelta` | Incremental tool call update (`Index`, `ID`, `Name`, `ArgsChunk`) |
 | `Usage` | Token usage, populated on the final event |
 | `Raw` | Provider-specific raw stream event or raw stream response when available |
 | `Done` | `true` for the last event |
 
-Check out the [stream demo](cmd/stream/README.md) for a runnable terminal example.
+`ReasoningDelta.Type` is `summary` for provider-labeled summaries and `thinking` for readable thinking or `reasoning_content`. Opaque signatures, encrypted content, and redacted data are kept out of this field.
 
-Supported providers: OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, Bedrock. Cloudflare ignores streaming and falls back to blocking.
+Use the [stream reasoning test](cmd/stream/README.md) to verify live
+`ReasoningDelta` events with API keys supplied through environment variables.
+
+Text streaming is implemented for OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, and Bedrock. Cloudflare ignores streaming and falls back to blocking. This list does not mean that every provider or model exposes readable reasoning.
+
+The bundled live reasoning test contains cases for DeepSeek V4 Pro, Kimi K3, Claude Sonnet 5, and GPT-5.6 Luna. A case passes only when its callback receives a non-empty `ReasoningDelta` and a final `Done` event.
 
 For OpenAI Chat Completions streaming providers (`openai`, OpenAI-compatible providers, and Azure), `StreamEvent.Raw` is the current SDK chunk on delta events. On the final `Done` event, `StreamEvent.Raw` and the returned `Result.Raw` contain the complete `[]openai.ChatCompletionChunk` stream.
 

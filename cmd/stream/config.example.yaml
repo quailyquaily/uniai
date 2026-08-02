@@ -1,0 +1,31 @@
+prompt: "Find the smallest positive integer divisible by every integer from 1 through 12. Give the result and a brief verification."
+max_tokens: 2048
+timeout_seconds: 180
+
+tests:
+  - name: deepseek_v4_pro
+    provider: deepseek
+    api_key_ref: DEEPSEEK_API_KEY
+    model: deepseek-v4-pro
+    reasoning_effort: high
+
+  - name: kimi_k3
+    provider: openai
+    api_base: https://api.moonshot.ai/v1
+    api_key_ref: MOONSHOT_API_KEY
+    model: kimi-k3
+    reasoning_effort: high
+
+  - name: anthropic_claude_sonnet_5
+    provider: anthropic
+    api_key_ref: ANTHROPIC_API_KEY
+    model: claude-sonnet-5
+    reasoning_effort: high
+    max_tokens: 8192
+
+  - name: openai_gpt_5_6_luna
+    provider: openai_resp
+    api_key_ref: OPENAI_API_KEY
+    model: gpt-5.6-luna
+    reasoning_effort: high
+    max_tokens: 32768

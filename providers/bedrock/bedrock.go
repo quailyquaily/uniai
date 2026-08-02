@@ -13,8 +13,10 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/anthropicstream"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 )
 
 type Config struct {
@@ -86,6 +88,9 @@ type bedrockMessage struct {
 type bedrockMsgContent struct {
 	Type         string               `json:"type"`
 	Text         string               `json:"text,omitempty"`
+	Thinking     string               `json:"thinking,omitempty"`
+	Signature    string               `json:"signature,omitempty"`
+	Data         string               `json:"data,omitempty"`
 	CacheControl *bedrockCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -163,6 +168,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if len(systemParts) > 0 {
 		payload["system"] = strings.Join(systemParts, "\n")
 	}
+	if err := applyBedrockReasoningOptions(payload, p.modelArn, req.Options); err != nil {
+		return nil, err
+	}
 	applyBedrockOptions(payload, req.Options.Bedrock)
 	applyBedrockModelOverlay(payload, p.modelArn)
 
@@ -173,7 +181,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogText(p.debug, debugFn, "bedrock.chat.request", string(body))
 
 	if req.Options.OnStream != nil {
-		result, err := p.chatStream(ctx, body, req.Options.OnStream, req.Tools)
+		result, err := p.chatStream(ctx, body, req.Options.ReasoningDetails, req.Options.OnStream, req.Tools)
 		if err != nil {
 			diag.LogError(p.debug, debugFn, "bedrock.chat.response", err)
 			return nil, err
@@ -208,7 +216,8 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	text := strings.Join(textParts, "")
 
 	result := &chat.Result{
-		Text: text,
+		Text:      text,
+		Reasoning: bedrockReasoningResult(out.Content, req.Options.ReasoningDetails),
 		Parts: func() []chat.Part {
 			if text == "" {
 				return nil
@@ -222,6 +231,25 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
 	}
 	return result, nil
+}
+
+func bedrockReasoningResult(content []bedrockMsgContent, enabled bool) *chat.ReasoningResult {
+	if !enabled {
+		return nil
+	}
+	var state anthropicstream.ReasoningState
+	for index, part := range content {
+		if part.Type != "thinking" && part.Type != "redacted_thinking" {
+			continue
+		}
+		event := anthropicstream.Event{Type: "content_block_start", Index: index}
+		event.ContentBlock.Type = part.Type
+		event.ContentBlock.Thinking = part.Thinking
+		event.ContentBlock.Signature = part.Signature
+		event.ContentBlock.Data = part.Data
+		state.Apply(event, true)
+	}
+	return state.Result()
 }
 
 // bedrockStreamEvent represents a single event from the Bedrock streaming response.
@@ -243,7 +271,7 @@ type bedrockStreamEvent struct {
 	Usage *bedrockUsage `json:"usage,omitempty"`
 }
 
-func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.OnStreamFunc, tools []chat.Tool) (*chat.Result, error) {
+func (p *Provider) chatStream(ctx context.Context, body []byte, reasoningDetails bool, onStream chat.OnStreamFunc, tools []chat.Tool) (*chat.Result, error) {
 	stream, err := p.client.InvokeModelWithResponseStream(ctx, &bedrockruntime.InvokeModelWithResponseStreamInput{
 		ModelId:     aws.String(p.modelArn),
 		Body:        body,
@@ -259,6 +287,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 		textParts []string
 		model     string
 		usage     chat.Usage
+		reasoning anthropicstream.ReasoningState
 	)
 
 	for event := range stream.Events() {
@@ -270,6 +299,13 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 		var ev bedrockStreamEvent
 		if err := json.Unmarshal(chunk.Value.Bytes, &ev); err != nil {
 			continue
+		}
+		if protocolEvent, err := anthropicstream.Decode(chunk.Value.Bytes); err == nil {
+			if reasoningEvent := reasoning.Apply(protocolEvent, reasoningDetails); reasoningEvent != nil {
+				if err := onStream(*reasoningEvent); err != nil {
+					return nil, err
+				}
+			}
 		}
 
 		switch ev.Type {
@@ -285,6 +321,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 				textParts = append(textParts, ev.Delta.Text)
 				if err := onStream(chat.StreamEvent{
 					Delta: ev.Delta.Text,
+					Raw:   json.RawMessage(append([]byte(nil), chunk.Value.Bytes...)),
 				}); err != nil {
 					return nil, err
 				}
@@ -318,12 +355,57 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, onStream chat.On
 			}
 			return []chat.Part{chat.TextPart(text)}
 		}(),
-		Usage: usage,
+		Reasoning: reasoning.Result(),
+		Usage:     usage,
 	}
 	if len(tools) > 0 {
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
 	}
 	return result, nil
+}
+
+func applyBedrockReasoningOptions(payload map[string]any, model string, opts chat.Options) error {
+	if payload == nil || (opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails) {
+		return nil
+	}
+
+	model = normalizeBedrockModel(model)
+	if opts.ReasoningBudget != nil {
+		if *opts.ReasoningBudget < 1024 {
+			return fmt.Errorf("bedrock anthropic reasoning budget must be at least 1024")
+		}
+		if modelcompat.AnthropicPrefersReasoningEffort(model) {
+			return fmt.Errorf("bedrock anthropic model %q prefers reasoning effort; reasoning budget tokens are not supported in this path", model)
+		}
+		payload["thinking"] = map[string]any{
+			"type":          "enabled",
+			"budget_tokens": *opts.ReasoningBudget,
+		}
+	}
+
+	if opts.ReasoningEffort != nil {
+		if !modelcompat.AnthropicSupportsReasoningEffort(model) {
+			return fmt.Errorf("bedrock anthropic model %q does not support reasoning effort", model)
+		}
+		payload["output_config"] = map[string]any{"effort": string(*opts.ReasoningEffort)}
+	}
+
+	if opts.ReasoningDetails {
+		switch {
+		case modelcompat.AnthropicPrefersReasoningEffort(model):
+			thinking := map[string]any{"type": "adaptive"}
+			if modelcompat.AnthropicSummarizesThinkingDetails(model) {
+				thinking["display"] = "summarized"
+			}
+			payload["thinking"] = thinking
+		case payload["thinking"] != nil:
+			// explicit budget already set
+		default:
+			return fmt.Errorf("bedrock anthropic model %q requires WithReasoningBudgetTokens(...) to return reasoning details", model)
+		}
+	}
+
+	return nil
 }
 
 func applyBedrockOptions(payload map[string]any, opts structs.JSONMap) {
@@ -343,7 +425,7 @@ func applyBedrockModelOverlay(payload map[string]any, model string) {
 		return
 	}
 	model = normalizeBedrockModel(model)
-	if !strings.Contains(model, "claude-opus-4-7") {
+	if !modelcompat.AnthropicDropsSamplingParameters(model) {
 		return
 	}
 	delete(payload, "top_k")

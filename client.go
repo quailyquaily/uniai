@@ -81,6 +81,7 @@ func (c *Client) Chat(ctx context.Context, opts ...chat.Option) (*chat.Result, e
 	if providerName == "" {
 		providerName = "openai"
 	}
+	req.Provider = providerName
 	mode := req.Options.ToolsEmulationMode
 	if mode == "" {
 		mode = chat.ToolsEmulationOff

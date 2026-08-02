@@ -3,12 +3,38 @@ package uniai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/uniai/chat"
 )
+
+func TestClientResolvesDefaultDeepSeekProviderForReasoningDetails(t *testing.T) {
+	client := New(Config{
+		Provider:     "deepseek",
+		OpenAIAPIKey: "test-key",
+		OpenAIModel:  "provider-model-alias",
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := client.Chat(ctx,
+		WithMessages(User("hello")),
+		WithReasoningDetails(),
+	)
+	if err == nil {
+		t.Fatalf("expected canceled request")
+	}
+	if strings.Contains(err.Error(), "Responses API") {
+		t.Fatalf("resolved DeepSeek route was rejected before request: %v", err)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
 
 func TestClientChatAppliesCustomHeaders(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

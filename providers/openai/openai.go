@@ -66,7 +66,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		if streamDebug != nil {
 			opts = append(opts, streamDebug.Option())
 		}
-		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.OnStream, opts...)
+		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.ReasoningDetails, req.Options.OnStream, opts...)
 		if err != nil {
 			streamDebug.Emit(err)
 			diag.LogError(p.debug, debugFn, "openai.chat.response", err)
@@ -79,6 +79,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "openai.chat.response", err)
 		return nil, err
+	}
+	if req.Options.ReasoningDetails {
+		oaicompat.ApplyReasoningDetails(result)
 	}
 	if raw != "" {
 		diag.LogText(p.debug, debugFn, "openai.chat.response", raw)
@@ -99,7 +102,7 @@ func (p *Provider) chatCompletion(ctx context.Context, params openai.ChatComplet
 	defer rawResp.Body.Close()
 
 	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
-		result, err := oaicompat.ChatStreamFromResponse(rawResp, nil)
+		result, err := oaicompat.ChatStreamFromResponse(rawResp, false, nil)
 		return result, "", err
 	}
 
@@ -125,7 +128,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if req.Options.ReasoningBudget != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider does not support reasoning budget tokens; use reasoning effort")
 	}
-	if req.Options.ReasoningDetails {
+	if req.Options.ReasoningDetails && !modelcompat.OpenAIChatCompletionReasoningDetailsSupported(req.Provider, model) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
 	}
 	var cacheControlErr error

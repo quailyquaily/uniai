@@ -644,6 +644,36 @@ func TestBuildParamsRejectsReasoningDetails(t *testing.T) {
 	}
 }
 
+func TestBuildParamsAllowsReasoningDetailsForCompatibleThinkingModels(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider string
+		model    string
+	}{
+		{name: "DeepSeek route", provider: "deepseek", model: "deepseek-chat"},
+		{name: "DeepSeek model", provider: "openai", model: "deepseek-reasoner"},
+		{name: "Kimi model", provider: "openai", model: "moonshotai/kimi-k2.6"},
+		{name: "Kimi K3", provider: "openai", model: "kimi-k3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &chat.Request{
+				Provider: tt.provider,
+				Model:    tt.model,
+				Messages: []chat.Message{chat.User("hello")},
+				Options: chat.Options{
+					ReasoningDetails: true,
+				},
+			}
+
+			if _, err := buildParams(req, ""); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestBuildParamsRejectsExplicitCacheControl(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-4.1-mini",
@@ -1029,6 +1059,53 @@ func TestChatAggregatesEventStreamOnNonStreamingRequest(t *testing.T) {
 	}
 	if resp.Usage.TotalTokens != 3 {
 		t.Fatalf("unexpected usage: %#v", resp.Usage)
+	}
+}
+
+func TestChatStreamsKimiReasoningDetails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_kimi","object":"chat.completion.chunk","created":0,"model":"kimi-k3","choices":[{"index":0,"delta":{"reasoning_content":"inspect"},"finish_reason":null}]}`)
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_kimi","object":"chat.completion.chunk","created":0,"model":"kimi-k3","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":null}]}`)
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_kimi","object":"chat.completion.chunk","created":0,"model":"kimi-k3","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
+		writeOpenAIChatSSE(t, w, `{"id":"chatcmpl_kimi","object":"chat.completion.chunk","created":0,"model":"kimi-k3","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}}`)
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL + "/v1",
+		DefaultModel: "kimi-k3",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	var events []chat.StreamEvent
+	result, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{chat.User("hello")},
+		Options: chat.Options{
+			ReasoningDetails: true,
+			OnStream: func(event chat.StreamEvent) error {
+				events = append(events, event)
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if len(events) != 3 || events[0].ReasoningDelta == nil || events[0].ReasoningDelta.Delta != "inspect" || events[1].Delta != "answer" || !events[2].Done {
+		t.Fatalf("unexpected stream events: %#v", events)
+	}
+	if result.Reasoning == nil || len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Text != "inspect" {
+		t.Fatalf("unexpected reasoning result: %#v", result.Reasoning)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].ReasoningContent != "inspect" {
+		t.Fatalf("reasoning replay was not preserved: %#v", result.Messages)
 	}
 }
 

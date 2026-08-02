@@ -19,23 +19,24 @@ func ChatStream(
 	ctx context.Context,
 	client *openai.Client,
 	params openai.ChatCompletionNewParams,
+	reasoningDetails bool,
 	onStream chat.OnStreamFunc,
 	opts ...option.RequestOption,
 ) (*chat.Result, error) {
 	ensureChatCompletionStreamIncludesUsage(&params)
 	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
-	return consumeChatCompletionStream(stream, onStream)
+	return consumeChatCompletionStream(stream, reasoningDetails, onStream)
 }
 
-func ChatStreamFromResponse(resp *http.Response, onStream chat.OnStreamFunc) (*chat.Result, error) {
+func ChatStreamFromResponse(resp *http.Response, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, fmt.Errorf("openai chat stream response is empty")
 	}
 	stream := ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(resp), nil)
-	return consumeChatCompletionStream(stream, onStream)
+	return consumeChatCompletionStream(stream, reasoningDetails, onStream)
 }
 
-func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionChunk], onStream chat.OnStreamFunc) (*chat.Result, error) {
+func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionChunk], reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	acc := openai.ChatCompletionAccumulator{}
 	toolCalls := streamToolCallAccumulator{}
 	var finalUsage *chat.Usage
@@ -57,6 +58,19 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 
 		if content := reasoningContentFromRawJSON(chunk.Choices[0].Delta.RawJSON()); content != "" {
 			reasoningContent.WriteString(content)
+			if reasoningDetails && onStream != nil {
+				if err := onStream(chat.StreamEvent{
+					ReasoningDelta: &chat.ReasoningDelta{
+						Index: 0,
+						Type:  chat.ReasoningDeltaThinking,
+						Delta: content,
+					},
+					Raw: chunk,
+				}); err != nil {
+					stream.Close()
+					return nil, err
+				}
+			}
 		}
 
 		delta := chunk.Choices[0].Delta.Content
@@ -93,6 +107,9 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 	result := accumulatedToResult(&completion)
 	applyStreamToolCallsToResult(result, toolCalls.toolCalls())
 	applyReasoningContentToResult(result, reasoningContent.String())
+	if reasoningDetails {
+		ApplyReasoningDetails(result)
+	}
 	if finalUsage != nil {
 		result.Usage = *finalUsage
 	}

@@ -1,7 +1,12 @@
 package gemini
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -368,6 +373,170 @@ func TestToChatResultSeparatesThoughtSummary(t *testing.T) {
 	}
 	if out.Reasoning == nil || len(out.Reasoning.Summary) != 1 || out.Reasoning.Summary[0] != "internal summary" {
 		t.Fatalf("unexpected reasoning summary: %#v", out.Reasoning)
+	}
+}
+
+func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1beta/models/gemini-2.5-pro:streamGenerateContent" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("alt") != "sse" || r.URL.Query().Get("key") != "test-key" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read request: %v", err)
+		}
+		if !strings.Contains(string(body), `"includeThoughts":true`) {
+			t.Fatalf("request did not enable thought summaries: %s", body)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeGeminiSSE(t, w, map[string]any{
+			"modelVersion": "gemini-2.5-pro",
+			"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{
+				map[string]any{"thought": true, "text": "inspect "},
+			}}}},
+		})
+		writeGeminiSSE(t, w, map[string]any{
+			"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{
+				map[string]any{"thought": true, "text": "first", "thoughtSignature": "summary_sig"},
+			}}}},
+		})
+		writeGeminiSSE(t, w, map[string]any{
+			"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{
+				map[string]any{"text": "answer"},
+			}}}},
+		})
+		writeGeminiSSE(t, w, map[string]any{
+			"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{
+				map[string]any{"text": " "},
+			}}}},
+		})
+		writeGeminiSSE(t, w, map[string]any{
+			"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{
+				map[string]any{
+					"thoughtSignature": "sig_stream",
+					"functionCall": map[string]any{
+						"name": "read_file",
+						"args": map[string]any{"path": "README.md"},
+					},
+				},
+				map[string]any{"text": "done"},
+			}}}},
+		})
+		writeGeminiSSE(t, w, map[string]any{
+			"usageMetadata": map[string]any{
+				"promptTokenCount":     3,
+				"candidatesTokenCount": 4,
+				"totalTokenCount":      7,
+				"thoughtsTokenCount":   2,
+			},
+		})
+	}))
+	defer server.Close()
+
+	p, err := New(Config{
+		APIKey:       "test-key",
+		BaseURL:      server.URL,
+		DefaultModel: "gemini-2.5-pro",
+	})
+	if err != nil {
+		t.Fatalf("new provider: %v", err)
+	}
+
+	var events []chat.StreamEvent
+	result, err := p.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{chat.User("inspect")},
+		Options: chat.Options{
+			ReasoningDetails: true,
+			OnStream: func(event chat.StreamEvent) error {
+				events = append(events, event)
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+
+	if len(events) != 7 {
+		t.Fatalf("unexpected stream events: %#v", events)
+	}
+	if events[0].ReasoningDelta == nil || events[0].ReasoningDelta.Index != 0 || events[0].ReasoningDelta.Type != chat.ReasoningDeltaSummary || events[0].ReasoningDelta.Delta != "inspect " {
+		t.Fatalf("unexpected first reasoning event: %#v", events[0])
+	}
+	if events[1].ReasoningDelta == nil || events[1].ReasoningDelta.Index != 0 || events[1].ReasoningDelta.Delta != "first" {
+		t.Fatalf("unexpected second reasoning event: %#v", events[1])
+	}
+	if events[2].Delta != "answer" || events[3].Delta != " " || events[4].ToolCallDelta == nil || events[4].ToolCallDelta.Name != "read_file" || events[5].Delta != "done" || !events[6].Done {
+		t.Fatalf("unexpected normalized event order: %#v", events)
+	}
+	for _, event := range events[:6] {
+		if event.Raw == nil {
+			t.Fatalf("content event does not preserve raw chunk: %#v", event)
+		}
+	}
+
+	blocking, err := toChatResult(&geminiResponse{
+		Model: "gemini-2.5-pro",
+		Usage: geminiUsage{InputTokens: 3, OutputTokens: 4, TotalTokens: 7, ThoughtsTokens: 2},
+		Candidates: []geminiCandidate{{Content: geminiContent{Parts: []geminiPart{
+			{Thought: true, Text: "inspect first"},
+			{Text: "answer "},
+			{
+				ThoughtSignature: "sig_stream",
+				FunctionCall: &geminiFunctionCall{
+					Name: "read_file",
+					Args: map[string]any{"path": "README.md"},
+				},
+			},
+			{Text: "done"},
+		}}}},
+	}, "", true)
+	if err != nil {
+		t.Fatalf("blocking result: %v", err)
+	}
+	if result.Text != blocking.Text || result.Model != blocking.Model || result.Usage.InputTokens != blocking.Usage.InputTokens || result.Usage.OutputTokens != blocking.Usage.OutputTokens || result.Usage.TotalTokens != blocking.Usage.TotalTokens {
+		t.Fatalf("stream and blocking result differ: stream=%#v blocking=%#v", result, blocking)
+	}
+	if result.Reasoning == nil || blocking.Reasoning == nil || len(result.Reasoning.Summary) != 1 || result.Reasoning.Summary[0] != blocking.Reasoning.Summary[0] {
+		t.Fatalf("stream and blocking reasoning differ: stream=%#v blocking=%#v", result.Reasoning, blocking.Reasoning)
+	}
+	if len(result.ToolCalls) != 1 || len(blocking.ToolCalls) != 1 || result.ToolCalls[0].ID != blocking.ToolCalls[0].ID || result.ToolCalls[0].ThoughtSignature != "sig_stream" {
+		t.Fatalf("stream and blocking tool calls differ: stream=%#v blocking=%#v", result.ToolCalls, blocking.ToolCalls)
+	}
+}
+
+func TestChatStreamReturnsEventErrorWithoutDone(t *testing.T) {
+	p := &Provider{}
+	gotDone := false
+	_, err := p.chatStream(
+		strings.NewReader("data: {\"error\":{\"message\":\"quota exceeded\"}}\n\n"),
+		"gemini-2.5-pro",
+		true,
+		func(event chat.StreamEvent) error {
+			gotDone = gotDone || event.Done
+			return nil
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "quota exceeded") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDone {
+		t.Fatalf("failed stream emitted Done")
+	}
+}
+
+func writeGeminiSSE(t *testing.T, w http.ResponseWriter, payload map[string]any) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal SSE payload: %v", err)
+	}
+	if _, err := fmt.Fprintf(w, "data: %s\n\n", data); err != nil {
+		t.Fatalf("write SSE payload: %v", err)
 	}
 }
 

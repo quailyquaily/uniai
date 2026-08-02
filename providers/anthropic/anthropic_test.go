@@ -192,7 +192,7 @@ func TestBuildRequestRejectsEmptyCachedTextPart(t *testing.T) {
 }
 
 func TestBuildRequestMapsReasoningDetailsToAdaptiveThinking(t *testing.T) {
-	for _, model := range []string{"claude-sonnet-4-6-20260201", "claude-opus-5"} {
+	for _, model := range []string{"claude-sonnet-4-6-20260201", "claude-sonnet-5", "claude-opus-5"} {
 		req := &chat.Request{
 			Model: model,
 			Messages: []chat.Message{
@@ -224,6 +224,7 @@ func TestBuildRequestAppliesSamplingOverlayForEffortModels(t *testing.T) {
 		"claude-opus-5",
 		"models/Claude-Opus-4.7",
 		"claude-opus-4-8",
+		"claude-sonnet-5",
 		"claude-fable-5",
 		"claude-mythos-5",
 	} {
@@ -280,6 +281,7 @@ func TestBuildRequestMapsReasoningEffortForNewEffortModels(t *testing.T) {
 	for _, model := range []string{
 		"claude-opus-5",
 		"claude-opus-4-8",
+		"claude-sonnet-5",
 		"claude-fable-5",
 		"claude-mythos-5",
 	} {

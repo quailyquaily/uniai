@@ -251,13 +251,32 @@ type ReasoningBlock struct {
 // Returning a non-nil error cancels the stream.
 type OnStreamFunc func(event StreamEvent) error
 
+// ReasoningDeltaType identifies how the provider describes readable reasoning.
+type ReasoningDeltaType string
+
+const (
+	ReasoningDeltaSummary  ReasoningDeltaType = "summary"
+	ReasoningDeltaThinking ReasoningDeltaType = "thinking"
+)
+
+// ReasoningDelta represents readable reasoning text exposed by a provider.
+type ReasoningDelta struct {
+	// Index is a zero-based index among deltas of the same Type.
+	Index int
+	// Type distinguishes provider summaries from exposed thinking text.
+	Type ReasoningDeltaType
+	// Delta contains the exact readable text fragment returned by the provider.
+	Delta string
+}
+
 // StreamEvent represents a single streaming event from an LLM provider.
 type StreamEvent struct {
-	Delta         string
-	ToolCallDelta *ToolCallDelta
-	Usage         *Usage
-	Raw           any
-	Done          bool
+	Delta          string
+	ReasoningDelta *ReasoningDelta
+	ToolCallDelta  *ToolCallDelta
+	Usage          *Usage
+	Raw            any
+	Done           bool
 }
 
 // ToolCallDelta represents an incremental update to a tool call during streaming.

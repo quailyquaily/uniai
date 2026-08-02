@@ -67,8 +67,7 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"think "},"finish_reason":null}]}`)
-		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"first"},"finish_reason":null}]}`)
-		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"role":"assistant","content":"hello"},"finish_reason":null}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"first","content":"hello"},"finish_reason":null}]}`)
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`)
 		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3,"custom_usage_tokens":99}}`)
 		if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
@@ -92,8 +91,13 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 
 	var deltaRaw openai.ChatCompletionChunk
 	var doneEvent chat.StreamEvent
-	result, err := ChatStream(context.Background(), &client, params, func(ev chat.StreamEvent) error {
+	var contentEvents []string
+	result, err := ChatStream(context.Background(), &client, params, true, func(ev chat.StreamEvent) error {
+		if ev.ReasoningDelta != nil {
+			contentEvents = append(contentEvents, "reasoning:"+ev.ReasoningDelta.Delta)
+		}
 		if ev.Delta == "hello" {
+			contentEvents = append(contentEvents, "text:"+ev.Delta)
 			chunk, ok := ev.Raw.(openai.ChatCompletionChunk)
 			if !ok {
 				t.Fatalf("delta raw type = %T", ev.Raw)
@@ -115,6 +119,30 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 	if len(result.Messages) != 1 || result.Messages[0].ReasoningContent != "think first" {
 		t.Fatalf("unexpected replay messages: %#v", result.Messages)
 	}
+	if len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Type != "thinking" || result.Reasoning.Blocks[0].Text != "think first" {
+		t.Fatalf("unexpected normalized reasoning: %#v", result.Reasoning)
+	}
+	var blocking openai.ChatCompletion
+	if err := json.Unmarshal([]byte(`{
+		"model":"gpt-test",
+		"choices":[{"message":{"role":"assistant","reasoning_content":"think first","content":"hello"}}]
+	}`), &blocking); err != nil {
+		t.Fatalf("decode blocking fixture: %v", err)
+	}
+	blockingResult := ChatCompletionToResult(&blocking)
+	ApplyReasoningDetails(blockingResult)
+	if blockingResult.Reasoning == nil || len(blockingResult.Reasoning.Blocks) != 1 || blockingResult.Reasoning.Blocks[0] != result.Reasoning.Blocks[0] {
+		t.Fatalf("blocking and streaming reasoning differ: blocking=%#v streaming=%#v", blockingResult.Reasoning, result.Reasoning)
+	}
+	wantContentEvents := []string{"reasoning:think ", "reasoning:first", "text:hello"}
+	if len(contentEvents) != len(wantContentEvents) {
+		t.Fatalf("unexpected content events: %#v", contentEvents)
+	}
+	for i := range wantContentEvents {
+		if contentEvents[i] != wantContentEvents[i] {
+			t.Fatalf("content event %d = %q, want %q", i, contentEvents[i], wantContentEvents[i])
+		}
+	}
 	doneChunks, ok := doneEvent.Raw.([]openai.ChatCompletionChunk)
 	if !ok {
 		t.Fatalf("done raw type = %T", doneEvent.Raw)
@@ -123,8 +151,8 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 	if !ok {
 		t.Fatalf("result raw type = %T", result.Raw)
 	}
-	if len(doneChunks) != 5 || len(resultChunks) != 5 {
-		t.Fatalf("expected 5 raw chunks, got done=%d result=%d", len(doneChunks), len(resultChunks))
+	if len(doneChunks) != 4 || len(resultChunks) != 4 {
+		t.Fatalf("expected 4 raw chunks, got done=%d result=%d", len(doneChunks), len(resultChunks))
 	}
 	last := doneChunks[len(doneChunks)-1]
 	if !strings.Contains(last.RawJSON(), `"custom_usage_tokens":99`) {
@@ -135,6 +163,51 @@ func TestChatStreamExposesRawChunks(t *testing.T) {
 	}
 	if result.Usage.TotalTokens != 3 || doneEvent.Usage == nil || doneEvent.Usage.TotalTokens != 3 {
 		t.Fatalf("unexpected usage: result=%#v done=%#v", result.Usage, doneEvent.Usage)
+	}
+}
+
+func TestChatStreamPreservesReasoningWithoutEmittingDetailsWhenDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"private"},"finish_reason":null}]}`)
+		writeSSE(t, w, `{"id":"chatcmpl_test","object":"chat.completion.chunk","created":0,"model":"gpt-test","choices":[{"index":0,"delta":{"content":"answer"},"finish_reason":null}]}`)
+		if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+			t.Fatalf("write done: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := openai.NewClient(
+		option.WithAPIKey("test-key"),
+		option.WithBaseURL(server.URL+"/v1"),
+	)
+	messages, err := ToMessages([]chat.Message{chat.User("hello")}, "gpt-test")
+	if err != nil {
+		t.Fatalf("messages: %v", err)
+	}
+	params := openai.ChatCompletionNewParams{
+		Model:    openai.ChatModel("gpt-test"),
+		Messages: messages,
+	}
+
+	var reasoningEvents int
+	result, err := ChatStream(context.Background(), &client, params, false, func(ev chat.StreamEvent) error {
+		if ev.ReasoningDelta != nil {
+			reasoningEvents++
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("chat stream: %v", err)
+	}
+	if reasoningEvents != 0 {
+		t.Fatalf("reasoning events = %d, want 0", reasoningEvents)
+	}
+	if result.Reasoning != nil {
+		t.Fatalf("reasoning details should stay nil: %#v", result.Reasoning)
+	}
+	if len(result.Messages) != 1 || result.Messages[0].ReasoningContent != "private" {
+		t.Fatalf("reasoning replay was not preserved: %#v", result.Messages)
 	}
 }
 
@@ -212,7 +285,7 @@ func TestChatStreamNormalizesRepeatedFullToolCallNameDeltas(t *testing.T) {
 	}
 
 	var toolDeltas []chat.ToolCallDelta
-	result, err := ChatStream(context.Background(), &client, params, func(ev chat.StreamEvent) error {
+	result, err := ChatStream(context.Background(), &client, params, false, func(ev chat.StreamEvent) error {
 		if ev.ToolCallDelta != nil {
 			toolDeltas = append(toolDeltas, *ev.ToolCallDelta)
 		}
@@ -276,7 +349,7 @@ func TestChatStreamNormalizesNegativeToolCallIndexes(t *testing.T) {
 	}
 
 	var toolDeltas []chat.ToolCallDelta
-	result, err := ChatStream(context.Background(), &client, params, func(ev chat.StreamEvent) error {
+	result, err := ChatStream(context.Background(), &client, params, false, func(ev chat.StreamEvent) error {
 		if ev.ToolCallDelta != nil {
 			toolDeltas = append(toolDeltas, *ev.ToolCallDelta)
 		}

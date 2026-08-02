@@ -12,8 +12,10 @@ import (
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/anthropicstream"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 )
 
 type Config struct {
@@ -153,9 +155,6 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 
 	if req.Options.OnStream != nil {
-		if req.Options.ReasoningDetails {
-			return nil, fmt.Errorf("anthropic provider does not support reasoning details with streaming yet")
-		}
 		body.Stream = true
 	}
 
@@ -190,7 +189,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 			diag.LogText(p.cfg.Debug, debugFn, "anthropic.chat.response", string(respData))
 			return nil, fmt.Errorf("anthropic api error: status %d: %s", resp.StatusCode, strings.TrimSpace(string(respData)))
 		}
-		result, err := p.chatStream(resp.Body, req.Options.OnStream)
+		result, err := p.chatStream(resp.Body, req.Options.ReasoningDetails, req.Options.OnStream)
 		if err != nil {
 			diag.LogError(p.cfg.Debug, debugFn, "anthropic.chat.response", err)
 			return nil, err
@@ -401,7 +400,7 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		if budget < 1024 {
 			return fmt.Errorf("anthropic reasoning budget must be at least 1024")
 		}
-		if anthropicPrefersEffort(model) {
+		if modelcompat.AnthropicPrefersReasoningEffort(model) {
 			return fmt.Errorf("anthropic model %q prefers reasoning effort; reasoning budget tokens are not supported in this path", model)
 		}
 		body.Thinking = &anthropicThinking{
@@ -411,7 +410,7 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 	}
 
 	if opts.ReasoningEffort != nil {
-		if !anthropicSupportsEffort(model) {
+		if !modelcompat.AnthropicSupportsReasoningEffort(model) {
 			return fmt.Errorf("anthropic model %q does not support reasoning effort", model)
 		}
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
@@ -419,9 +418,9 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 
 	if opts.ReasoningDetails {
 		switch {
-		case anthropicPrefersEffort(model):
+		case modelcompat.AnthropicPrefersReasoningEffort(model):
 			body.Thinking = &anthropicThinking{Type: "adaptive"}
-			if anthropicSummarizesThinkingDetails(model) {
+			if modelcompat.AnthropicSummarizesThinkingDetails(model) {
 				body.Thinking.Display = "summarized"
 			}
 		case body.Thinking != nil:
@@ -435,39 +434,12 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 }
 
 func applyAnthropicModelOverlay(body *anthropicRequest, model string) {
-	if body == nil || !anthropicDropsSamplingParameters(model) {
+	if body == nil || !modelcompat.AnthropicDropsSamplingParameters(model) {
 		return
 	}
 	body.Temperature = nil
 	body.TopP = nil
 	body.TopK = nil
-}
-
-func anthropicDropsSamplingParameters(model string) bool {
-	return strings.Contains(model, "fable-5") ||
-		strings.Contains(model, "mythos-5") ||
-		strings.Contains(model, "opus-5") ||
-		strings.Contains(model, "opus-4-8") ||
-		strings.Contains(model, "opus-4-7")
-}
-
-func anthropicSupportsEffort(model string) bool {
-	return strings.Contains(model, "opus-4-5") || anthropicPrefersEffort(model)
-}
-
-func anthropicPrefersEffort(model string) bool {
-	return strings.Contains(model, "fable-5") ||
-		strings.Contains(model, "mythos-5") ||
-		strings.Contains(model, "opus-5") ||
-		strings.Contains(model, "opus-4-8") ||
-		strings.Contains(model, "opus-4-7") ||
-		strings.Contains(model, "opus-4-6") ||
-		strings.Contains(model, "sonnet-4-6")
-}
-
-func anthropicSummarizesThinkingDetails(model string) bool {
-	return strings.Contains(model, "opus-5") ||
-		strings.Contains(model, "opus-4-7")
 }
 
 func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {
@@ -683,7 +655,7 @@ type sseMessageDelta struct {
 	Usage anthropicUsage `json:"usage"`
 }
 
-func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat.Result, error) {
+func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
 
@@ -698,6 +670,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 		currentToolID    string
 		currentToolName  string
 		currentToolArgs  strings.Builder
+		reasoningState   anthropicstream.ReasoningState
 	)
 
 	flushToolCall := func() {
@@ -730,6 +703,14 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
+		raw := json.RawMessage(append([]byte(nil), data...))
+		if protocolEvent, err := anthropicstream.Decode(raw); err == nil {
+			if reasoningEvent := reasoningState.Apply(protocolEvent, reasoningDetails); reasoningEvent != nil {
+				if err := onStream(*reasoningEvent); err != nil {
+					return nil, err
+				}
+			}
+		}
 
 		switch eventType {
 		case "message_start":
@@ -753,6 +734,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 							ID:    ev.ContentBlock.ID,
 							Name:  ev.ContentBlock.Name,
 						},
+						Raw: raw,
 					}); err != nil {
 						return nil, err
 					}
@@ -767,6 +749,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 					textParts = append(textParts, ev.Delta.Text)
 					if err := onStream(chat.StreamEvent{
 						Delta: ev.Delta.Text,
+						Raw:   raw,
 					}); err != nil {
 						return nil, err
 					}
@@ -777,6 +760,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 							Index:     currentToolIndex,
 							ArgsChunk: ev.Delta.PartialJSON,
 						},
+						Raw: raw,
 					}); err != nil {
 						return nil, err
 					}
@@ -822,6 +806,7 @@ func (p *Provider) chatStream(body io.Reader, onStream chat.OnStreamFunc) (*chat
 			return []chat.Part{chat.TextPart(text)}
 		}(),
 		ToolCalls: toolCalls,
+		Reasoning: reasoningState.Result(),
 		Usage:     usage,
 	}, nil
 }
