@@ -112,12 +112,6 @@ func OpenAIUsesPromptCacheOptions(model string) bool {
 	return modelHasPrefix(model, "gpt-5-6")
 }
 
-func OpenAISupportsPromptCacheBreakpoints(model string) bool {
-	model = Normalize(model)
-	return modelHasPrefix(model, "gpt-5-6") &&
-		!modelHasPrefix(model, "gpt-5-6-luna")
-}
-
 func OpenAIReasoningEffortSupported(model, effort string) bool {
 	if !OpenAIUsesPromptCacheOptions(model) {
 		return true

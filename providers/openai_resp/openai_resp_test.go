@@ -558,7 +558,7 @@ func TestBuildParamsMapsGPT56SystemPromptCacheBreakpoint(t *testing.T) {
 	}
 }
 
-func TestBuildParamsRejectsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
+func TestBuildParamsMapsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.6-luna",
 		Messages: []chat.Message{
@@ -570,9 +570,16 @@ func TestBuildParamsRejectsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
-	if err == nil || !strings.Contains(err.Error(), "gpt-5.6-luna") || !strings.Contains(err.Error(), "prompt_cache_breakpoint") {
-		t.Fatalf("expected Luna prompt cache breakpoint error, got %v", err)
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(data), `"prompt_cache_breakpoint":{"mode":"explicit"}`) {
+		t.Fatalf("expected Luna prompt cache breakpoint, got %s", string(data))
 	}
 }
 
@@ -734,7 +741,7 @@ func TestBuildParamsMapsGPT56RawPromptCacheBreakpoint(t *testing.T) {
 	}
 }
 
-func TestBuildParamsRejectsGPT56LunaRawPromptCacheBreakpoint(t *testing.T) {
+func TestBuildParamsMapsGPT56LunaRawPromptCacheBreakpoint(t *testing.T) {
 	req := &chat.Request{
 		Model: "gpt-5.6-luna",
 		Options: chat.Options{
@@ -757,9 +764,16 @@ func TestBuildParamsRejectsGPT56LunaRawPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
-	if err == nil || !strings.Contains(err.Error(), "gpt-5.6-luna") || !strings.Contains(err.Error(), "prompt_cache_breakpoint") {
-		t.Fatalf("expected Luna prompt cache breakpoint error, got %v", err)
+	params, err := buildParams(req, "")
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	if !strings.Contains(string(data), `"prompt_cache_breakpoint":{"mode":"explicit"}`) {
+		t.Fatalf("expected Luna raw prompt cache breakpoint, got %s", string(data))
 	}
 }
 

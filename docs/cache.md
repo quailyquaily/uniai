@@ -53,8 +53,8 @@ boundary. It does not make their cache policies identical.
 | --- | --- | --- | --- |
 | `anthropic` | system, user, and assistant parts; tools | `CacheTTL5m()` or `CacheTTL1h()` | each marked part or tool |
 | Anthropic models through `bedrock` | user and assistant text parts | `CacheTTL5m()` or `CacheTTL1h()` | each marked part |
-| GPT-5.6 except Luna through `openai` | system text parts | `CacheControl{}` | request-wide; defaults to `30m` |
-| GPT-5.6 except Luna through `openai_resp` | system text parts; additional shapes through raw `input` | `CacheControl{}` for shared system parts | request-wide; defaults to `30m` |
+| GPT-5.6 through `openai` | system text parts | `CacheControl{}` | request-wide; defaults to `30m` |
+| GPT-5.6 through `openai_resp` | system text parts; additional shapes through raw `input` | `CacheControl{}` for shared system parts | request-wide; defaults to `30m` |
 
 Do not pass `CacheTTL5m()` or `CacheTTL1h()` to a GPT-5.6 breakpoint. OpenAI
 uses the non-nil, empty `CacheControl{}` only as a boundary marker and rejects a
@@ -180,9 +180,8 @@ root cache options.
 ### GPT-5.6 Explicit Breakpoints
 
 For `openai` and `openai_resp`, a shared cache boundary can be placed on a
-GPT-5.6 system text part, except when the model is GPT-5.6 Luna. Only the marked
-system message changes from string content to structured parts; unmarked
-messages keep their existing form.
+GPT-5.6 system text part. Only the marked system message changes from string
+content to structured parts; unmarked messages keep their existing form.
 
 ```go
 resp, err := client.Chat(ctx,
@@ -233,11 +232,6 @@ mode to `"explicit"`.
 
 Shared OpenAI breakpoints are limited to system text parts. User and assistant
 messages and tools cannot use shared `CacheControl` on this path.
-
-GPT-5.6 Luna supports prompt caching and the request-wide cache options, but its
-current API rejects `prompt_cache_breakpoint`. Use implicit caching for Luna and
-do not attach shared `CacheControl` to its messages. `uniai` rejects an explicit
-Luna breakpoint before sending the request.
 
 ### GPT-5.6 Request Policy
 
@@ -380,10 +374,9 @@ Current support is:
 
 - `anthropic`: cache stats + explicit cache control
 - `bedrock`: cache stats + limited explicit cache control
-- `openai`: cache stats + root cache options + GPT-5.6 system text breakpoints,
-  except on Luna
+- `openai`: cache stats + root cache options + GPT-5.6 system text breakpoints
 - `openai_resp`: cache stats + root cache options + GPT-5.6 system text and raw
-  Responses breakpoints, except on Luna
+  Responses breakpoints
 - `azure`: cache stats + backend-dependent provider options, no shared explicit
   cache control
 - `gemini`: no current shared cache API in `uniai`
@@ -393,15 +386,14 @@ Current support is:
 
 If you pass explicit `CacheControl` where a provider does not support it,
 `Chat()` returns an error instead of silently ignoring the request. GPT-5.6 on
-`openai` and `openai_resp` accepts it only on system text parts, except for Luna.
-Luna and earlier OpenAI models reject all shared explicit cache control.
+`openai` and `openai_resp` accepts it only on system text parts. Earlier OpenAI
+models reject all shared explicit cache control.
 
 Unsupported shared cache control currently includes:
 
 - `azure`
 - `gemini`
 - `cloudflare`
-- GPT-5.6 Luna on `openai` and `openai_resp`
 - user or assistant parts and tools on `openai` and `openai_resp`
 
 ## Notes
