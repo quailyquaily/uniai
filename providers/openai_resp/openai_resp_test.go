@@ -47,7 +47,7 @@ func TestBuildParamsMapsResponsesRequest(t *testing.T) {
 		}(),
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestBuildParamsDropsGPT5ReasoningSamplingParams(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -316,7 +316,7 @@ func TestBuildParamsKeepsGPT54SamplingWithReasoningNone(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestBuildParamsDropsGPT55SamplingParams(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -364,7 +364,7 @@ func TestBuildParamsRejectsInputConflict(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
+	_, err := buildParams(req, "", false)
 	if err == nil || !strings.Contains(err.Error(), "openai.input") {
 		t.Fatalf("expected input conflict error, got %v", err)
 	}
@@ -380,7 +380,7 @@ func TestBuildParamsAllowsRawInputWithoutMessages(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestBuildParamsMapsPromptCacheRetention(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -441,7 +441,7 @@ func TestBuildParamsValidatesPromptCacheKeyLength(t *testing.T) {
 				},
 			}
 
-			_, err := buildParams(req, "")
+			_, err := buildParams(req, "", false)
 			if !tt.wantErr {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -472,7 +472,7 @@ func TestBuildParamsForcesGPT55PromptCacheRetentionTo24h(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -504,7 +504,7 @@ func TestBuildParamsMapsGPT56PromptCacheOptions(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -541,7 +541,7 @@ func TestBuildParamsMapsGPT56SystemPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestBuildParamsMapsGPT56LunaSystemPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestBuildParamsMapsGPT56LegacyPromptCacheRetention(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -629,7 +629,7 @@ func TestBuildParamsPrefersGPT56PromptCacheOptionsOverLegacyRetention(t *testing
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -663,7 +663,7 @@ func TestBuildParamsMapsGPT56ReasoningOptions(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -690,7 +690,7 @@ func TestBuildParamsMapsGPT56LunaReasoningDetails(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -728,7 +728,7 @@ func TestBuildParamsMapsGPT56RawPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -764,7 +764,7 @@ func TestBuildParamsMapsGPT56LunaRawPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -800,7 +800,7 @@ func TestBuildParamsRejectsInvalidGPT56RawPromptCacheBreakpoint(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
+	_, err := buildParams(req, "", false)
 	if err == nil || !strings.Contains(err.Error(), "prompt_cache_breakpoint") || !strings.Contains(err.Error(), "explicit") {
 		t.Fatalf("expected invalid prompt cache breakpoint error, got %v", err)
 	}
@@ -820,7 +820,7 @@ func TestBuildParamsRejectsGPT56MinimalReasoningEffort(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
+	_, err := buildParams(req, "", false)
 	if err == nil || !strings.Contains(err.Error(), "minimal") || !strings.Contains(err.Error(), "gpt-5.6") {
 		t.Fatalf("expected GPT-5.6 minimal reasoning effort error, got %v", err)
 	}
@@ -848,7 +848,7 @@ func TestBuildParamsRejectsInvalidGPT56ReasoningOptions(t *testing.T) {
 				},
 			}
 
-			_, err := buildParams(req, "")
+			_, err := buildParams(req, "", false)
 			if err == nil || !strings.Contains(err.Error(), tc.field) || !strings.Contains(err.Error(), tc.value) {
 				t.Fatalf("expected invalid reasoning %s error, got %v", tc.field, err)
 			}
@@ -890,7 +890,7 @@ func TestBuildParamsRejectsInvalidGPT56PromptCacheOptions(t *testing.T) {
 				},
 			}
 
-			_, err := buildParams(req, "")
+			_, err := buildParams(req, "", false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected invalid %s error, got %v", tc.want, err)
 			}
@@ -906,7 +906,7 @@ func TestBuildParamsRejectsExplicitCacheControl(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
+	_, err := buildParams(req, "", false)
 	if err == nil {
 		t.Fatalf("expected error")
 	}
@@ -964,7 +964,7 @@ func TestBuildParamsRejectsUnsupportedSharedOptions(t *testing.T) {
 			}
 			tc.apply(req)
 
-			_, err := buildParams(req, "")
+			_, err := buildParams(req, "", false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
@@ -985,7 +985,7 @@ func TestBuildParamsRejectsUnsupportedOpenAIOptionKeys(t *testing.T) {
 		},
 	}
 
-	_, err := buildParams(req, "")
+	_, err := buildParams(req, "", false)
 	if err == nil || !strings.Contains(err.Error(), "unsupported_key") {
 		t.Fatalf("expected unsupported openai option error, got %v", err)
 	}
@@ -1090,7 +1090,7 @@ func TestBuildParamsRejectsResponsesConflicts(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := buildParams(tc.req, "")
+			_, err := buildParams(tc.req, "", false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}
@@ -1121,7 +1121,7 @@ func TestBuildParamsMergesRawAndCompatTools(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -1172,7 +1172,7 @@ func TestBuildParamsNormalizesStrictSchemasRecursively(t *testing.T) {
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -1211,7 +1211,7 @@ func TestBuildParamsPreservesOptionalFieldsWhenStrictIsDefaultedOff(t *testing.T
 		},
 	}
 
-	params, err := buildParams(req, "")
+	params, err := buildParams(req, "", false)
 	if err != nil {
 		t.Fatalf("buildParams: %v", err)
 	}
@@ -1276,7 +1276,7 @@ func TestBuildParamsRejectsUnsupportedMessageShapes(t *testing.T) {
 				},
 			}
 
-			_, err := buildParams(req, "")
+			_, err := buildParams(req, "", false)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("expected error containing %q, got %v", tc.want, err)
 			}

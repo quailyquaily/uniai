@@ -111,6 +111,7 @@ The command can construct API-key configs for these providers:
 - `openai` for OpenAI-compatible Chat Completions endpoints, including Kimi
 - `deepseek`
 - `openai_resp`
+- `openai_codex`
 - `gemini`
 - `anthropic`
 - `sakana`, `xai`, `groq`, and `meta`

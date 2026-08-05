@@ -142,7 +142,7 @@ func buildClientConfig(test testConfig) (uniai.Config, error) {
 			AnthropicAPIBase: apiBase,
 			AnthropicModel:   model,
 		}, nil
-	case "openai", "openai_resp", "deepseek", "sakana", "xai", "groq", "meta":
+	case "openai", "openai_resp", "openai_codex", "deepseek", "sakana", "xai", "groq", "meta":
 		return uniai.Config{
 			Provider:      provider,
 			OpenAIAPIKey:  apiKey,

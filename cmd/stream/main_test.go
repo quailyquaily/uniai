@@ -157,6 +157,15 @@ func TestBuildClientConfigUsesReferencedEnvironmentKey(t *testing.T) {
 			},
 		},
 		{
+			name:     "openai codex",
+			provider: "openai_codex",
+			assert: func(t *testing.T, cfg uniai.Config) {
+				if cfg.OpenAIAPIKey != "provider-secret" || cfg.OpenAIModel != "model" || cfg.Provider != "openai_codex" {
+					t.Fatalf("unexpected OpenAI Codex config: %#v", cfg)
+				}
+			},
+		},
+		{
 			name:     "gemini",
 			provider: "gemini",
 			assert: func(t *testing.T, cfg uniai.Config) {

@@ -55,6 +55,7 @@ boundary. It does not make their cache policies identical.
 | Anthropic models through `bedrock` | user and assistant text parts | `CacheTTL5m()` or `CacheTTL1h()` | each marked part |
 | GPT-5.6 through `openai` | system text parts | `CacheControl{}` | request-wide; defaults to `30m` |
 | GPT-5.6 through `openai_resp` | system text parts; additional shapes through raw `input` | `CacheControl{}` for shared system parts | request-wide; defaults to `30m` |
+| `openai_codex` | none; shared cache controls are ignored | n/a | n/a |
 
 Do not pass `CacheTTL5m()` or `CacheTTL1h()` to a GPT-5.6 breakpoint. OpenAI
 uses the non-nil, empty `CacheControl{}` only as a boundary marker and rejects a
@@ -176,6 +177,12 @@ resp, err := client.Chat(ctx,
 options. GPT-5.6 through `openai` and `openai_resp` also supports explicit
 breakpoints through the shared message API. Adding a breakpoint does not require
 root cache options.
+
+`openai_codex` deliberately disables explicit cache configuration. It omits
+`prompt_cache_key`, `prompt_cache_retention`, and `prompt_cache_options`, removes
+`prompt_cache_breakpoint` from raw input, and ignores shared cache controls.
+Upstream implicit caching may still apply, and returned cache usage is parsed as
+usual.
 
 ### GPT-5.6 Explicit Breakpoints
 

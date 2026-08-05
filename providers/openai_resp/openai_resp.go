@@ -31,12 +31,14 @@ type Config struct {
 	DefaultModel string
 	Headers      map[string]string
 	Debug        bool
+	OpenAICodex  bool
 }
 
 type Provider struct {
 	client       openai.Client
 	defaultModel string
 	debug        bool
+	openAICodex  bool
 }
 
 func New(cfg Config) (*Provider, error) {
@@ -56,12 +58,13 @@ func New(cfg Config) (*Provider, error) {
 		client:       openai.NewClient(opts...),
 		defaultModel: cfg.DefaultModel,
 		debug:        cfg.Debug,
+		openAICodex:  cfg.OpenAICodex,
 	}, nil
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	params, err := buildParams(req, p.defaultModel)
+	params, err := buildParams(req, p.defaultModel, p.openAICodex)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +155,7 @@ var openAIResponsesOptionKeys = map[string]struct{}{
 	"verbosity":              {},
 }
 
-func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewParams, error) {
+func buildParams(req *chat.Request, defaultModel string, openAICodex bool) (responses.ResponseNewParams, error) {
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = strings.TrimSpace(defaultModel)
@@ -160,7 +163,7 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 	if model == "" {
 		return responses.ResponseNewParams{}, fmt.Errorf("model is required")
 	}
-	if req.Options.ReasoningBudget != nil {
+	if req.Options.ReasoningBudget != nil && !openAICodex {
 		return responses.ResponseNewParams{}, fmt.Errorf("openai_resp provider does not support reasoning budget tokens; use reasoning effort")
 	}
 	if len(req.Options.Stop) > 0 {
@@ -172,17 +175,22 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 	if req.Options.FrequencyPenalty != nil {
 		return responses.ResponseNewParams{}, fmt.Errorf("openai_resp provider does not support frequency penalty on the Responses API")
 	}
-	var cacheControlErr error
-	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
-		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai_resp")
-	} else {
-		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai_resp")
-	}
-	if cacheControlErr != nil {
-		return responses.ResponseNewParams{}, cacheControlErr
+	if !openAICodex {
+		var cacheControlErr error
+		if modelcompat.OpenAIUsesPromptCacheOptions(model) {
+			cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai_resp")
+		} else {
+			cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai_resp")
+		}
+		if cacheControlErr != nil {
+			return responses.ResponseNewParams{}, cacheControlErr
+		}
 	}
 
 	opts := req.Options.OpenAI
+	if openAICodex {
+		opts = filterOpenAICodexOptions(opts)
+	}
 	if err := validateOpenAIResponsesOptions(opts); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
@@ -194,13 +202,13 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		Model: shared.ResponsesModel(model),
 	}
 
-	if req.Options.Temperature != nil {
+	if req.Options.Temperature != nil && !openAICodex {
 		params.Temperature = openai.Float(*req.Options.Temperature)
 	}
 	if req.Options.TopP != nil {
 		params.TopP = openai.Float(*req.Options.TopP)
 	}
-	if req.Options.MaxTokens != nil {
+	if req.Options.MaxTokens != nil && !openAICodex {
 		params.MaxOutputTokens = openai.Int(int64(*req.Options.MaxTokens))
 	}
 	if req.Options.User != nil {
@@ -258,28 +266,41 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 		if err != nil {
 			return responses.ResponseNewParams{}, fmt.Errorf("openai input: %w", err)
 		}
-		hasPromptCacheBreakpoint, err := validatePromptCacheBreakpoints(data)
-		if err != nil {
-			return responses.ResponseNewParams{}, err
-		}
-		if hasPromptCacheBreakpoint && !modelcompat.OpenAIUsesPromptCacheOptions(model) {
-			return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_breakpoint", model)
+		hasPromptCacheBreakpoint := false
+		if openAICodex {
+			data, err = removePromptCacheBreakpoints(data)
+			if err != nil {
+				return responses.ResponseNewParams{}, err
+			}
+		} else {
+			hasPromptCacheBreakpoint, err = validatePromptCacheBreakpoints(data)
+			if err != nil {
+				return responses.ResponseNewParams{}, err
+			}
+			if hasPromptCacheBreakpoint && !modelcompat.OpenAIUsesPromptCacheOptions(model) {
+				return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_breakpoint", model)
+			}
 		}
 		var input responses.ResponseNewParamsInputUnion
 		if err := json.Unmarshal(data, &input); err == nil {
 			params.Input = input
 		} else {
-			if !hasPromptCacheBreakpoint {
+			if !openAICodex && !hasPromptCacheBreakpoint {
 				return responses.ResponseNewParams{}, fmt.Errorf("openai input: %w", err)
 			}
 			params.Input = param.Override[responses.ResponseNewParamsInputUnion](json.RawMessage(data))
 		}
 	} else {
-		input, err := buildInputFromMessages(req.Messages)
+		input, err := buildInputFromMessages(req.Messages, !openAICodex)
 		if err != nil {
 			return responses.ResponseNewParams{}, err
 		}
 		params.Input = input
+	}
+	if openAICodex {
+		if err := ensureOpenAICodexJSONInput(&params); err != nil {
+			return responses.ResponseNewParams{}, err
+		}
 	}
 
 	rawTools, err := decodeRawTools(opts)
@@ -309,6 +330,139 @@ func buildParams(req *chat.Request, defaultModel string) (responses.ResponseNewP
 
 	applyModelParameterOverlay(&params, opts.HasKey("prompt_cache_options"))
 	return params, nil
+}
+
+var openAICodexIgnoredOptionKeys = map[string]struct{}{
+	"temperature":             {},
+	"max_tokens":              {},
+	"max_output_tokens":       {},
+	"prompt_cache_key":        {},
+	"prompt_cache_retention":  {},
+	"prompt_cache_options":    {},
+	"reasoning_budget_tokens": {},
+}
+
+func filterOpenAICodexOptions(opts structs.JSONMap) structs.JSONMap {
+	if len(opts) == 0 {
+		return opts
+	}
+	filtered := make(structs.JSONMap, len(opts))
+	for key, value := range opts {
+		if _, ignored := openAICodexIgnoredOptionKeys[key]; ignored {
+			continue
+		}
+		filtered[key] = value
+	}
+	return filtered
+}
+
+func removePromptCacheBreakpoints(data []byte) ([]byte, error) {
+	var input any
+	if err := json.Unmarshal(data, &input); err != nil {
+		return nil, fmt.Errorf("openai input: %w", err)
+	}
+
+	var remove func(any)
+	remove = func(value any) {
+		switch value := value.(type) {
+		case []any:
+			for _, item := range value {
+				remove(item)
+			}
+		case map[string]any:
+			delete(value, "prompt_cache_breakpoint")
+			for _, item := range value {
+				remove(item)
+			}
+		}
+	}
+	remove(input)
+
+	cleaned, err := json.Marshal(input)
+	if err != nil {
+		return nil, fmt.Errorf("openai input: %w", err)
+	}
+	return cleaned, nil
+}
+
+func ensureOpenAICodexJSONInput(params *responses.ResponseNewParams) error {
+	if params == nil {
+		return nil
+	}
+	formatType := params.Text.Format.GetType()
+	if formatType == nil || *formatType != "json_object" {
+		return nil
+	}
+	if params.Instructions.Valid() && strings.Contains(params.Instructions.Value, "JSON") {
+		return nil
+	}
+
+	data, err := json.Marshal(params.Input)
+	if err != nil {
+		return fmt.Errorf("openai input: %w", err)
+	}
+	var input any
+	if err := json.Unmarshal(data, &input); err != nil {
+		return fmt.Errorf("openai input: %w", err)
+	}
+	hasJSON := false
+	if text, ok := input.(string); ok {
+		hasJSON = strings.Contains(text, "JSON")
+	} else {
+		hasJSON = inputTextContainsJSON(input)
+	}
+	if hasJSON {
+		return nil
+	}
+
+	items := []any{
+		map[string]any{
+			"type":    "message",
+			"role":    "system",
+			"content": "Return the response as JSON.",
+		},
+	}
+	switch input := input.(type) {
+	case string:
+		items = append(items, map[string]any{
+			"type":    "message",
+			"role":    "user",
+			"content": input,
+		})
+	case []any:
+		items = append(items, input...)
+	default:
+		return fmt.Errorf("openai input must be a string or array")
+	}
+	data, err = json.Marshal(items)
+	if err != nil {
+		return fmt.Errorf("openai input: %w", err)
+	}
+	params.Input = param.Override[responses.ResponseNewParamsInputUnion](json.RawMessage(data))
+	return nil
+}
+
+func inputTextContainsJSON(value any) bool {
+	switch value := value.(type) {
+	case []any:
+		for _, item := range value {
+			if inputTextContainsJSON(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range value {
+			if key == "content" || key == "text" || key == "output" {
+				if text, ok := item.(string); ok && strings.Contains(text, "JSON") {
+					return true
+				}
+			}
+			if inputTextContainsJSON(item) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validatePromptCacheBreakpoints(data []byte) (bool, error) {
@@ -779,7 +933,7 @@ func buildToolChoice(choice chat.ToolChoice) (responses.ResponseNewParamsToolCho
 	}
 }
 
-func buildInputFromMessages(messages []chat.Message) (responses.ResponseNewParamsInputUnion, error) {
+func buildInputFromMessages(messages []chat.Message, promptCacheBreakpoints bool) (responses.ResponseNewParamsInputUnion, error) {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(messages))
 	autoID := 0
 
@@ -793,13 +947,15 @@ func buildInputFromMessages(messages []chat.Message) (responses.ResponseNewParam
 
 		switch msg.Role {
 		case chat.RoleSystem:
-			content, hasCacheControl, err := buildSystemInputContent(msg)
-			if err != nil {
-				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
-			}
-			if hasCacheControl {
-				items = append(items, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleSystem))
-				continue
+			if promptCacheBreakpoints {
+				content, hasCacheControl, err := buildSystemInputContent(msg)
+				if err != nil {
+					return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
+				if hasCacheControl {
+					items = append(items, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleSystem))
+					continue
+				}
 			}
 			text, err := chat.MessageText(msg)
 			if err != nil {

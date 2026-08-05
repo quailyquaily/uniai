@@ -226,13 +226,14 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		}
 		return p.Chat(ctx, req)
 
-	case "openai_resp":
+	case "openai_resp", "openai_codex":
 		p, err := openairesp.New(openairesp.Config{
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      c.cfg.OpenAIAPIBase,
 			DefaultModel: c.cfg.OpenAIModel,
 			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
+			OpenAICodex:  providerName == "openai_codex",
 		})
 		if err != nil {
 			return nil, err

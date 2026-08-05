@@ -6,7 +6,7 @@
 
 ## Features
 
-- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq, Meta Model API), Sakana AI, Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
+- Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq, Meta Model API), OpenAI Responses and Codex, Sakana AI, Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
 - Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
@@ -69,6 +69,7 @@ Supported provider names:
 
 - `openai` (default)
 - `openai_resp` (native OpenAI Responses API)
+- `openai_codex` (Responses API with Codex request compatibility)
 - `deepseek` (OpenAI-compatible)
 - `xai` (OpenAI-compatible)
 - `groq` (OpenAI-compatible)
@@ -84,19 +85,24 @@ For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenA
 
 For custom Anthropic-compatible endpoints, use provider `anthropic` with `Config.AnthropicAPIBase`. Set it to the provider's Messages API base, for example `https://api.anthropic.com/v1`; uniai appends `/messages`.
 
-### `openai` vs `openai_resp`
+### `openai`, `openai_resp`, and `openai_codex`
 
 Use `openai` when you want Chat Completions behavior or compatibility with OpenAI-like providers.
 
 Use `openai_resp` when you want native OpenAI Responses API behavior.
 
+Use `openai_codex` for a Responses-compatible Codex endpoint that rejects sampling, token-limit, and explicit prompt-cache fields.
+
 Practical differences:
 
 - `openai` uses `/v1/chat/completions`
 - `openai_resp` uses `/v1/responses`
+- `openai_codex` also uses `/v1/responses`, with the same response and streaming parser as `openai_resp`
 - `openai` is the safer choice for Chat Completions-compatible endpoints such as DeepSeek, xAI, Groq, Meta, or custom compatible bases
 - `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and `WithReasoningDetails()`
 - `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
+- `openai_codex` omits `temperature`, token limits, reasoning budget, and explicit prompt-cache settings; it preserves reasoning effort
+- In JSON object mode, `openai_codex` sends `text.format.type=json_object` and adds a system instruction containing `JSON` only when the existing model-visible input does not contain it
 - `sakana` uses Sakana's Responses-compatible endpoint through the same request path as `openai_resp`
 
 Important GPT-5.4 edge case:
@@ -138,6 +144,7 @@ Provider guidance:
 - Official OpenAI Chat Completions (`openai`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported on this path.
 - DeepSeek and Kimi through the OpenAI-compatible provider: `WithReasoningDetails()` captures returned `reasoning_content`.
 - OpenAI Responses (`openai_resp`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is supported. For `gpt-5.6-luna`, normalized reasoning details are provider-generated summaries, not raw chain-of-thought.
+- OpenAI Codex (`openai_codex`): use `WithReasoningEffort(...)`; `WithReasoningBudgetTokens(...)` is ignored. Reasoning output and streaming use the `openai_resp` parser.
 - Gemini 3.x: use `WithReasoningEffort(...)`.
 - Gemini 2.5: use `WithReasoningBudgetTokens(...)`.
 - Anthropic Claude Sonnet 5 and Claude 4.6 adaptive-thinking models: use
@@ -338,7 +345,7 @@ resp, err := client.Chat(ctx,
 Use the [stream reasoning test](cmd/stream/README.md) to verify live
 `ReasoningDelta` events with API keys supplied through environment variables.
 
-Text streaming is implemented for OpenAI (`openai`, `openai_resp`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, and Bedrock. Cloudflare ignores streaming and falls back to blocking. This list does not mean that every provider or model exposes readable reasoning.
+Text streaming is implemented for OpenAI (`openai`, `openai_resp`, `openai_codex`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, and Bedrock. Cloudflare ignores streaming and falls back to blocking. This list does not mean that every provider or model exposes readable reasoning.
 
 The bundled live reasoning test contains cases for DeepSeek V4 Pro, Kimi K3, Claude Sonnet 5, and GPT-5.6 Luna. A case passes only when its callback receives a non-empty `ReasoningDelta` and a final `Done` event.
 
