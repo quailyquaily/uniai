@@ -82,6 +82,7 @@
 #   `>270000` input tokens.
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
+# - xAI `grok-4.5` higher-context pricing below starts at `>=200000` input tokens.
 # - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
 # - Sakana `fugu-ultra-20260615` higher-context pricing below uses `>272000`
 #   input tokens. The `fugu` model is not listed because Sakana prices it by
@@ -194,26 +195,26 @@ chat:
     model: gpt-5.6-terra
     tiers:
       - max_input_tokens: 272000
-        input_usd_per_million: 2.50
-        cached_input_usd_per_million: 0.25
-        cache_creation_input_usd_per_million: 3.125
-        output_usd_per_million: 15.00
-      - input_usd_per_million: 5.00
-        cached_input_usd_per_million: 0.50
-        cache_creation_input_usd_per_million: 6.25
-        output_usd_per_million: 22.50
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.20
+        cache_creation_input_usd_per_million: 2.50
+        output_usd_per_million: 12.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 0.40
+        cache_creation_input_usd_per_million: 5.00
+        output_usd_per_million: 18.00
   - inference_provider: openai
     model: gpt-5.6-luna
     tiers:
       - max_input_tokens: 272000
-        input_usd_per_million: 1.00
-        cached_input_usd_per_million: 0.10
-        cache_creation_input_usd_per_million: 1.25
-        output_usd_per_million: 6.00
-      - input_usd_per_million: 2.00
-        cached_input_usd_per_million: 0.20
-        cache_creation_input_usd_per_million: 2.50
-        output_usd_per_million: 9.00
+        input_usd_per_million: 0.20
+        cached_input_usd_per_million: 0.02
+        cache_creation_input_usd_per_million: 0.25
+        output_usd_per_million: 1.20
+      - input_usd_per_million: 0.40
+        cached_input_usd_per_million: 0.04
+        cache_creation_input_usd_per_million: 0.50
+        output_usd_per_million: 1.80
   - inference_provider: openai
     model: gpt-5.5
     tiers:
@@ -640,9 +641,14 @@ chat:
     model: grok-4.5
     aliases:
       - grok-4.5-latest
-    input_usd_per_million: 2.00
-    cached_input_usd_per_million: 0.50
-    output_usd_per_million: 6.00
+    tiers:
+      - max_input_tokens: 199999
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.30
+        output_usd_per_million: 6.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 0.60
+        output_usd_per_million: 12.00
   - inference_provider: xai
     model: grok-4.3
     aliases:

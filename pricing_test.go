@@ -1008,25 +1008,25 @@ func TestPricingExampleYAMLEstimateChatCostUsesGPT56LongContextBoundary(t *testi
 		},
 		{
 			model:       "gpt-5.6-terra",
-			shortInput:  2.50,
-			shortCached: 0.25,
-			shortWrite:  3.125,
-			shortOutput: 15.00,
-			longInput:   5.00,
-			longCached:  0.50,
-			longWrite:   6.25,
-			longOutput:  22.50,
+			shortInput:  2.00,
+			shortCached: 0.20,
+			shortWrite:  2.50,
+			shortOutput: 12.00,
+			longInput:   4.00,
+			longCached:  0.40,
+			longWrite:   5.00,
+			longOutput:  18.00,
 		},
 		{
 			model:       "gpt-5.6-luna",
-			shortInput:  1.00,
-			shortCached: 0.10,
-			shortWrite:  1.25,
-			shortOutput: 6.00,
-			longInput:   2.00,
-			longCached:  0.20,
-			longWrite:   2.50,
-			longOutput:  9.00,
+			shortInput:  0.20,
+			shortCached: 0.02,
+			shortWrite:  0.25,
+			shortOutput: 1.20,
+			longInput:   0.40,
+			longCached:  0.04,
+			longWrite:   0.50,
+			longOutput:  1.80,
 		},
 	}
 
@@ -1382,9 +1382,32 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok45PriceMath(t *testing.T) 
 	}
 
 	assertNearlyEqual(t, cost.Input, 800*2.00/1_000_000)
-	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.30/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*6.00/1_000_000)
-	assertNearlyEqual(t, cost.Total, 0.0035)
+	assertNearlyEqual(t, cost.Total, 0.00346)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok45LongContextPriceMath(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	usage := Usage{
+		InputTokens:  200000,
+		OutputTokens: 300,
+		TotalTokens:  200300,
+		Cache: UsageCache{
+			CachedInputTokens: 1000,
+		},
+	}
+
+	cost, ok := catalog.EstimateChatCost("grok-4.5", usage)
+	if !ok {
+		t.Fatal("expected grok-4.5 long-context cost estimate from pricing.example.yaml")
+	}
+
+	assertNearlyEqual(t, cost.Input, 199000*4.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 1000*0.60/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*12.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.8002)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesGrok43LongContextPriceMath(t *testing.T) {
