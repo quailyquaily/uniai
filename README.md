@@ -102,7 +102,7 @@ Practical differences:
 - `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and `WithReasoningDetails()`
 - `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
 - `openai_codex` omits `temperature`, token limits, reasoning budget, and explicit prompt-cache settings; it preserves reasoning effort
-- In JSON object mode, `openai_codex` sends `text.format.type=json_object` and adds a system instruction containing `JSON` only when the existing model-visible input does not contain it
+- In JSON object mode, `openai_codex` sends `text.format.type=json_object` and adds a user input instruction containing `JSON` when the input messages do not contain it
 - `sakana` uses Sakana's Responses-compatible endpoint through the same request path as `openai_resp`
 
 Important GPT-5.4 edge case:

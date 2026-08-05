@@ -82,18 +82,24 @@ resp, err := client.Chat(ctx,
 
 不发送 Responses API 未定义的顶层 `response_format`。
 
-JSON object mode 要求模型可见上下文包含区分大小写的字符串 `JSON`。检查范围只包括 `instructions` 和 input 中的文本内容。若不存在，在 input 最前面增加一条 system message：
+JSON object mode 要求 input messages 包含区分大小写的字符串 `JSON`。检查范围只包括 input 中的文本内容，不把顶层 `instructions` 视为满足条件。若不存在，在 input 最前面增加一条 user message。这里不能使用 system message，因为官方 Codex endpoint 不接受 input 中的 system role：
 
 ```json
 {
-  "role": "system",
-  "content": "Return the response as JSON."
+  "type": "message",
+  "role": "user",
+  "content": [
+    {
+      "type": "input_text",
+      "text": "Return the response as JSON."
+    }
+  ]
 }
 ```
 
 已有 `JSON` 时不增加消息。原 input 的文本和相对顺序保持不变。
 
-`json_schema` 属于 Structured Outputs，不改写成 `json_object`，也不增加上述 system message。
+`json_schema` 属于 Structured Outputs，不改写成 `json_object`，也不增加上述 user message。
 
 ## 实现
 
@@ -112,7 +118,7 @@ Builder 本来就会创建新的 Responses 参数，因此不需要克隆完整�
 - 原始 `OpenAI` options 只复制需要过滤的 map，不能原地删除调用方数据。
 - raw input 在解码后的副本中递归删除 `prompt_cache_breakpoint`。
 - message 和 tool 的 `CacheControl` 在构建 input/tools 时直接忽略。
-- JSON system message 加入新建的 Responses input，不回写 `req.Messages`。
+- JSON user message 加入新建的 Responses input，不回写 `req.Messages`。
 
 `openai_resp` 不启用该标记，现有行为保持不变，包括其 reasoning budget 错误和 prompt cache 支持。
 

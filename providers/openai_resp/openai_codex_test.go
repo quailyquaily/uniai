@@ -210,16 +210,56 @@ func TestBuildParamsOpenAICodexAddsJSONInstruction(t *testing.T) {
 			if len(items) != 2 {
 				t.Fatalf("input items = %d, want 2", len(items))
 			}
-			if items[0]["role"] != "system" {
-				t.Fatalf("first item is not a system message: %#v", items[0])
+			if items[0]["role"] != "user" {
+				t.Fatalf("first item is not a user message: %#v", items[0])
 			}
 			if got := responsePayloadMessageText(items[0]); got != "Return the response as JSON." {
-				t.Fatalf("system message = %q", got)
+				t.Fatalf("JSON instruction = %q", got)
 			}
 			if got := responsePayloadMessageText(items[1]); got != tt.originalText {
 				t.Fatalf("original input = %q, want %q", got, tt.originalText)
 			}
 		})
+	}
+}
+
+func TestBuildParamsOpenAICodexAddsJSONInstructionWhenOnlyInstructionsContainJSON(t *testing.T) {
+	req := &chat.Request{
+		Model:    "gpt-5.6-sol",
+		Messages: []chat.Message{chat.User("Hi")},
+		Options: chat.Options{OpenAI: structs.JSONMap{
+			"instructions":    "Return valid JSON.",
+			"response_format": "json_object",
+		}},
+	}
+
+	params, err := buildParams(req, "", true)
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	if got := params.Instructions.Value; got != "Return valid JSON." {
+		t.Fatalf("instructions = %q, want original instructions", got)
+	}
+	items := responsePayloadMessages(t, params)
+	if len(items) != 2 {
+		t.Fatalf("input items = %d, want 2", len(items))
+	}
+	if items[0]["role"] != "user" {
+		t.Fatalf("first item is not a user message: %#v", items[0])
+	}
+	if got := responsePayloadMessageText(items[0]); got != "Return the response as JSON." {
+		t.Fatalf("JSON instruction = %q", got)
+	}
+	content, ok := items[0]["content"].([]any)
+	if !ok || len(content) != 1 {
+		t.Fatalf("JSON instruction content = %#v, want one input_text part", items[0]["content"])
+	}
+	part, ok := content[0].(map[string]any)
+	if !ok || part["type"] != "input_text" {
+		t.Fatalf("JSON instruction part = %#v, want input_text", content[0])
+	}
+	if got := responsePayloadMessageText(items[1]); got != "Hi" {
+		t.Fatalf("original input = %q, want Hi", got)
 	}
 }
 
@@ -236,15 +276,6 @@ func TestBuildParamsOpenAICodexDoesNotDuplicateJSONInstruction(t *testing.T) {
 				"response_format": "json_object",
 			},
 			message:    "Return JSON only.",
-			formatType: "json_object",
-		},
-		{
-			name: "JSON in instructions",
-			options: structs.JSONMap{
-				"instructions":    "Return JSON only.",
-				"response_format": "json_object",
-			},
-			message:    "list changed files",
 			formatType: "json_object",
 		},
 		{

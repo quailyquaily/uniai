@@ -393,9 +393,6 @@ func ensureOpenAICodexJSONInput(params *responses.ResponseNewParams) error {
 	if formatType == nil || *formatType != "json_object" {
 		return nil
 	}
-	if params.Instructions.Valid() && strings.Contains(params.Instructions.Value, "JSON") {
-		return nil
-	}
 
 	data, err := json.Marshal(params.Input)
 	if err != nil {
@@ -417,9 +414,14 @@ func ensureOpenAICodexJSONInput(params *responses.ResponseNewParams) error {
 
 	items := []any{
 		map[string]any{
-			"type":    "message",
-			"role":    "system",
-			"content": "Return the response as JSON.",
+			"type": "message",
+			"role": "user",
+			"content": []any{
+				map[string]any{
+					"type": "input_text",
+					"text": "Return the response as JSON.",
+				},
+			},
 		},
 	}
 	switch input := input.(type) {
