@@ -406,7 +406,7 @@ func ensureOpenAICodexJSONInput(params *responses.ResponseNewParams) error {
 	if text, ok := input.(string); ok {
 		hasJSON = strings.Contains(text, "JSON")
 	} else {
-		hasJSON = inputTextContainsJSON(input)
+		hasJSON = inputMessagesContainJSON(input)
 	}
 	if hasJSON {
 		return nil
@@ -444,22 +444,43 @@ func ensureOpenAICodexJSONInput(params *responses.ResponseNewParams) error {
 	return nil
 }
 
-func inputTextContainsJSON(value any) bool {
-	switch value := value.(type) {
-	case []any:
-		for _, item := range value {
-			if inputTextContainsJSON(item) {
-				return true
+func inputMessagesContainJSON(value any) bool {
+	items, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, rawItem := range items {
+		item, ok := rawItem.(map[string]any)
+		if !ok {
+			continue
+		}
+		itemType, _ := item["type"].(string)
+		if itemType != "" && itemType != "message" {
+			continue
+		}
+		if itemType == "" {
+			if _, ok := item["role"].(string); !ok {
+				continue
 			}
 		}
-	case map[string]any:
-		for key, item := range value {
-			if key == "content" || key == "text" || key == "output" {
-				if text, ok := item.(string); ok && strings.Contains(text, "JSON") {
-					return true
-				}
+
+		content := item["content"]
+		if text, ok := content.(string); ok {
+			if strings.Contains(text, "JSON") {
+				return true
 			}
-			if inputTextContainsJSON(item) {
+			continue
+		}
+		parts, ok := content.([]any)
+		if !ok {
+			continue
+		}
+		for _, rawPart := range parts {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				continue
+			}
+			if text, ok := part["text"].(string); ok && strings.Contains(text, "JSON") {
 				return true
 			}
 		}

@@ -263,6 +263,50 @@ func TestBuildParamsOpenAICodexAddsJSONInstructionWhenOnlyInstructionsContainJSO
 	}
 }
 
+func TestBuildParamsOpenAICodexAddsJSONInstructionWhenOnlyToolOutputContainsJSON(t *testing.T) {
+	req := &chat.Request{
+		Model: "gpt-5.6-sol",
+		Options: chat.Options{OpenAI: structs.JSONMap{
+			"input": []any{
+				map[string]any{
+					"type": "message",
+					"role": "user",
+					"content": []any{
+						map[string]any{
+							"type": "input_text",
+							"text": "Find the relevant issue and fix.",
+						},
+					},
+				},
+				map[string]any{
+					"type":    "function_call_output",
+					"call_id": "call_1",
+					"output":  "Example source code: c.JSON(200, payload)",
+				},
+			},
+			"response_format": "json_object",
+		}},
+	}
+
+	params, err := buildParams(req, "", true)
+	if err != nil {
+		t.Fatalf("buildParams: %v", err)
+	}
+	items := responsePayloadMessages(t, params)
+	if len(items) != 3 {
+		t.Fatalf("input items = %d, want 3", len(items))
+	}
+	if items[0]["role"] != "user" {
+		t.Fatalf("first item is not a user message: %#v", items[0])
+	}
+	if got := responsePayloadMessageText(items[0]); got != "Return the response as JSON." {
+		t.Fatalf("JSON instruction = %q", got)
+	}
+	if got := items[2]["type"]; got != "function_call_output" {
+		t.Fatalf("last item type = %v, want function_call_output", got)
+	}
+}
+
 func TestBuildParamsOpenAICodexDoesNotDuplicateJSONInstruction(t *testing.T) {
 	tests := []struct {
 		name       string
