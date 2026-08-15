@@ -258,6 +258,55 @@ pricing := &uniai.PricingCatalog{
 func ptr(v float64) *float64 { return &v }
 ```
 
+## Extending The Default Catalog
+
+A non-nil `Config.Pricing` replaces the embedded catalog; it is not merged
+automatically. To keep the default rules and change only selected prices, start
+with `DefaultPricingCatalog()`. It returns a deep copy that the caller can edit.
+
+For example, add a separate DeepSeek V4 Pro price for Fireworks while keeping
+the embedded DeepSeek price:
+
+```go
+pricing := uniai.DefaultPricingCatalog()
+cached := fireworksCachedInputRate
+
+pricing.Chat = append(pricing.Chat, uniai.ChatPricingRule{
+	InferenceProvider:        "fireworks",
+	Model:                    "deepseek-v4-pro",
+	InputUSDPerMillion:       fireworksInputRate,
+	CachedInputUSDPerMillion: &cached,
+	OutputUSDPerMillion:      fireworksOutputRate,
+})
+```
+
+To change an existing rule, edit its fields before calling `Validate()`:
+
+```go
+for i := range pricing.Chat {
+	rule := &pricing.Chat[i]
+	if rule.InferenceProvider == "deepseek" && rule.Model == "deepseek-v4-pro" {
+		rule.OutputUSDPerMillion = customOutputRate
+		break
+	}
+}
+```
+
+After applying additions or changes, validate once and pass the catalog to the
+client:
+
+```go
+if err := pricing.Validate(); err != nil {
+	return err
+}
+
+client := uniai.New(uniai.Config{Provider: "openai", Pricing: pricing})
+```
+
+Pass `uniai.WithInferenceProvider("fireworks")` on Fireworks requests to select
+the added rule. The embedded DeepSeek rule remains available under `deepseek`.
+Do not append a duplicate with the same normalized provider and model.
+
 ## Cost Formula
 
 For a matched chat rule:
