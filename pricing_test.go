@@ -103,6 +103,35 @@ chat:
 	}
 }
 
+func TestParsePricingYAMLWithPeakRates(t *testing.T) {
+	catalog, err := ParsePricingYAML([]byte(`
+chat:
+  - inference_provider: deepseek
+    model: deepseek-v4-flash
+    input_usd_per_million: 0.22
+    cached_input_usd_per_million: 0.007
+    output_usd_per_million: 0.66
+    peak_rates:
+      input_usd_per_million: 0.44
+      cached_input_usd_per_million: 0.014
+      output_usd_per_million: 1.32
+`))
+	if err != nil {
+		t.Fatalf("parse pricing yaml: %v", err)
+	}
+
+	peakRates := catalog.Chat[0].PeakRates
+	if peakRates == nil {
+		t.Fatal("expected peak rates")
+	}
+	if peakRates.InputUSDPerMillion != 0.44 || peakRates.OutputUSDPerMillion != 1.32 {
+		t.Fatalf("unexpected peak rates: %#v", peakRates)
+	}
+	if peakRates.CachedInputUSDPerMillion == nil || *peakRates.CachedInputUSDPerMillion != 0.014 {
+		t.Fatalf("unexpected peak cached-input rate: %#v", peakRates.CachedInputUSDPerMillion)
+	}
+}
+
 func TestPricingCatalogEstimateChatCost(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
@@ -525,6 +554,12 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	if !catalogHasRule(catalog, "gpt-5.6") {
 		t.Fatal("expected embedded default pricing catalog to include gpt-5.6")
 	}
+	deepSeek := catalog.findChatPricingRule("deepseek-v4-flash")
+	if deepSeek == nil || deepSeek.PeakRates == nil || deepSeek.PeakRates.CachedInputUSDPerMillion == nil {
+		t.Fatal("expected embedded DeepSeek peak rates")
+	}
+	deepSeek.PeakRates.InputUSDPerMillion = 0
+	*deepSeek.PeakRates.CachedInputUSDPerMillion = 0
 
 	catalog.Chat = nil
 
@@ -537,6 +572,13 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	}
 	if !catalogHasRule(again, "gpt-5.6") {
 		t.Fatal("expected embedded default pricing catalog clone to include gpt-5.6")
+	}
+	deepSeek = again.findChatPricingRule("deepseek-v4-flash")
+	if deepSeek == nil || deepSeek.PeakRates == nil ||
+		deepSeek.PeakRates.InputUSDPerMillion != 0.44 ||
+		deepSeek.PeakRates.CachedInputUSDPerMillion == nil ||
+		*deepSeek.PeakRates.CachedInputUSDPerMillion != 0.014 {
+		t.Fatalf("expected embedded peak rates clone to stay intact: %#v", deepSeek)
 	}
 }
 
@@ -625,6 +667,27 @@ func TestPricingCatalogValidateRejectsInvalidTierOrder(t *testing.T) {
 
 	if err := catalog.Validate(); err == nil {
 		t.Fatal("expected validation error for decreasing tier max_input_tokens")
+	}
+}
+
+func TestPricingCatalogValidateRejectsInvalidPeakRates(t *testing.T) {
+	catalog := &PricingCatalog{
+		Chat: []ChatPricingRule{
+			{
+				Model:               "peak-priced-model",
+				InputUSDPerMillion:  1,
+				OutputUSDPerMillion: 2,
+				PeakRates: &ChatPricingRates{
+					InputUSDPerMillion:  -1,
+					OutputUSDPerMillion: 4,
+				},
+			},
+		},
+	}
+
+	err := catalog.Validate()
+	if err == nil || !strings.Contains(err.Error(), "peak_rates.input_usd_per_million must be >= 0") {
+		t.Fatalf("unexpected validation error: %v", err)
 	}
 }
 
@@ -836,6 +899,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"MiniMax-M2.5-highspeed",
 		"deepseek-v4-flash",
 		"deepseek-v4-pro",
+		"grok-4.6",
+		"grok-4.6-latest",
 		"grok-4.5",
 		"grok-4.5-latest",
 		"grok-4.3",
@@ -1281,7 +1346,7 @@ func TestPricingExampleYAMLEstimateChatCostMatchesKimiK3FlatPriceMath(t *testing
 	assertNearlyEqual(t, cost.Total, 2.76)
 }
 
-func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing.T) {
+func TestPricingExampleYAMLContainsDeepSeekV4OffPeakAndPeakRates(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	usage := Usage{
@@ -1297,19 +1362,35 @@ func TestPricingExampleYAMLEstimateChatCostMatchesDeepSeekV4PriceMath(t *testing
 	if !ok {
 		t.Fatal("expected flash cost estimate from pricing.example.yaml")
 	}
-	assertNearlyEqual(t, flash.Input, 800*0.14/1_000_000)
-	assertNearlyEqual(t, flash.CachedInput, 200*0.0028/1_000_000)
-	assertNearlyEqual(t, flash.Output, 300*0.28/1_000_000)
-	assertNearlyEqual(t, flash.Total, 0.00019656)
+	assertNearlyEqual(t, flash.Input, 800*0.22/1_000_000)
+	assertNearlyEqual(t, flash.CachedInput, 200*0.007/1_000_000)
+	assertNearlyEqual(t, flash.Output, 300*0.66/1_000_000)
+	assertNearlyEqual(t, flash.Total, 0.0003754)
+
+	flashRule := catalog.findChatPricingRule("deepseek-v4-flash")
+	if flashRule == nil || flashRule.PeakRates == nil || flashRule.PeakRates.CachedInputUSDPerMillion == nil {
+		t.Fatal("expected flash peak rates")
+	}
+	assertNearlyEqual(t, flashRule.PeakRates.InputUSDPerMillion, 0.44)
+	assertNearlyEqual(t, *flashRule.PeakRates.CachedInputUSDPerMillion, 0.014)
+	assertNearlyEqual(t, flashRule.PeakRates.OutputUSDPerMillion, 1.32)
 
 	pro, ok := catalog.EstimateChatCost("deepseek-v4-pro", usage)
 	if !ok {
 		t.Fatal("expected pro cost estimate from pricing.example.yaml")
 	}
-	assertNearlyEqual(t, pro.Input, 800*0.435/1_000_000)
-	assertNearlyEqual(t, pro.CachedInput, 200*0.003625/1_000_000)
-	assertNearlyEqual(t, pro.Output, 300*0.87/1_000_000)
-	assertNearlyEqual(t, pro.Total, 0.000609725)
+	assertNearlyEqual(t, pro.Input, 800*0.66/1_000_000)
+	assertNearlyEqual(t, pro.CachedInput, 200*0.022/1_000_000)
+	assertNearlyEqual(t, pro.Output, 300*1.98/1_000_000)
+	assertNearlyEqual(t, pro.Total, 0.0011264)
+
+	proRule := catalog.findChatPricingRule("deepseek-v4-pro")
+	if proRule == nil || proRule.PeakRates == nil || proRule.PeakRates.CachedInputUSDPerMillion == nil {
+		t.Fatal("expected pro peak rates")
+	}
+	assertNearlyEqual(t, proRule.PeakRates.InputUSDPerMillion, 1.32)
+	assertNearlyEqual(t, *proRule.PeakRates.CachedInputUSDPerMillion, 0.044)
+	assertNearlyEqual(t, proRule.PeakRates.OutputUSDPerMillion, 3.96)
 }
 
 func TestPricingExampleYAMLDoesNotMatchRetiredDeepSeekAliases(t *testing.T) {
@@ -1339,6 +1420,58 @@ func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *test
 	assertNearlyEqual(t, cost.Input, 1000*0.20/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*0.50/1_000_000)
 	assertNearlyEqual(t, cost.Total, 0.00035)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok46PriceBoundary(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+
+	tests := []struct {
+		name        string
+		model       string
+		inputTokens int
+		inputRate   float64
+		cachedRate  float64
+		outputRate  float64
+	}{
+		{
+			name:        "short context through latest alias",
+			model:       "grok-4.6-latest",
+			inputTokens: 199999,
+			inputRate:   2.00,
+			cachedRate:  0.50,
+			outputRate:  6.00,
+		},
+		{
+			name:        "long context starts at 200k",
+			model:       "grok-4.6",
+			inputTokens: 200000,
+			inputRate:   4.00,
+			cachedRate:  1.00,
+			outputRate:  12.00,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			usage := Usage{
+				InputTokens:  tt.inputTokens,
+				OutputTokens: 300,
+				TotalTokens:  tt.inputTokens + 300,
+				Cache: UsageCache{
+					CachedInputTokens: 1000,
+				},
+			}
+
+			cost, ok := catalog.EstimateChatCost(tt.model, usage)
+			if !ok {
+				t.Fatal("expected grok-4.6 cost estimate from pricing.example.yaml")
+			}
+			assertNearlyEqual(t, cost.Input, float64(tt.inputTokens-1000)*tt.inputRate/1_000_000)
+			assertNearlyEqual(t, cost.CachedInput, 1000*tt.cachedRate/1_000_000)
+			assertNearlyEqual(t, cost.Output, 300*tt.outputRate/1_000_000)
+			assertNearlyEqual(t, cost.Total, cost.Input+cost.CachedInput+cost.Output)
+		})
+	}
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesGrok43PriceMath(t *testing.T) {

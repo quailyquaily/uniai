@@ -45,6 +45,7 @@ Relevant types and functions:
 
 - `uniai.PricingCatalog`
 - `uniai.ChatPricingRule`
+- `uniai.ChatPricingRates`
 - `uniai.ImagePricingRule`
 - `uniai.DefaultPricingCatalog()`
 - `uniai.ParsePricingYAML([]byte)`
@@ -111,6 +112,16 @@ chat:
       ephemeral_1h_input_tokens: 6.00
     output_usd_per_million: 15.00
 
+  - inference_provider: deepseek
+    model: deepseek-v4-flash
+    input_usd_per_million: 0.22
+    cached_input_usd_per_million: 0.007
+    output_usd_per_million: 0.66
+    peak_rates:
+      input_usd_per_million: 0.44
+      cached_input_usd_per_million: 0.014
+      output_usd_per_million: 1.32
+
 image:
   - inference_provider: openai
     model: gpt-image-2
@@ -159,8 +170,13 @@ Each `chat` entry supports these fields:
 - `cache_creation_input_usd_per_million`: optional cache-write token price
 - `cache_creation_input_detail_usd_per_million`: optional per-counter override map for provider-specific cache-write counters
 - `tiers`: optional request-level price tiers for models whose rates depend on the raw `input_tokens` count of one upstream request
+- `peak_rates`: optional alternate peak-period rates; callers decide when these rates apply
 
 Each rule must use either flat price fields or `tiers`, not both. All prices must be non-negative.
+
+Automatic cost estimation uses the flat fields or `tiers`. It does not select
+`peak_rates`, because the applicable time period belongs to the caller's billing
+context.
 
 Each `image` entry supports these fields:
 

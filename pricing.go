@@ -39,6 +39,21 @@ type ChatPricingRule struct {
 	// Tiers optionally overrides the flat rates above when a model's price depends
 	// on the input token count of a single upstream request.
 	Tiers []ChatPricingTier `json:"tiers,omitempty" yaml:"tiers,omitempty"`
+
+	// PeakRates optionally records an alternate peak-period rate set. The catalog
+	// stores these rates but leaves selection of the applicable period to callers.
+	PeakRates *ChatPricingRates `json:"peak_rates,omitempty" yaml:"peak_rates,omitempty"`
+}
+
+// ChatPricingRates records one complete set of chat token rates.
+type ChatPricingRates struct {
+	InputUSDPerMillion  float64 `json:"input_usd_per_million" yaml:"input_usd_per_million"`
+	OutputUSDPerMillion float64 `json:"output_usd_per_million" yaml:"output_usd_per_million"`
+
+	CachedInputUSDPerMillion        *float64 `json:"cached_input_usd_per_million,omitempty" yaml:"cached_input_usd_per_million,omitempty"`
+	CacheCreationInputUSDPerMillion *float64 `json:"cache_creation_input_usd_per_million,omitempty" yaml:"cache_creation_input_usd_per_million,omitempty"`
+
+	CacheCreationInputDetailUSDPerMillion map[string]float64 `json:"cache_creation_input_detail_usd_per_million,omitempty" yaml:"cache_creation_input_detail_usd_per_million,omitempty"`
 }
 
 // ChatPricingTier defines one request-level pricing tier for a chat model.
@@ -569,6 +584,10 @@ func cloneChatPricingRule(in ChatPricingRule) ChatPricingRule {
 			out.Tiers[i] = cloneChatPricingTier(in.Tiers[i])
 		}
 	}
+	if in.PeakRates != nil {
+		peakRates := cloneChatPricingRates(*in.PeakRates)
+		out.PeakRates = &peakRates
+	}
 	return out
 }
 
@@ -620,23 +639,60 @@ func cloneChatPricingTier(in ChatPricingTier) ChatPricingTier {
 	return out
 }
 
+func cloneChatPricingRates(in ChatPricingRates) ChatPricingRates {
+	out := ChatPricingRates{
+		InputUSDPerMillion:  in.InputUSDPerMillion,
+		OutputUSDPerMillion: in.OutputUSDPerMillion,
+	}
+	if in.CachedInputUSDPerMillion != nil {
+		value := *in.CachedInputUSDPerMillion
+		out.CachedInputUSDPerMillion = &value
+	}
+	if in.CacheCreationInputUSDPerMillion != nil {
+		value := *in.CacheCreationInputUSDPerMillion
+		out.CacheCreationInputUSDPerMillion = &value
+	}
+	if len(in.CacheCreationInputDetailUSDPerMillion) > 0 {
+		out.CacheCreationInputDetailUSDPerMillion = make(map[string]float64, len(in.CacheCreationInputDetailUSDPerMillion))
+		for key, value := range in.CacheCreationInputDetailUSDPerMillion {
+			out.CacheCreationInputDetailUSDPerMillion[normalizeDetailKey(key)] = value
+		}
+	}
+	return out
+}
+
 func validateChatPricingRule(rule ChatPricingRule) error {
 	if strings.TrimSpace(rule.Model) == "" {
 		return fmt.Errorf("model is required")
 	}
+	var err error
 	if len(rule.Tiers) > 0 {
 		if hasFlatChatPricingFields(rule) {
 			return fmt.Errorf("flat price fields and tiers cannot be mixed")
 		}
-		return validateChatPricingTiers(rule.Tiers)
+		err = validateChatPricingTiers(rule.Tiers)
+	} else {
+		err = validateChatPricingRates("", chatPricingRates{
+			InputUSDPerMillion:                    rule.InputUSDPerMillion,
+			OutputUSDPerMillion:                   rule.OutputUSDPerMillion,
+			CachedInputUSDPerMillion:              rule.CachedInputUSDPerMillion,
+			CacheCreationInputUSDPerMillion:       rule.CacheCreationInputUSDPerMillion,
+			CacheCreationInputDetailUSDPerMillion: rule.CacheCreationInputDetailUSDPerMillion,
+		})
 	}
-	return validateChatPricingRates("", chatPricingRates{
-		InputUSDPerMillion:                    rule.InputUSDPerMillion,
-		OutputUSDPerMillion:                   rule.OutputUSDPerMillion,
-		CachedInputUSDPerMillion:              rule.CachedInputUSDPerMillion,
-		CacheCreationInputUSDPerMillion:       rule.CacheCreationInputUSDPerMillion,
-		CacheCreationInputDetailUSDPerMillion: rule.CacheCreationInputDetailUSDPerMillion,
-	})
+	if err != nil {
+		return err
+	}
+	if rule.PeakRates != nil {
+		return validateChatPricingRates("peak_rates.", chatPricingRates{
+			InputUSDPerMillion:                    rule.PeakRates.InputUSDPerMillion,
+			OutputUSDPerMillion:                   rule.PeakRates.OutputUSDPerMillion,
+			CachedInputUSDPerMillion:              rule.PeakRates.CachedInputUSDPerMillion,
+			CacheCreationInputUSDPerMillion:       rule.PeakRates.CacheCreationInputUSDPerMillion,
+			CacheCreationInputDetailUSDPerMillion: rule.PeakRates.CacheCreationInputDetailUSDPerMillion,
+		})
+	}
+	return nil
 }
 
 func validateImagePricingRule(rule ImagePricingRule) error {

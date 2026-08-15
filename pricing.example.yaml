@@ -12,10 +12,11 @@
 # Claude Opus 5 standard rates added on 2026-07-25 from the public model docs.
 # Claude Sonnet 5 introductory rates added on 2026-07-10 from the public
 # pricing page.
-# DeepSeek V4-Flash-0731 and V4-Pro entries verified on 2026-08-01 from the
-# public pricing page and change log.
+# DeepSeek V4-Flash-0731 and V4-Pro-0813 peak/off-peak rates refreshed on
+# 2026-08-15 from the public pricing page and change log.
 # xAI Grok 4.5 and Grok 4.20 Multi-Agent entries added on 2026-07-10 from the
 # official docs pages.
+# xAI Grok 4.6 pricing added on 2026-08-15 from the official docs pages.
 # Meta Muse Spark 1.1 pricing added on 2026-07-10 from public launch reporting;
 # Meta's developer pricing page required login at the time checked.
 # OpenAI GPT Image 2 image-generation pricing added on 2026-05-13 from the
@@ -82,7 +83,8 @@
 #   `>270000` input tokens.
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
-# - xAI `grok-4.5` higher-context pricing below starts at `>=200000` input tokens.
+# - xAI `grok-4.6` and `grok-4.5` higher-context pricing below starts at
+#   `>=200000` input tokens.
 # - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
 # - Sakana `fugu-ultra-20260615` higher-context pricing below uses `>272000`
 #   input tokens. The `fugu` model is not listed because Sakana prices it by
@@ -92,10 +94,11 @@
 #   client's driver/provider name. Callers can optionally pass an explicit
 #   `inference_provider` hint. If that provider exists in the catalog, matching
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
-# - DeepSeek `deepseek-v4-flash` now serves V4-Flash-0731. The retired
+# - DeepSeek `deepseek-v4-flash` serves V4-Flash-0731 and `deepseek-v4-pro`
+#   serves V4-Pro-0813. The retired
 #   `deepseek-chat` and `deepseek-reasoner` model names are not pricing aliases.
-# - DeepSeek has announced a future 2x peak-hours multiplier but has not
-#   published an effective date, so this catalog keeps the current regular rates.
+# - DeepSeek flat fields contain off-peak rates and `peak_rates` contains peak
+#   rates. Callers decide which rate set applies.
 # - Mistral entries below use explicit dated model IDs to avoid guessing where a
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
 # - OpenAI image generation pricing uses separate rates for text input, image
@@ -627,16 +630,36 @@ chat:
   # DeepSeek
   - inference_provider: deepseek
     model: deepseek-v4-flash
-    input_usd_per_million: 0.14
-    cached_input_usd_per_million: 0.0028
-    output_usd_per_million: 0.28
+    input_usd_per_million: 0.22
+    cached_input_usd_per_million: 0.007
+    output_usd_per_million: 0.66
+    peak_rates:
+      input_usd_per_million: 0.44
+      cached_input_usd_per_million: 0.014
+      output_usd_per_million: 1.32
   - inference_provider: deepseek
     model: deepseek-v4-pro
-    input_usd_per_million: 0.435
-    cached_input_usd_per_million: 0.003625
-    output_usd_per_million: 0.87
+    input_usd_per_million: 0.66
+    cached_input_usd_per_million: 0.022
+    output_usd_per_million: 1.98
+    peak_rates:
+      input_usd_per_million: 1.32
+      cached_input_usd_per_million: 0.044
+      output_usd_per_million: 3.96
 
   # xAI
+  - inference_provider: xai
+    model: grok-4.6
+    aliases:
+      - grok-4.6-latest
+    tiers:
+      - max_input_tokens: 199999
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.50
+        output_usd_per_million: 6.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 1.00
+        output_usd_per_million: 12.00
   - inference_provider: xai
     model: grok-4.5
     aliases:
