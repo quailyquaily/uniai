@@ -24,6 +24,10 @@
 # OpenAI GPT Image 1 and Gemini image-generation preview pricing added on
 # 2026-05-14 from the public pricing pages.
 # Gemini 3.5 Flash pricing added on 2026-05-20 from the public pricing page.
+# Gemini 3.7 Flash and 3.6 Flash introductory pricing, and Gemini 3.5
+# Flash-Lite pricing, added on 2026-08-17 from the public pricing page.
+# Z.AI GLM-5.2 and GLM-5.1 pricing added on 2026-08-17 from the public pricing
+# page.
 # Sakana Fugu Ultra pricing added on 2026-06-22 from the public pricing page.
 # Prices may change later. Re-check the official pages before using this in production.
 #
@@ -83,6 +87,9 @@
 #   `>270000` input tokens.
 # - Gemini `gemini-3-pro-preview` and `gemini-2.5-pro` long-context tiers below use
 #   `>200000` input tokens.
+# - Gemini 3.7 Flash and 3.6 Flash rates below are introductory prices through
+#   2026-12-31. Standard $1.50 input, $0.15 cached-input, and $7.50 output rates
+#   start on 2027-01-01.
 # - xAI `grok-4.6` and `grok-4.5` higher-context pricing below starts at
 #   `>=200000` input tokens.
 # - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
@@ -99,6 +106,8 @@
 #   `deepseek-chat` and `deepseek-reasoner` model names are not pricing aliases.
 # - DeepSeek flat fields contain off-peak rates and `peak_rates` contains peak
 #   rates. Callers decide which rate set applies.
+# - GLM-5.3 is omitted because its pay-as-you-go API token prices have not been
+#   published.
 # - Mistral entries below use explicit dated model IDs to avoid guessing where a
 #   moving `*-latest` alias points, except where Mistral docs explicitly map the alias.
 # - OpenAI image generation pricing uses separate rates for text input, image
@@ -420,10 +429,25 @@ chat:
 
   # Gemini
   - inference_provider: gemini
+    model: gemini-3.7-flash
+    input_usd_per_million: 0.75
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 3.75
+  - inference_provider: gemini
+    model: gemini-3.6-flash
+    input_usd_per_million: 0.75
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 3.75
+  - inference_provider: gemini
     model: gemini-3.5-flash
     input_usd_per_million: 1.50
     cached_input_usd_per_million: 0.15
     output_usd_per_million: 9.00
+  - inference_provider: gemini
+    model: gemini-3.5-flash-lite
+    input_usd_per_million: 0.30
+    cached_input_usd_per_million: 0.03
+    output_usd_per_million: 2.50
   - inference_provider: gemini
     model: gemini-3-pro-preview
     aliases:
@@ -506,6 +530,16 @@ chat:
     output_usd_per_million: 10.00
 
   # Z.AI
+  - inference_provider: zai
+    model: GLM-5.2
+    input_usd_per_million: 1.40
+    cached_input_usd_per_million: 0.26
+    output_usd_per_million: 4.40
+  - inference_provider: zai
+    model: GLM-5.1
+    input_usd_per_million: 1.40
+    cached_input_usd_per_million: 0.26
+    output_usd_per_million: 4.40
   - inference_provider: zai
     model: GLM-5
     input_usd_per_million: 1.00

@@ -873,7 +873,10 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-sonnet-4-6",
 		"claude-sonnet-5",
 		"claude-haiku-4-5",
+		"gemini-3.7-flash",
+		"gemini-3.6-flash",
 		"gemini-3.5-flash",
+		"gemini-3.5-flash-lite",
 		"gemini-3-pro-preview",
 		"gemini-3.0-pro",
 		"gemini-3-flash-preview",
@@ -889,6 +892,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"command-r7b-12-2024",
 		"command-r-08-2024",
 		"command-r-plus-08-2024",
+		"glm-5.2",
+		"glm-5.1",
 		"glm-5",
 		"glm-4.5-air",
 		"kimi-k3",
@@ -939,6 +944,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-3-5-haiku-20241022",
 		"gemini-3.1-flash-lite-preview",
 		"gemini-2.5-flash-lite",
+		"glm-5.3",
 	}
 	for _, model := range mustNotHave {
 		if catalogHasRule(catalog, model) {
@@ -1742,6 +1748,70 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGemini35FlashPriceMath(t *test
 	assertNearlyEqual(t, cost.CachedInput, 200*0.15/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*9.00/1_000_000)
 	assertNearlyEqual(t, cost.Total, 0.00393)
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesNewGeminiFlashPrices(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	tests := []struct {
+		model       string
+		inputRate   float64
+		cachedRate  float64
+		outputRate  float64
+		expectedSum float64
+	}{
+		{model: "gemini-3.7-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
+		{model: "gemini-3.6-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
+		{model: "gemini-3.5-flash-lite", inputRate: 0.30, cachedRate: 0.03, outputRate: 2.50, expectedSum: 0.000996},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			cost, ok := catalog.EstimateChatCost(tt.model, usage)
+			if !ok {
+				t.Fatalf("expected %s cost estimate from pricing.example.yaml", tt.model)
+			}
+
+			assertNearlyEqual(t, cost.Input, 800*tt.inputRate/1_000_000)
+			assertNearlyEqual(t, cost.CachedInput, 200*tt.cachedRate/1_000_000)
+			assertNearlyEqual(t, cost.Output, 300*tt.outputRate/1_000_000)
+			assertNearlyEqual(t, cost.Total, tt.expectedSum)
+		})
+	}
+}
+
+func TestPricingExampleYAMLEstimateChatCostMatchesNewGLMPrices(t *testing.T) {
+	catalog := loadExamplePricingCatalog(t)
+	usage := Usage{
+		InputTokens:  1000,
+		OutputTokens: 300,
+		TotalTokens:  1300,
+		Cache: UsageCache{
+			CachedInputTokens: 200,
+		},
+	}
+
+	for _, model := range []string{"glm-5.2", "glm-5.1"} {
+		t.Run(model, func(t *testing.T) {
+			cost, ok := catalog.EstimateChatCost(model, usage)
+			if !ok {
+				t.Fatalf("expected %s cost estimate from pricing.example.yaml", model)
+			}
+
+			assertNearlyEqual(t, cost.Input, 800*1.40/1_000_000)
+			assertNearlyEqual(t, cost.CachedInput, 200*0.26/1_000_000)
+			assertNearlyEqual(t, cost.Output, 300*4.40/1_000_000)
+			assertNearlyEqual(t, cost.Total, 0.002492)
+		})
+	}
 }
 
 func TestPricingExampleYAMLAnnotateChatResultCostMatchesAnthropicPriceMath(t *testing.T) {
