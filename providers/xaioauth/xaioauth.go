@@ -96,7 +96,6 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 func (p *Provider) chatWithCredential(ctx context.Context, req *chat.Request, credential subscription.Credential) (*chat.Result, error) {
 	prepared := *req
 	prepared.InferenceProvider = "xai_oauth"
-	prepared.Options.OnStream = withoutStreamCost(req.Options.OnStream)
 	provider, err := p.upstreamForCredential(credential.AccessToken)
 	if err != nil {
 		return nil, err
@@ -136,9 +135,6 @@ func (p *Provider) upstreamForCredential(accessToken string) (*openairesp.Provid
 }
 
 func sanitizeResultError(result *chat.Result, err error, model string) (*chat.Result, error) {
-	if result != nil {
-		result.Usage.Cost = nil
-	}
 	if err == nil {
 		return result, nil
 	}
@@ -208,18 +204,4 @@ func validateCredential(credential subscription.Credential) error {
 func isHTTPStatus(err error, status int) bool {
 	var apiErr *openai.Error
 	return errors.As(err, &apiErr) && apiErr.StatusCode == status
-}
-
-func withoutStreamCost(handler chat.OnStreamFunc) chat.OnStreamFunc {
-	if handler == nil {
-		return nil
-	}
-	return func(event chat.StreamEvent) error {
-		if event.Usage != nil {
-			usage := *event.Usage
-			usage.Cost = nil
-			event.Usage = &usage
-		}
-		return handler(event)
-	}
 }

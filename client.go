@@ -157,9 +157,6 @@ func (c *Client) wrapChatStreamCost(providerName string, req *chat.Request, onSt
 }
 
 func (c *Client) estimateChatUsageCost(providerName string, req *chat.Request, model string, usage chat.Usage) (*chat.UsageCost, bool) {
-	if c.isSubscriptionChatProvider(providerName) {
-		return nil, false
-	}
 	if c.cfg.Pricing == nil {
 		return nil, false
 	}
@@ -174,10 +171,6 @@ func (c *Client) estimateChatUsageCost(providerName string, req *chat.Request, m
 		inferenceProvider = req.InferenceProvider
 	}
 	return c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, usage)
-}
-
-func (c *Client) isSubscriptionChatProvider(providerName string) bool {
-	return providerName == "xai_oauth" || (providerName == "openai_codex" && c.cfg.CodexSubscription != nil)
 }
 
 func (c *Client) resolveChatCostModel(providerName string, req *chat.Request, resp *chat.Result) string {

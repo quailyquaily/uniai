@@ -168,7 +168,6 @@ func prepareRequest(req *chat.Request) (*chat.Request, error) {
 	out.Messages = messages
 	out.Options.OpenAI["instructions"] = strings.Join(instructions, "\n\n")
 	out.Options.OpenAI["store"] = false
-	out.Options.OnStream = withoutStreamCost(out.Options.OnStream)
 	if out.Options.OnStream == nil {
 		// The subscription endpoint is streaming-only. openai_resp still
 		// aggregates the completed event into an ordinary chat.Result.
@@ -207,24 +206,7 @@ func isHTTPStatus(err error, status int) bool {
 	return errors.As(err, &apiErr) && apiErr.StatusCode == status
 }
 
-func withoutStreamCost(handler chat.OnStreamFunc) chat.OnStreamFunc {
-	if handler == nil {
-		return nil
-	}
-	return func(event chat.StreamEvent) error {
-		if event.Usage != nil {
-			usage := *event.Usage
-			usage.Cost = nil
-			event.Usage = &usage
-		}
-		return handler(event)
-	}
-}
-
 func sanitizeResultError(result *chat.Result, err error) (*chat.Result, error) {
-	if result != nil {
-		result.Usage.Cost = nil
-	}
 	if err == nil {
 		return result, nil
 	}

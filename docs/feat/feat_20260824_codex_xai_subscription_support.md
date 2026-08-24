@@ -249,15 +249,15 @@ Subscription 请求仍返回：
 - output tokens（沿用上游定义，包含其计入 output 的 reasoning tokens）
 - total tokens
 
-但不按 API token 单价推导货币费用：
+与其他 provider 一样，根 `Client` 根据当前价格表和 token usage 推导费用：
 
 ```go
-result.Usage.Cost == nil
+result.Usage.Cost != nil
 ```
 
-这一规则同时适用于 blocking 结果和最终 streaming event。
+这一规则同时适用于 blocking 结果和最终 streaming event。`Usage.Cost` 表示按同模型 API token 单价计算的本地估值，不表示 subscription 实际产生了按量账单。价格表没有匹配规则时，`Usage.Cost` 仍为 `nil`。
 
-根 `Client` 的费用注入逻辑必须识别 subscription 请求并跳过，不能只在 provider 返回前清空 `Usage.Cost`。
+Subscription provider 不清空 `Usage.Cost`，也不改变根 `Client` 的费用注入逻辑。
 
 ## 调用方示例
 
@@ -388,7 +388,7 @@ subscriptionproxy serve  --codex-token-file CODEX_TOKEN_FILE --grok-token-file G
 - 空 access token 直接报错。
 - 恶意自定义 headers 被删除。
 - Codex account ID 只能来自结构化凭证。
-- blocking 和 streaming 的 `Usage.Cost` 都为空。
+- blocking 和 streaming 都按当前价格表生成 `Usage.Cost`。
 
 ### Phase 3：独立调用方示例
 

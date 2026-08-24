@@ -12,7 +12,7 @@ import (
 	"github.com/quailyquaily/uniai/subscription"
 )
 
-func TestClientOpenAICodexUsesSubscriptionAndSkipsCost(t *testing.T) {
+func TestClientOpenAICodexUsesSubscriptionAndCalculatesCost(t *testing.T) {
 	source := &rootCredentialSource{credential: subscription.Credential{AccessToken: "codex-token", AccountID: "account"}}
 	httpClient := rootTestHTTPClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.String() != "https://chatgpt.com/backend-api/codex/responses" {
@@ -30,6 +30,7 @@ func TestClientOpenAICodexUsesSubscriptionAndSkipsCost(t *testing.T) {
 	client := New(Config{
 		Provider:               "openai_codex",
 		OpenAIModel:            "gpt-5.4",
+		Pricing:                rootSubscriptionPricing(),
 		CodexSubscription:      source,
 		SubscriptionHTTPClient: httpClient,
 	})
@@ -39,15 +40,18 @@ func TestClientOpenAICodexUsesSubscriptionAndSkipsCost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}
-	if result.Usage.Cost != nil {
-		t.Fatalf("subscription cost = %#v", result.Usage.Cost)
+	if result.Usage.Cost == nil {
+		t.Fatal("expected subscription cost")
 	}
+	assertNearlyEqual(t, result.Usage.Cost.Input, 0.0002)
+	assertNearlyEqual(t, result.Usage.Cost.Output, 0.0003)
+	assertNearlyEqual(t, result.Usage.Cost.Total, 0.0005)
 	if source.calls != 1 {
 		t.Fatalf("credential calls = %d", source.calls)
 	}
 }
 
-func TestClientXAIOAuthSkipsStreamingCost(t *testing.T) {
+func TestClientXAIOAuthCalculatesStreamingCost(t *testing.T) {
 	source := &rootCredentialSource{credential: subscription.Credential{AccessToken: "xai-token"}}
 	httpClient := rootTestHTTPClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		rootWriteResponseStream(w, "grok-4.5")
@@ -56,6 +60,7 @@ func TestClientXAIOAuthSkipsStreamingCost(t *testing.T) {
 	client := New(Config{
 		Provider:               "xai_oauth",
 		OpenAIModel:            "grok-4.5",
+		Pricing:                rootSubscriptionPricing(),
 		XAISubscription:        source,
 		SubscriptionHTTPClient: httpClient,
 	})
@@ -71,9 +76,18 @@ func TestClientXAIOAuthSkipsStreamingCost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}
-	if result.Usage.Cost != nil || finalUsage == nil || finalUsage.Cost != nil {
+	if result.Usage.Cost == nil || finalUsage == nil || finalUsage.Cost == nil {
 		t.Fatalf("result cost=%#v final usage=%#v", result.Usage.Cost, finalUsage)
 	}
+	assertNearlyEqual(t, result.Usage.Cost.Total, 0.0005)
+	assertNearlyEqual(t, finalUsage.Cost.Total, 0.0005)
+}
+
+func rootSubscriptionPricing() *PricingCatalog {
+	return &PricingCatalog{Chat: []ChatPricingRule{
+		{Model: "gpt-5.4", InputUSDPerMillion: 2, OutputUSDPerMillion: 6},
+		{Model: "grok-4.5", InputUSDPerMillion: 2, OutputUSDPerMillion: 6},
+	}}
 }
 
 type rootCredentialSource struct {
