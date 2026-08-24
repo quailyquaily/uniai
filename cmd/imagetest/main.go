@@ -39,7 +39,7 @@ func run() error {
 	sample2 := fs.String("sample2", "cmd/imagetest/sample-2.jpg", "second target image for edit")
 	sample3 := fs.String("sample3", "cmd/imagetest/sample-3.png", "style reference image for edit")
 	openAIModel := fs.String("openai-model", "gpt-image-2", "OpenAI image model")
-	geminiModel := fs.String("gemini-model", "gemini-3.1-flash-image-preview", "Gemini image model")
+	geminiModel := fs.String("gemini-model", "gemini-3.1-flash-image", "Gemini image model")
 	prompt := fs.String("prompt", "A compact desk lamp on a plain background, product photo, soft natural light", "generation prompt")
 	editPrompt := fs.String("edit-prompt", "Input order: image 1 is sample-1, image 2 is sample-2, and image 3 is sample-3. Understand the visual style of image 3, then redraw the subjects from image 1 and image 2 in that same style. Return one image containing the two redrawn results side by side.", "edit prompt")
 	if err := fs.Parse(os.Args[1:]); err != nil {

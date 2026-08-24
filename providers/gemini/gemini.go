@@ -128,10 +128,11 @@ type geminiCandidate struct {
 }
 
 type geminiUsage struct {
-	InputTokens    int `json:"promptTokenCount,omitempty"`
-	OutputTokens   int `json:"candidatesTokenCount,omitempty"`
-	TotalTokens    int `json:"totalTokenCount,omitempty"`
-	ThoughtsTokens int `json:"thoughtsTokenCount,omitempty"`
+	InputTokens       int `json:"promptTokenCount,omitempty"`
+	CachedInputTokens int `json:"cachedContentTokenCount,omitempty"`
+	OutputTokens      int `json:"candidatesTokenCount,omitempty"`
+	TotalTokens       int `json:"totalTokenCount,omitempty"`
+	ThoughtsTokens    int `json:"thoughtsTokenCount,omitempty"`
 }
 
 type geminiError struct {
@@ -384,6 +385,9 @@ func mergeGeminiUsage(dst *geminiUsage, src geminiUsage) {
 	}
 	if src.InputTokens != 0 {
 		dst.InputTokens = src.InputTokens
+	}
+	if src.CachedInputTokens != 0 {
+		dst.CachedInputTokens = src.CachedInputTokens
 	}
 	if src.OutputTokens != 0 {
 		dst.OutputTokens = src.OutputTokens
@@ -969,8 +973,11 @@ func toChatResult(in *geminiResponse, fallbackModel string, reasoningDetails boo
 		Model: in.Model,
 		Usage: chat.Usage{
 			InputTokens:  in.Usage.InputTokens,
-			OutputTokens: in.Usage.OutputTokens,
+			OutputTokens: in.Usage.OutputTokens + in.Usage.ThoughtsTokens,
 			TotalTokens:  in.Usage.TotalTokens,
+			Cache: chat.UsageCache{
+				CachedInputTokens: in.Usage.CachedInputTokens,
+			},
 		},
 	}
 	if result.Model == "" {

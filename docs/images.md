@@ -74,15 +74,16 @@ Gemini has an explicit local allowlist:
 
 - `imagen-3.0-generate-002`
 - `gemini-2.5-flash-image`
-- `gemini-3-pro-image-preview` (`nano-banana-pro`)
-- `gemini-3.1-flash-image-preview` (`nano-banana-2`)
+- `gemini-3-pro-image` (`nano-banana-pro`)
+- `gemini-3.1-flash-image` (`nano-banana-2`)
+- `gemini-3.1-flash-lite-image`
 
 Cloudflare Workers AI accepts `@cf/...` model IDs and forwards provider-specific options to Workers AI. Models containing `flux-2-` use multipart requests automatically.
 
 `EditImage` is currently implemented for:
 
 - OpenAI `gpt-image-2`, `gpt-image-2-*`, `gpt-image-1`, and `gpt-image-1-*`
-- Gemini `gemini-3-pro-image-preview` and `gemini-3.1-flash-image-preview`
+- Gemini `gemini-3-pro-image`, `gemini-3.1-flash-image`, and `gemini-3.1-flash-lite-image`
 
 Cloudflare image editing is not implemented yet.
 
@@ -138,7 +139,7 @@ For `imagen-3.0-generate-002`:
 - `safety_filter_level`
 - `person_generation`
 
-For `gemini-2.5-flash-image`, `gemini-3-pro-image-preview`, and `gemini-3.1-flash-image-preview`:
+For `gemini-2.5-flash-image`, `gemini-3-pro-image`, `gemini-3.1-flash-image`, and `gemini-3.1-flash-lite-image`:
 
 - `aspect_ratio` or `aspectRatio`
 - `response_modalities` or `responseModalities`

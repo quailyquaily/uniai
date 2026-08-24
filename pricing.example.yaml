@@ -21,8 +21,9 @@
 # Meta's developer pricing page required login at the time checked.
 # OpenAI GPT Image 2 image-generation pricing added on 2026-05-13 from the
 # public pricing page.
-# OpenAI GPT Image 1 and Gemini image-generation preview pricing added on
-# 2026-05-14 from the public pricing pages.
+# OpenAI GPT Image 1 pricing added on 2026-05-14 from the public pricing page.
+# Gemini image-generation model IDs and modality-specific output rates refreshed
+# on 2026-08-24 from the public pricing and deprecation pages.
 # Gemini 3.5 Flash pricing added on 2026-05-20 from the public pricing page.
 # Gemini 3.7 Flash and 3.6 Flash introductory pricing, and Gemini 3.5
 # Flash-Lite pricing, added on 2026-08-17 from the public pricing page.
@@ -38,8 +39,6 @@
 # - tool invocation fees
 # - storage fees for cache/context caching
 # - audio specific token prices
-# - separate text-output token prices for image-generation models that can
-#   return both text and images
 #
 # Sources used for this file:
 # - OpenAI: https://platform.openai.com/docs/pricing/
@@ -173,18 +172,26 @@ image:
 
   # Gemini native image generation
   - inference_provider: gemini
-    model: gemini-3.1-flash-image-preview
+    model: gemini-3.1-flash-image
     aliases:
       - nano-banana-2
     text_input_usd_per_million: 0.50
     image_input_usd_per_million: 0.50
+    text_output_usd_per_million: 3.00
     output_usd_per_million: 60.00
   - inference_provider: gemini
-    model: gemini-3-pro-image-preview
+    model: gemini-3.1-flash-lite-image
+    text_input_usd_per_million: 0.25
+    image_input_usd_per_million: 0.25
+    text_output_usd_per_million: 1.50
+    output_usd_per_million: 30.00
+  - inference_provider: gemini
+    model: gemini-3-pro-image
     aliases:
       - nano-banana-pro
     text_input_usd_per_million: 2.00
     image_input_usd_per_million: 2.00
+    text_output_usd_per_million: 12.00
     output_usd_per_million: 120.00
 
 chat:
@@ -449,6 +456,11 @@ chat:
     cached_input_usd_per_million: 0.03
     output_usd_per_million: 2.50
   - inference_provider: gemini
+    model: gemini-3.1-flash-lite
+    input_usd_per_million: 0.25
+    cached_input_usd_per_million: 0.025
+    output_usd_per_million: 1.50
+  - inference_provider: gemini
     model: gemini-3-pro-preview
     aliases:
       - gemini-3.0-pro
@@ -486,6 +498,13 @@ chat:
     input_usd_per_million: 0.30
     cached_input_usd_per_million: 0.03
     output_usd_per_million: 2.50
+  - inference_provider: gemini
+    model: gemini-2.5-flash-lite
+    aliases:
+      - gemini-2.5-flash-lite-preview-09-2025
+    input_usd_per_million: 0.10
+    cached_input_usd_per_million: 0.01
+    output_usd_per_million: 0.40
 
   # Mistral
   - inference_provider: mistral

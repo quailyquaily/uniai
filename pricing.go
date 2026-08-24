@@ -86,28 +86,21 @@ type chatPricingRates struct {
 // ImagePricingRule defines one image generation model price entry.
 //
 // Text and image input token rates are separate because image generation APIs
-// may price prompt text, reference images, and generated image output
-// differently.
+// may price prompt text and reference images differently. OutputUSDPerMillion
+// is the generated image rate; TextOutputUSDPerMillion optionally overrides it
+// for returned text and thinking tokens.
 type ImagePricingRule struct {
 	InferenceProvider string   `json:"inference_provider,omitempty" yaml:"inference_provider,omitempty"`
 	Model             string   `json:"model" yaml:"model"`
 	Aliases           []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
 
-	TextInputUSDPerMillion  float64 `json:"text_input_usd_per_million,omitempty" yaml:"text_input_usd_per_million,omitempty"`
-	ImageInputUSDPerMillion float64 `json:"image_input_usd_per_million,omitempty" yaml:"image_input_usd_per_million,omitempty"`
-	OutputUSDPerMillion     float64 `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+	TextInputUSDPerMillion  float64  `json:"text_input_usd_per_million,omitempty" yaml:"text_input_usd_per_million,omitempty"`
+	ImageInputUSDPerMillion float64  `json:"image_input_usd_per_million,omitempty" yaml:"image_input_usd_per_million,omitempty"`
+	OutputUSDPerMillion     float64  `json:"output_usd_per_million,omitempty" yaml:"output_usd_per_million,omitempty"`
+	TextOutputUSDPerMillion *float64 `json:"text_output_usd_per_million,omitempty" yaml:"text_output_usd_per_million,omitempty"`
 
 	CachedTextInputUSDPerMillion  *float64 `json:"cached_text_input_usd_per_million,omitempty" yaml:"cached_text_input_usd_per_million,omitempty"`
 	CachedImageInputUSDPerMillion *float64 `json:"cached_image_input_usd_per_million,omitempty" yaml:"cached_image_input_usd_per_million,omitempty"`
-}
-
-type imagePricingRates struct {
-	TextInputUSDPerMillion  float64
-	ImageInputUSDPerMillion float64
-	OutputUSDPerMillion     float64
-
-	CachedTextInputUSDPerMillion  *float64
-	CachedImageInputUSDPerMillion *float64
 }
 
 // ParsePricingYAML decodes a pricing YAML document into a PricingCatalog and
@@ -365,16 +358,6 @@ func estimateChatCostForRule(rule ChatPricingRule, usage Usage) (*UsageCost, boo
 	return estimateChatCostForRates(rates, usage)
 }
 
-func estimateImageCostForRule(rule ImagePricingRule, usage image.CreateImageUsage) (*UsageCost, bool) {
-	return estimateImageCostForRates(imagePricingRates{
-		TextInputUSDPerMillion:        rule.TextInputUSDPerMillion,
-		ImageInputUSDPerMillion:       rule.ImageInputUSDPerMillion,
-		OutputUSDPerMillion:           rule.OutputUSDPerMillion,
-		CachedTextInputUSDPerMillion:  rule.CachedTextInputUSDPerMillion,
-		CachedImageInputUSDPerMillion: rule.CachedImageInputUSDPerMillion,
-	}, usage)
-}
-
 func resolveChatPricingRates(rule ChatPricingRule, usage Usage) (chatPricingRates, bool) {
 	if len(rule.Tiers) == 0 {
 		return chatPricingRates{
@@ -443,7 +426,7 @@ func estimateChatCostForRates(rates chatPricingRates, usage Usage) (*UsageCost, 
 	}, true
 }
 
-func estimateImageCostForRates(rates imagePricingRates, usage image.CreateImageUsage) (*UsageCost, bool) {
+func estimateImageCostForRule(rule ImagePricingRule, usage image.CreateImageUsage) (*UsageCost, bool) {
 	if !hasPricableImageUsage(usage) {
 		return nil, false
 	}
@@ -467,22 +450,32 @@ func estimateImageCostForRates(rates imagePricingRates, usage image.CreateImageU
 		baseImageInputTokens = 0
 	}
 
-	textInputCost := tokensCost(baseTextInputTokens, rates.TextInputUSDPerMillion)
-	imageInputCost := tokensCost(baseImageInputTokens, rates.ImageInputUSDPerMillion)
+	textInputCost := tokensCost(baseTextInputTokens, rule.TextInputUSDPerMillion)
+	imageInputCost := tokensCost(baseImageInputTokens, rule.ImageInputUSDPerMillion)
 	cachedInputCost := 0.0
 	if usage.CachedTextTokens > 0 {
-		if rates.CachedTextInputUSDPerMillion == nil {
+		if rule.CachedTextInputUSDPerMillion == nil {
 			return nil, false
 		}
-		cachedInputCost += tokensCost(usage.CachedTextTokens, *rates.CachedTextInputUSDPerMillion)
+		cachedInputCost += tokensCost(usage.CachedTextTokens, *rule.CachedTextInputUSDPerMillion)
 	}
 	if usage.CachedImageTokens > 0 {
-		if rates.CachedImageInputUSDPerMillion == nil {
+		if rule.CachedImageInputUSDPerMillion == nil {
 			return nil, false
 		}
-		cachedInputCost += tokensCost(usage.CachedImageTokens, *rates.CachedImageInputUSDPerMillion)
+		cachedInputCost += tokensCost(usage.CachedImageTokens, *rule.CachedImageInputUSDPerMillion)
 	}
-	outputCost := tokensCost(usage.OutputTokens, rates.OutputUSDPerMillion)
+	textOutputRate := rule.OutputUSDPerMillion
+	if rule.TextOutputUSDPerMillion != nil {
+		textOutputRate = *rule.TextOutputUSDPerMillion
+	}
+	textOutputTokens := usage.OutputTextTokens + usage.ThoughtsTokens
+	imageOutputTokens := usage.OutputImageTokens
+	if unclassified := usage.OutputTokens - textOutputTokens - imageOutputTokens; unclassified > 0 {
+		imageOutputTokens += unclassified
+	}
+	outputCost := tokensCost(textOutputTokens, textOutputRate)
+	outputCost += tokensCost(imageOutputTokens, rule.OutputUSDPerMillion)
 	inputCost := textInputCost + imageInputCost
 	total := inputCost + cachedInputCost + outputCost
 
@@ -509,7 +502,10 @@ func hasPricableImageUsage(usage image.CreateImageUsage) bool {
 		usage.InputImageTokens > 0 ||
 		usage.CachedTextTokens > 0 ||
 		usage.CachedImageTokens > 0 ||
-		usage.OutputTokens > 0
+		usage.OutputTokens > 0 ||
+		usage.OutputTextTokens > 0 ||
+		usage.OutputImageTokens > 0 ||
+		usage.ThoughtsTokens > 0
 }
 
 func findDetailRate(rates map[string]float64, key string) (float64, bool) {
@@ -610,6 +606,10 @@ func cloneImagePricingRule(in ImagePricingRule) ImagePricingRule {
 		v := *in.CachedImageInputUSDPerMillion
 		out.CachedImageInputUSDPerMillion = &v
 	}
+	if in.TextOutputUSDPerMillion != nil {
+		v := *in.TextOutputUSDPerMillion
+		out.TextOutputUSDPerMillion = &v
+	}
 	return out
 }
 
@@ -699,13 +699,49 @@ func validateImagePricingRule(rule ImagePricingRule) error {
 	if strings.TrimSpace(rule.Model) == "" {
 		return fmt.Errorf("model is required")
 	}
-	return validateImagePricingRates("", imagePricingRates{
-		TextInputUSDPerMillion:        rule.TextInputUSDPerMillion,
-		ImageInputUSDPerMillion:       rule.ImageInputUSDPerMillion,
-		OutputUSDPerMillion:           rule.OutputUSDPerMillion,
-		CachedTextInputUSDPerMillion:  rule.CachedTextInputUSDPerMillion,
-		CachedImageInputUSDPerMillion: rule.CachedImageInputUSDPerMillion,
-	})
+	if err := validateFinitePrice("text_input_usd_per_million", rule.TextInputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice("image_input_usd_per_million", rule.ImageInputUSDPerMillion); err != nil {
+		return err
+	}
+	if err := validateFinitePrice("output_usd_per_million", rule.OutputUSDPerMillion); err != nil {
+		return err
+	}
+	if rule.TextOutputUSDPerMillion != nil {
+		if err := validateFinitePrice("text_output_usd_per_million", *rule.TextOutputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rule.TextOutputUSDPerMillion < 0 {
+			return fmt.Errorf("text_output_usd_per_million must be >= 0")
+		}
+	}
+	if rule.TextInputUSDPerMillion < 0 {
+		return fmt.Errorf("text_input_usd_per_million must be >= 0")
+	}
+	if rule.ImageInputUSDPerMillion < 0 {
+		return fmt.Errorf("image_input_usd_per_million must be >= 0")
+	}
+	if rule.OutputUSDPerMillion < 0 {
+		return fmt.Errorf("output_usd_per_million must be >= 0")
+	}
+	if rule.CachedTextInputUSDPerMillion != nil {
+		if err := validateFinitePrice("cached_text_input_usd_per_million", *rule.CachedTextInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rule.CachedTextInputUSDPerMillion < 0 {
+			return fmt.Errorf("cached_text_input_usd_per_million must be >= 0")
+		}
+	}
+	if rule.CachedImageInputUSDPerMillion != nil {
+		if err := validateFinitePrice("cached_image_input_usd_per_million", *rule.CachedImageInputUSDPerMillion); err != nil {
+			return err
+		}
+		if *rule.CachedImageInputUSDPerMillion < 0 {
+			return fmt.Errorf("cached_image_input_usd_per_million must be >= 0")
+		}
+	}
+	return nil
 }
 
 func hasFlatChatPricingFields(rule ChatPricingRule) bool {
@@ -791,44 +827,6 @@ func validateChatPricingRates(prefix string, rates chatPricingRates) error {
 		}
 		if value < 0 {
 			return fmt.Errorf("%scache_creation_input_detail_usd_per_million[%q] must be >= 0", prefix, key)
-		}
-	}
-	return nil
-}
-
-func validateImagePricingRates(prefix string, rates imagePricingRates) error {
-	if err := validateFinitePrice(prefix+"text_input_usd_per_million", rates.TextInputUSDPerMillion); err != nil {
-		return err
-	}
-	if err := validateFinitePrice(prefix+"image_input_usd_per_million", rates.ImageInputUSDPerMillion); err != nil {
-		return err
-	}
-	if err := validateFinitePrice(prefix+"output_usd_per_million", rates.OutputUSDPerMillion); err != nil {
-		return err
-	}
-	if rates.TextInputUSDPerMillion < 0 {
-		return fmt.Errorf("%stext_input_usd_per_million must be >= 0", prefix)
-	}
-	if rates.ImageInputUSDPerMillion < 0 {
-		return fmt.Errorf("%simage_input_usd_per_million must be >= 0", prefix)
-	}
-	if rates.OutputUSDPerMillion < 0 {
-		return fmt.Errorf("%soutput_usd_per_million must be >= 0", prefix)
-	}
-	if rates.CachedTextInputUSDPerMillion != nil {
-		if err := validateFinitePrice(prefix+"cached_text_input_usd_per_million", *rates.CachedTextInputUSDPerMillion); err != nil {
-			return err
-		}
-		if *rates.CachedTextInputUSDPerMillion < 0 {
-			return fmt.Errorf("%scached_text_input_usd_per_million must be >= 0", prefix)
-		}
-	}
-	if rates.CachedImageInputUSDPerMillion != nil {
-		if err := validateFinitePrice(prefix+"cached_image_input_usd_per_million", *rates.CachedImageInputUSDPerMillion); err != nil {
-			return err
-		}
-		if *rates.CachedImageInputUSDPerMillion < 0 {
-			return fmt.Errorf("%scached_image_input_usd_per_million must be >= 0", prefix)
 		}
 	}
 	return nil

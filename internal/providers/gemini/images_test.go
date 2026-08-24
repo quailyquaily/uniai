@@ -29,7 +29,7 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 
 	t.Run("nano banana pro", func(t *testing.T) {
 		in := &GeminiCreateImagesInput{
-			Model:              GeminiModelNanoBananaPro,
+			Model:              "gemini-3-pro-image",
 			Prompt:             "p",
 			NumberOfImages:     1,
 			AspectRatio:        AspectRatioLandscape219,
@@ -43,7 +43,7 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 
 	t.Run("nano banana 2", func(t *testing.T) {
 		in := &GeminiCreateImagesInput{
-			Model:              GeminiModelNanoBanana2,
+			Model:              "gemini-3.1-flash-image",
 			Prompt:             "p",
 			NumberOfImages:     1,
 			AspectRatio:        AspectRatioLandscape169,
@@ -54,6 +54,29 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 			t.Fatalf("expected nil error, got %v", err)
 		}
 	})
+
+	t.Run("nano banana 2 lite", func(t *testing.T) {
+		in := &GeminiCreateImagesInput{
+			Model:              "gemini-3.1-flash-lite-image",
+			Prompt:             "p",
+			NumberOfImages:     1,
+			AspectRatio:        AspectRatioSquare,
+			ResponseModalities: []string{"TEXT", "IMAGE"},
+			ImageSize:          "1K",
+		}
+		if err := in.Verify(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	for _, model := range []string{"gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"} {
+		t.Run("retired "+model, func(t *testing.T) {
+			in := &GeminiCreateImagesInput{Model: model, Prompt: "p", NumberOfImages: 1}
+			if err := in.Verify(); !errors.Is(err, errInvalidGeminiModel) {
+				t.Fatalf("expected retired model to be rejected, got %v", err)
+			}
+		})
+	}
 
 	t.Run("imagen", func(t *testing.T) {
 		in := &GeminiCreateImagesInput{
@@ -81,6 +104,56 @@ func TestGeminiCreateImagesInputVerify_SupportedModels(t *testing.T) {
 		}
 		if !errors.Is(err, errInvalidGeminiModel) {
 			t.Fatalf("expected errInvalidGeminiModel, got %v", err)
+		}
+	})
+}
+
+func TestGeminiCreateImagesInputVerify_ModelSpecificImageOptions(t *testing.T) {
+	t.Run("3.1 flash models accept extended aspect ratios", func(t *testing.T) {
+		for _, model := range []string{GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite} {
+			for _, aspectRatio := range []string{"1:4", "4:1", "1:8", "8:1"} {
+				in := &GeminiCreateImagesInput{
+					Model:              model,
+					Prompt:             "p",
+					NumberOfImages:     1,
+					AspectRatio:        aspectRatio,
+					ResponseModalities: []string{"IMAGE"},
+					ImageSize:          "1K",
+				}
+				if err := in.Verify(); err != nil {
+					t.Fatalf("model %q aspect ratio %q: expected nil error, got %v", model, aspectRatio, err)
+				}
+			}
+		}
+	})
+
+	t.Run("nano banana 2 accepts 512 image size", func(t *testing.T) {
+		in := &GeminiCreateImagesInput{
+			Model:              GeminiModelNanoBanana2,
+			Prompt:             "p",
+			NumberOfImages:     1,
+			AspectRatio:        AspectRatioSquare,
+			ResponseModalities: []string{"IMAGE"},
+			ImageSize:          "512",
+		}
+		if err := in.Verify(); err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+	})
+
+	t.Run("nano banana 2 lite rejects unsupported image sizes", func(t *testing.T) {
+		for _, imageSize := range []string{"512", "2K", "4K"} {
+			in := &GeminiCreateImagesInput{
+				Model:              GeminiModelNanoBanana2Lite,
+				Prompt:             "p",
+				NumberOfImages:     1,
+				AspectRatio:        AspectRatioSquare,
+				ResponseModalities: []string{"IMAGE"},
+				ImageSize:          imageSize,
+			}
+			if err := in.Verify(); err == nil {
+				t.Fatalf("image size %q: expected error, got nil", imageSize)
+			}
 		}
 	})
 }
@@ -174,7 +247,8 @@ func TestGeminiGenerateContentImagesMapsUsageMetadata(t *testing.T) {
 
 		inputTokens := 10 + call
 		outputTokens := 20 + call
-		totalTokens := inputTokens + outputTokens
+		thoughtsTokens := 3 + call
+		totalTokens := inputTokens + outputTokens + thoughtsTokens
 		body, err := json.Marshal(map[string]any{
 			"candidates": []map[string]any{
 				{
@@ -191,9 +265,23 @@ func TestGeminiGenerateContentImagesMapsUsageMetadata(t *testing.T) {
 				},
 			},
 			"usageMetadata": map[string]any{
-				"promptTokenCount":     inputTokens,
-				"candidatesTokenCount": outputTokens,
-				"totalTokenCount":      totalTokens,
+				"promptTokenCount":        inputTokens,
+				"cachedContentTokenCount": 2,
+				"candidatesTokenCount":    outputTokens,
+				"thoughtsTokenCount":      thoughtsTokens,
+				"totalTokenCount":         totalTokens,
+				"promptTokensDetails": []map[string]any{
+					{"modality": "TEXT", "tokenCount": 4 + call},
+					{"modality": "IMAGE", "tokenCount": inputTokens - 4 - call},
+				},
+				"cacheTokensDetails": []map[string]any{
+					{"modality": "TEXT", "tokenCount": 1},
+					{"modality": "IMAGE", "tokenCount": 1},
+				},
+				"candidatesTokensDetails": []map[string]any{
+					{"modality": "TEXT", "tokenCount": 2 + call},
+					{"modality": "IMAGE", "tokenCount": outputTokens - 2 - call},
+				},
 			},
 		})
 		if err != nil {
@@ -228,8 +316,31 @@ func TestGeminiGenerateContentImagesMapsUsageMetadata(t *testing.T) {
 	if len(out.Images) != 2 {
 		t.Fatalf("expected 2 images, got %d", len(out.Images))
 	}
-	if out.Usage.InputTokens != 23 || out.Usage.OutputTokens != 43 || out.Usage.TotalTokens != 66 {
+	if out.Usage.InputTokens != 23 || out.Usage.OutputTokens != 52 || out.Usage.TotalTokens != 75 {
 		t.Fatalf("unexpected usage: %#v", out.Usage)
+	}
+	var wire struct {
+		Usage struct {
+			InputTextTokens   int `json:"input_text_tokens"`
+			InputImageTokens  int `json:"input_image_tokens"`
+			CachedTextTokens  int `json:"cached_text_tokens"`
+			CachedImageTokens int `json:"cached_image_tokens"`
+			OutputTextTokens  int `json:"output_text_tokens"`
+			OutputImageTokens int `json:"output_image_tokens"`
+			ThoughtsTokens    int `json:"thoughts_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(respData, &wire); err != nil {
+		t.Fatalf("decode detailed usage: %v", err)
+	}
+	if wire.Usage.InputTextTokens != 11 || wire.Usage.InputImageTokens != 12 {
+		t.Fatalf("unexpected input details: %#v", wire.Usage)
+	}
+	if wire.Usage.CachedTextTokens != 2 || wire.Usage.CachedImageTokens != 2 {
+		t.Fatalf("unexpected cache details: %#v", wire.Usage)
+	}
+	if wire.Usage.OutputTextTokens != 7 || wire.Usage.OutputImageTokens != 36 || wire.Usage.ThoughtsTokens != 9 {
+		t.Fatalf("unexpected output details: %#v", wire.Usage)
 	}
 }
 

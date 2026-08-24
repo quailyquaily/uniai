@@ -42,15 +42,31 @@ type createImageUsage struct {
 	Size    string `json:"size"`
 	Quality string `json:"quality"`
 
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-	TotalTokens  int `json:"total_tokens"`
+	InputTokens       int `json:"input_tokens"`
+	InputTextTokens   int `json:"input_text_tokens,omitempty"`
+	InputImageTokens  int `json:"input_image_tokens,omitempty"`
+	CachedTextTokens  int `json:"cached_text_tokens,omitempty"`
+	CachedImageTokens int `json:"cached_image_tokens,omitempty"`
+	OutputTokens      int `json:"output_tokens"`
+	OutputTextTokens  int `json:"output_text_tokens,omitempty"`
+	OutputImageTokens int `json:"output_image_tokens,omitempty"`
+	ThoughtsTokens    int `json:"thoughts_tokens,omitempty"`
+	TotalTokens       int `json:"total_tokens"`
 }
 
 type geminiGenerateContentUsage struct {
-	InputTokens  int `json:"promptTokenCount,omitempty"`
-	OutputTokens int `json:"candidatesTokenCount,omitempty"`
-	TotalTokens  int `json:"totalTokenCount,omitempty"`
+	InputTokens    int                        `json:"promptTokenCount,omitempty"`
+	OutputTokens   int                        `json:"candidatesTokenCount,omitempty"`
+	ThoughtsTokens int                        `json:"thoughtsTokenCount,omitempty"`
+	TotalTokens    int                        `json:"totalTokenCount,omitempty"`
+	InputDetails   []geminiModalityTokenCount `json:"promptTokensDetails,omitempty"`
+	CacheDetails   []geminiModalityTokenCount `json:"cacheTokensDetails,omitempty"`
+	OutputDetails  []geminiModalityTokenCount `json:"candidatesTokensDetails,omitempty"`
+}
+
+type geminiModalityTokenCount struct {
+	Modality   string `json:"modality,omitempty"`
+	TokenCount int    `json:"tokenCount,omitempty"`
 }
 
 type (
@@ -92,6 +108,10 @@ const (
 	AspectRatioPortrait916  = "9:16"
 	AspectRatioLandscape169 = "16:9"
 	AspectRatioLandscape219 = "21:9"
+	AspectRatioPortrait14   = "1:4"
+	AspectRatioLandscape41  = "4:1"
+	AspectRatioPortrait18   = "1:8"
+	AspectRatioLandscape81  = "8:1"
 )
 
 const (
@@ -117,9 +137,10 @@ const (
 	GeminiModelImagen3 = "imagen-3.0-generate-002"
 
 	// Nano Banana native image generation (generateContent endpoint)
-	GeminiModelNanoBanana    = "gemini-2.5-flash-image"
-	GeminiModelNanoBananaPro = "gemini-3-pro-image-preview"
-	GeminiModelNanoBanana2   = "gemini-3.1-flash-image-preview"
+	GeminiModelNanoBanana      = "gemini-2.5-flash-image"
+	GeminiModelNanoBananaPro   = "gemini-3-pro-image"
+	GeminiModelNanoBanana2     = "gemini-3.1-flash-image"
+	GeminiModelNanoBanana2Lite = "gemini-3.1-flash-lite-image"
 )
 
 var (
@@ -144,7 +165,7 @@ func CreateImages(ctx context.Context, token, model, prompt string, count int, o
 	switch geminiInput.Model {
 	case GeminiModelImagen3:
 		result, raw, err = geminiPredictImagen(ctx, token, geminiInput)
-	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
+	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite:
 		result, raw, err = geminiGenerateContentImages(ctx, token, geminiInput)
 	default:
 		err = fmt.Errorf("%w: %s", errInvalidGeminiModel, geminiInput.Model)
@@ -171,7 +192,7 @@ func EditImages(ctx context.Context, token, model, prompt string, images []Input
 	}
 
 	switch geminiInput.Model {
-	case GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
+	case GeminiModelNanoBananaPro, GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite:
 		result, raw, err := geminiGenerateContentImages(ctx, token, geminiInput)
 		if err != nil {
 			return nil, raw, err
@@ -179,7 +200,7 @@ func EditImages(ctx context.Context, token, model, prompt string, images []Input
 		out, err := json.Marshal(result)
 		return out, raw, err
 	default:
-		return nil, nil, fmt.Errorf("%w: %s (image edit supported: %s, %s)", errInvalidGeminiModel, geminiInput.Model, GeminiModelNanoBananaPro, GeminiModelNanoBanana2)
+		return nil, nil, fmt.Errorf("%w: %s (image edit supported: %s, %s, %s)", errInvalidGeminiModel, geminiInput.Model, GeminiModelNanoBananaPro, GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite)
 	}
 }
 
@@ -248,8 +269,8 @@ func (i *GeminiCreateImagesInput) Verify() error {
 		}
 		return nil
 
-	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2:
-		aspectRatio := []string{
+	case GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite:
+		aspectRatios := []string{
 			AspectRatioSquare,
 			AspectRatioPortrait23,
 			AspectRatioLandscape32,
@@ -261,8 +282,23 @@ func (i *GeminiCreateImagesInput) Verify() error {
 			AspectRatioLandscape169,
 			AspectRatioLandscape219,
 		}
-		if i.AspectRatio != "" && !slices.Contains(aspectRatio, i.AspectRatio) {
-			return fmt.Errorf("aspect ratio must be one of %v", aspectRatio)
+		imageSizes := []string{"1K", "2K", "4K"}
+		if i.Model == GeminiModelNanoBanana2 || i.Model == GeminiModelNanoBanana2Lite {
+			aspectRatios = append(aspectRatios,
+				AspectRatioPortrait14,
+				AspectRatioLandscape41,
+				AspectRatioPortrait18,
+				AspectRatioLandscape81,
+			)
+		}
+		switch i.Model {
+		case GeminiModelNanoBanana2:
+			imageSizes = []string{"512", "1K", "2K", "4K"}
+		case GeminiModelNanoBanana2Lite:
+			imageSizes = []string{"1K"}
+		}
+		if i.AspectRatio != "" && !slices.Contains(aspectRatios, i.AspectRatio) {
+			return fmt.Errorf("aspect ratio must be one of %v", aspectRatios)
 		}
 
 		if len(i.ResponseModalities) == 0 {
@@ -273,9 +309,8 @@ func (i *GeminiCreateImagesInput) Verify() error {
 		}
 
 		if i.ImageSize != "" {
-			allowed := []string{"1K", "2K", "4K"}
-			if !slices.Contains(allowed, i.ImageSize) {
-				return fmt.Errorf("image size must be one of %v", allowed)
+			if !slices.Contains(imageSizes, i.ImageSize) {
+				return fmt.Errorf("image size must be one of %v", imageSizes)
 			}
 		}
 		if len(i.InputImages) > 0 {
@@ -290,7 +325,7 @@ func (i *GeminiCreateImagesInput) Verify() error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("%w: %s (supported: %s, %s, %s, %s)", errInvalidGeminiModel, i.Model, GeminiModelImagen3, GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2)
+		return fmt.Errorf("%w: %s (supported: %s, %s, %s, %s, %s)", errInvalidGeminiModel, i.Model, GeminiModelImagen3, GeminiModelNanoBanana, GeminiModelNanoBananaPro, GeminiModelNanoBanana2, GeminiModelNanoBanana2Lite)
 	}
 }
 
@@ -420,7 +455,14 @@ func geminiGenerateContentImages(ctx context.Context, token string, geminiInput 
 		rawResponses = append(rawResponses, json.RawMessage(append([]byte(nil), raw...)))
 		result.Text += resp.text
 		result.Usage.InputTokens += resp.usage.InputTokens
+		result.Usage.InputTextTokens += resp.usage.InputTextTokens
+		result.Usage.InputImageTokens += resp.usage.InputImageTokens
+		result.Usage.CachedTextTokens += resp.usage.CachedTextTokens
+		result.Usage.CachedImageTokens += resp.usage.CachedImageTokens
 		result.Usage.OutputTokens += resp.usage.OutputTokens
+		result.Usage.OutputTextTokens += resp.usage.OutputTextTokens
+		result.Usage.OutputImageTokens += resp.usage.OutputImageTokens
+		result.Usage.ThoughtsTokens += resp.usage.ThoughtsTokens
 		result.Usage.TotalTokens += resp.usage.TotalTokens
 		for _, item := range resp.images {
 			result.Images = append(result.Images, imageAsset{
@@ -460,6 +502,18 @@ type geminiGenerateContentParsed struct {
 	text   string
 	images []geminiGeneratedImage
 	usage  createImageUsage
+}
+
+func geminiModalityTokens(details []geminiModalityTokenCount) (textTokens, imageTokens int) {
+	for _, detail := range details {
+		switch strings.ToUpper(strings.TrimSpace(detail.Modality)) {
+		case ResponseModalityText:
+			textTokens += detail.TokenCount
+		case ResponseModalityImage:
+			imageTokens += detail.TokenCount
+		}
+	}
+	return textTokens, imageTokens
 }
 
 func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string, inputImages []InputImage, responseModalities []string, aspectRatio, imageSize string) (*geminiGenerateContentParsed, []byte, error) {
@@ -520,10 +574,14 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 
 	parsed := &geminiGenerateContentParsed{}
 	parsed.usage = createImageUsage{
-		InputTokens:  data.Usage.InputTokens,
-		OutputTokens: data.Usage.OutputTokens,
-		TotalTokens:  data.Usage.TotalTokens,
+		InputTokens:    data.Usage.InputTokens,
+		OutputTokens:   data.Usage.OutputTokens + data.Usage.ThoughtsTokens,
+		ThoughtsTokens: data.Usage.ThoughtsTokens,
+		TotalTokens:    data.Usage.TotalTokens,
 	}
+	parsed.usage.InputTextTokens, parsed.usage.InputImageTokens = geminiModalityTokens(data.Usage.InputDetails)
+	parsed.usage.CachedTextTokens, parsed.usage.CachedImageTokens = geminiModalityTokens(data.Usage.CacheDetails)
+	parsed.usage.OutputTextTokens, parsed.usage.OutputImageTokens = geminiModalityTokens(data.Usage.OutputDetails)
 	for _, candidate := range data.Candidates {
 		for _, part := range candidate.Content.Parts {
 			if part.Text != "" {
@@ -539,6 +597,14 @@ func geminiGenerateContentOnce(ctx context.Context, token, model, prompt string,
 				}
 				parsed.images = append(parsed.images, geminiGeneratedImage{data: img, mimeType: mimeType})
 			}
+		}
+	}
+	if parsed.usage.OutputTextTokens == 0 && parsed.usage.OutputImageTokens == 0 {
+		switch {
+		case parsed.text != "" && len(parsed.images) == 0:
+			parsed.usage.OutputTextTokens = data.Usage.OutputTokens
+		case parsed.text == "" && len(parsed.images) > 0:
+			parsed.usage.OutputImageTokens = data.Usage.OutputTokens
 		}
 	}
 

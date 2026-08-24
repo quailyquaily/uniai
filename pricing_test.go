@@ -253,6 +253,54 @@ func TestPricingCatalogEstimateImageCostTreatsUnsplitInputAsText(t *testing.T) {
 	assertNearlyEqual(t, cost.Total, 0.00593)
 }
 
+func TestPricingCatalogEstimateImageCostPreservesOutputBreakdownFallbacks(t *testing.T) {
+	catalog := &PricingCatalog{
+		Image: []ImagePricingRule{
+			{
+				Model:                   "gemini-image",
+				OutputUSDPerMillion:     20,
+				TextOutputUSDPerMillion: float64Ptr(2),
+			},
+		},
+	}
+	tests := []struct {
+		name       string
+		usage      imagepkg.CreateImageUsage
+		wantOutput float64
+	}{
+		{
+			name: "unclassified output uses image rate",
+			usage: imagepkg.CreateImageUsage{
+				OutputTokens:      100,
+				OutputTextTokens:  10,
+				OutputImageTokens: 70,
+				ThoughtsTokens:    5,
+			},
+			wantOutput: (15*2 + 85*20) / 1_000_000.0,
+		},
+		{
+			name: "details remain pricable without output total",
+			usage: imagepkg.CreateImageUsage{
+				OutputTextTokens:  10,
+				OutputImageTokens: 80,
+				ThoughtsTokens:    5,
+			},
+			wantOutput: (15*2 + 80*20) / 1_000_000.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cost, ok := catalog.EstimateImageCost("gemini-image", tt.usage)
+			if !ok {
+				t.Fatal("expected image cost estimate")
+			}
+			assertNearlyEqual(t, cost.Output, tt.wantOutput)
+			assertNearlyEqual(t, cost.Total, tt.wantOutput)
+		})
+	}
+}
+
 func TestPricingCatalogEstimateChatCostUsesShortTierAtBoundary(t *testing.T) {
 	catalog := &PricingCatalog{
 		Chat: []ChatPricingRule{
@@ -877,12 +925,14 @@ func TestPricingExampleYAML(t *testing.T) {
 		"gemini-3.6-flash",
 		"gemini-3.5-flash",
 		"gemini-3.5-flash-lite",
+		"gemini-3.1-flash-lite",
 		"gemini-3-pro-preview",
 		"gemini-3.0-pro",
 		"gemini-3-flash-preview",
 		"gemini-3.0-flash",
 		"gemini-2.5-pro",
 		"gemini-2.5-flash",
+		"gemini-2.5-flash-lite",
 		"mistral-large-2512",
 		"mistral-large-latest",
 		"mistral-medium-latest",
@@ -943,7 +993,6 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-3-7-sonnet-20250219",
 		"claude-3-5-haiku-20241022",
 		"gemini-3.1-flash-lite-preview",
-		"gemini-2.5-flash-lite",
 		"glm-5.3",
 	}
 	for _, model := range mustNotHave {
@@ -1771,6 +1820,8 @@ func TestPricingExampleYAMLEstimateChatCostMatchesNewGeminiFlashPrices(t *testin
 		{model: "gemini-3.7-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
 		{model: "gemini-3.6-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
 		{model: "gemini-3.5-flash-lite", inputRate: 0.30, cachedRate: 0.03, outputRate: 2.50, expectedSum: 0.000996},
+		{model: "gemini-3.1-flash-lite", inputRate: 0.25, cachedRate: 0.025, outputRate: 1.50, expectedSum: 0.000655},
+		{model: "gemini-2.5-flash-lite", inputRate: 0.10, cachedRate: 0.01, outputRate: 0.40, expectedSum: 0.000202},
 	}
 
 	for _, tt := range tests {
@@ -1942,43 +1993,58 @@ func TestPricingExampleYAMLAnnotateImageResultCostMatchesGPTImage15ImageOutputPr
 func TestPricingExampleYAMLEstimateImageCostMatchesGeminiImagePriceMath(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 	tests := []struct {
-		name         string
-		model        string
-		inputRate    float64
-		outputRate   float64
-		expectedCost float64
+		name            string
+		model           string
+		inputRate       float64
+		textOutputRate  float64
+		imageOutputRate float64
+		expectedCost    float64
 	}{
 		{
-			name:         "nano banana 2 alias",
-			model:        "nano-banana-2",
-			inputRate:    0.50,
-			outputRate:   60.00,
-			expectedCost: 0.067215,
+			name:            "nano banana 2 alias",
+			model:           "nano-banana-2",
+			inputRate:       0.50,
+			textOutputRate:  3.00,
+			imageOutputRate: 60.00,
+			expectedCost:    0.06726,
 		},
 		{
-			name:         "nano banana pro alias",
-			model:        "nano-banana-pro",
-			inputRate:    2.00,
-			outputRate:   120.00,
-			expectedCost: 0.13446,
+			name:            "nano banana 2 lite",
+			model:           "gemini-3.1-flash-lite-image",
+			inputRate:       0.25,
+			textOutputRate:  1.50,
+			imageOutputRate: 30.00,
+			expectedCost:    0.03363,
+		},
+		{
+			name:            "nano banana pro alias",
+			model:           "nano-banana-pro",
+			inputRate:       2.00,
+			textOutputRate:  12.00,
+			imageOutputRate: 120.00,
+			expectedCost:    0.13464,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cost, ok := catalog.EstimateImageCostWithInferenceProvider("gemini", tt.model, imagepkg.CreateImageUsage{
-				InputTokens:      30,
-				InputTextTokens:  10,
-				InputImageTokens: 20,
-				OutputTokens:     1120,
-				TotalTokens:      1150,
-			})
+			usage := imagepkg.CreateImageUsage{
+				InputTokens:       30,
+				InputTextTokens:   10,
+				InputImageTokens:  20,
+				OutputTokens:      1135,
+				OutputTextTokens:  10,
+				OutputImageTokens: 1120,
+				ThoughtsTokens:    5,
+				TotalTokens:       1165,
+			}
+			cost, ok := catalog.EstimateImageCostWithInferenceProvider("gemini", tt.model, usage)
 			if !ok {
 				t.Fatal("expected gemini image usage cost from pricing.example.yaml")
 			}
 
 			assertNearlyEqual(t, cost.Input, (10*tt.inputRate+20*tt.inputRate)/1_000_000)
-			assertNearlyEqual(t, cost.Output, 1120*tt.outputRate/1_000_000)
+			assertNearlyEqual(t, cost.Output, (15*tt.textOutputRate+1120*tt.imageOutputRate)/1_000_000)
 			assertNearlyEqual(t, cost.Total, tt.expectedCost)
 		})
 	}

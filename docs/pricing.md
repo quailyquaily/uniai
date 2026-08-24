@@ -140,18 +140,20 @@ image:
     cached_image_input_usd_per_million: 2.50
     output_usd_per_million: 40.00
   - inference_provider: gemini
-    model: gemini-3.1-flash-image-preview
+    model: gemini-3.1-flash-image
     aliases:
       - nano-banana-2
     text_input_usd_per_million: 0.50
     image_input_usd_per_million: 0.50
+    text_output_usd_per_million: 3.00
     output_usd_per_million: 60.00
   - inference_provider: gemini
-    model: gemini-3-pro-image-preview
+    model: gemini-3-pro-image
     aliases:
       - nano-banana-pro
     text_input_usd_per_million: 2.00
     image_input_usd_per_million: 2.00
+    text_output_usd_per_million: 12.00
     output_usd_per_million: 120.00
 ```
 
@@ -186,6 +188,7 @@ Each `image` entry supports these fields:
 - `text_input_usd_per_million`: prompt text input token price
 - `image_input_usd_per_million`: input image token price, used by edit/reference-image workflows when the provider reports image input tokens
 - `output_usd_per_million`: generated image output token price
+- `text_output_usd_per_million`: optional text and thinking output token price; when absent, `output_usd_per_million` is used
 - `cached_text_input_usd_per_million`: optional cached text input token price
 - `cached_image_input_usd_per_million`: optional cached image input token price
 
@@ -326,11 +329,12 @@ For a matched image rule:
 - image input cost = `(input_image_tokens - cached_image_tokens) * image_input_price`
 - cached text input cost = `cached_text_tokens * cached_text_input_price`
 - cached image input cost = `cached_image_tokens * cached_image_input_price`
-- output cost = `output_tokens * output_price`
+- text and thinking output cost = `(output_text_tokens + thoughts_tokens) * text_output_price`
+- image output cost = `output_image_tokens * output_price`
 
 All prices above are divided by `1_000_000`.
 
-If an image generation response reports only `input_tokens` without a text/image detail split, `uniai` treats those input tokens as prompt text tokens. This fits the current text-to-image generation path. Edit/reference-image calls should use provider detail fields when available so image input and cached input tokens can be priced separately.
+If an image generation response reports no output detail split, `uniai` applies `output_usd_per_million` to all output tokens. If it reports only `input_tokens` without a text/image detail split, `uniai` treats those input tokens as prompt text tokens. Edit/reference-image calls should use provider detail fields when available so image input and cached input tokens can be priced separately.
 
 ## End-To-End Example
 

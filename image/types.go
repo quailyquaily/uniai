@@ -73,7 +73,13 @@ type CreateImageUsage struct {
 	InputImageTokens  int `json:"input_image_tokens,omitempty"`
 	CachedTextTokens  int `json:"cached_text_tokens,omitempty"`
 	CachedImageTokens int `json:"cached_image_tokens,omitempty"`
-	OutputTokens      int `json:"output_tokens"`
+
+	// OutputTokens is the total billable output, including thinking tokens.
+	OutputTokens int `json:"output_tokens"`
+	// OutputTextTokens excludes thinking tokens, which are reported separately.
+	OutputTextTokens  int `json:"output_text_tokens,omitempty"`
+	OutputImageTokens int `json:"output_image_tokens,omitempty"`
+	ThoughtsTokens    int `json:"thoughts_tokens,omitempty"`
 	TotalTokens       int `json:"total_tokens"`
 
 	Cost *chat.UsageCost `json:"cost,omitempty"`
@@ -147,9 +153,9 @@ func WithEditOptions(opts Options) ImageEditOption {
 func NormalizeModelAlias(model string) string {
 	switch strings.ToLower(strings.TrimSpace(model)) {
 	case "nano-banana-pro":
-		return "gemini-3-pro-image-preview"
+		return "gemini-3-pro-image"
 	case "nano-banana-2":
-		return "gemini-3.1-flash-image-preview"
+		return "gemini-3.1-flash-image"
 	default:
 		return strings.TrimSpace(model)
 	}

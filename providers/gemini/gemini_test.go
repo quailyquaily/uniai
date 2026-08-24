@@ -376,6 +376,35 @@ func TestToChatResultSeparatesThoughtSummary(t *testing.T) {
 	}
 }
 
+func TestToChatResultMapsBillableThoughtAndCachedTokens(t *testing.T) {
+	in := &geminiResponse{
+		Usage: geminiUsage{
+			InputTokens:       100,
+			CachedInputTokens: 40,
+			OutputTokens:      20,
+			TotalTokens:       125,
+			ThoughtsTokens:    5,
+		},
+	}
+
+	out, err := toChatResult(in, "gemini-3.7-flash", false)
+	if err != nil {
+		t.Fatalf("toChatResult: %v", err)
+	}
+	if out.Usage.InputTokens != 100 {
+		t.Fatalf("input tokens = %d, want 100", out.Usage.InputTokens)
+	}
+	if out.Usage.Cache.CachedInputTokens != 40 {
+		t.Fatalf("cached input tokens = %d, want 40", out.Usage.Cache.CachedInputTokens)
+	}
+	if out.Usage.OutputTokens != 25 {
+		t.Fatalf("billable output tokens = %d, want 25", out.Usage.OutputTokens)
+	}
+	if out.Usage.TotalTokens != 125 {
+		t.Fatalf("total tokens = %d, want 125", out.Usage.TotalTokens)
+	}
+}
+
 func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1beta/models/gemini-2.5-pro:streamGenerateContent" {
@@ -428,10 +457,11 @@ func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
 		})
 		writeGeminiSSE(t, w, map[string]any{
 			"usageMetadata": map[string]any{
-				"promptTokenCount":     3,
-				"candidatesTokenCount": 4,
-				"totalTokenCount":      7,
-				"thoughtsTokenCount":   2,
+				"promptTokenCount":        3,
+				"cachedContentTokenCount": 1,
+				"candidatesTokenCount":    4,
+				"totalTokenCount":         9,
+				"thoughtsTokenCount":      2,
 			},
 		})
 	}))
@@ -481,7 +511,7 @@ func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
 
 	blocking, err := toChatResult(&geminiResponse{
 		Model: "gemini-2.5-pro",
-		Usage: geminiUsage{InputTokens: 3, OutputTokens: 4, TotalTokens: 7, ThoughtsTokens: 2},
+		Usage: geminiUsage{InputTokens: 3, OutputTokens: 4, TotalTokens: 9, ThoughtsTokens: 2},
 		Candidates: []geminiCandidate{{Content: geminiContent{Parts: []geminiPart{
 			{Thought: true, Text: "inspect first"},
 			{Text: "answer "},
@@ -500,6 +530,12 @@ func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
 	}
 	if result.Text != blocking.Text || result.Model != blocking.Model || result.Usage.InputTokens != blocking.Usage.InputTokens || result.Usage.OutputTokens != blocking.Usage.OutputTokens || result.Usage.TotalTokens != blocking.Usage.TotalTokens {
 		t.Fatalf("stream and blocking result differ: stream=%#v blocking=%#v", result, blocking)
+	}
+	if result.Usage.OutputTokens != 6 {
+		t.Fatalf("billable output tokens = %d, want 6", result.Usage.OutputTokens)
+	}
+	if result.Usage.Cache.CachedInputTokens != 1 {
+		t.Fatalf("cached input tokens = %d, want 1", result.Usage.Cache.CachedInputTokens)
 	}
 	if result.Reasoning == nil || blocking.Reasoning == nil || len(result.Reasoning.Summary) != 1 || result.Reasoning.Summary[0] != blocking.Reasoning.Summary[0] {
 		t.Fatalf("stream and blocking reasoning differ: stream=%#v blocking=%#v", result.Reasoning, blocking.Reasoning)

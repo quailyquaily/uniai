@@ -12,8 +12,8 @@ func TestNormalizeModelAlias(t *testing.T) {
 		in   string
 		want string
 	}{
-		{name: "nano banana pro", in: " nano-banana-pro ", want: "gemini-3-pro-image-preview"},
-		{name: "nano banana 2", in: "nano-banana-2", want: "gemini-3.1-flash-image-preview"},
+		{name: "nano banana pro", in: " nano-banana-pro ", want: "gemini-3-pro-image"},
+		{name: "nano banana 2", in: "nano-banana-2", want: "gemini-3.1-flash-image"},
 		{name: "unknown", in: "gpt-image-2", want: "gpt-image-2"},
 	}
 
