@@ -1650,6 +1650,71 @@ func TestProcessStreamEventParsesDeltasAndCompletion(t *testing.T) {
 	}
 }
 
+func TestProcessStreamEventForwardsRawLifecycleEvents(t *testing.T) {
+	response := map[string]any{
+		"id":                  "resp_lifecycle",
+		"object":              "response",
+		"model":               "gpt-5.4",
+		"status":              "completed",
+		"output":              []any{},
+		"parallel_tool_calls": true,
+		"text":                map[string]any{"format": map[string]any{"type": "text"}},
+	}
+	payloads := []map[string]any{
+		{"type": "response.created", "sequence_number": 1, "response": response},
+		{"type": "response.in_progress", "sequence_number": 2, "response": response},
+		{
+			"type": "response.output_item.added", "sequence_number": 3, "output_index": 0,
+			"item": map[string]any{"id": "msg_1", "type": "message", "status": "in_progress", "role": "assistant", "content": []any{}},
+		},
+		{
+			"type": "response.content_part.added", "sequence_number": 4, "output_index": 0, "content_index": 0, "item_id": "msg_1",
+			"part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}},
+		},
+		{
+			"type": "response.output_text.done", "sequence_number": 5, "output_index": 0, "content_index": 0, "item_id": "msg_1",
+			"text": "hello", "logprobs": []any{},
+		},
+		{
+			"type": "response.content_part.done", "sequence_number": 6, "output_index": 0, "content_index": 0, "item_id": "msg_1",
+			"part": map[string]any{"type": "output_text", "text": "hello", "annotations": []any{}},
+		},
+		{
+			"type": "response.output_item.done", "sequence_number": 7, "output_index": 0,
+			"item": map[string]any{"id": "msg_1", "type": "message", "status": "completed", "role": "assistant", "content": []any{}},
+		},
+		{"type": "response.completed", "sequence_number": 8, "response": response},
+	}
+
+	state := &responseStreamState{toolCalls: map[int]streamToolCallState{}}
+	for _, payload := range payloads {
+		ev := mustDecodeStreamEvent(t, payload)
+		calls := 0
+		var rawType string
+		err := processStreamEvent(ev, state, false, func(event chat.StreamEvent) error {
+			calls++
+			data, err := json.Marshal(event.Raw)
+			if err != nil {
+				return err
+			}
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(data, &envelope); err != nil {
+				return err
+			}
+			rawType = envelope.Type
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("process %q: %v", payload["type"], err)
+		}
+		if calls != 1 || rawType != payload["type"] {
+			t.Fatalf("event %q callbacks=%d raw_type=%q", payload["type"], calls, rawType)
+		}
+	}
+}
+
 func TestFinalizeStreamResultKeepsCompletedReasoningAuthoritative(t *testing.T) {
 	state := &responseStreamState{
 		toolCalls: map[int]streamToolCallState{},

@@ -23,7 +23,7 @@ func New(client *uniai.Client) *Client {
 }
 
 func (c *Client) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionNewParams) (openai.ChatCompletion, error) {
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		return openai.ChatCompletion{}, err
 	}
@@ -31,10 +31,13 @@ func (c *Client) CreateChatCompletion(ctx context.Context, req openai.ChatComple
 	if err != nil {
 		return openai.ChatCompletion{}, err
 	}
-	return toOpenAIResponse(result, string(req.Model)), nil
+	return ToOpenAIResponse(result, string(req.Model)), nil
 }
 
-func toChatOptions(req openai.ChatCompletionNewParams) ([]chat.Option, error) {
+// ToChatOptions converts an OpenAI Chat Completions request into uniai options.
+// It is useful to HTTP adapters that need to add their own options before
+// calling Client.Chat.
+func ToChatOptions(req openai.ChatCompletionNewParams) ([]chat.Option, error) {
 	opts := []chat.Option{}
 	if req.Model != "" {
 		opts = append(opts, chat.WithModel(string(req.Model)))
@@ -76,6 +79,9 @@ func toChatOptions(req openai.ChatCompletionNewParams) ([]chat.Option, error) {
 	}
 	if req.User.Valid() {
 		opts = append(opts, chat.WithUser(req.User.Value))
+	}
+	if req.ReasoningEffort != "" {
+		opts = append(opts, chat.WithReasoningEffort(chat.ReasoningEffort(req.ReasoningEffort)))
 	}
 
 	if len(req.Tools) > 0 {
@@ -380,7 +386,12 @@ func reasoningContentFromAssistantParam(msg *openai.ChatCompletionAssistantMessa
 	return payload.ReasoningContent
 }
 
-func toOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {
+// ToOpenAIResponse converts a uniai result into a non-streaming OpenAI Chat
+// Completions response.
+func ToOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {
+	if result == nil {
+		result = &chat.Result{}
+	}
 	msg := openai.ChatCompletionMessage{
 		Role:    constant.ValueOf[constant.Assistant](),
 		Content: result.Text,
@@ -400,7 +411,7 @@ func toOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {
 	}
 
 	resp := openai.ChatCompletion{
-		ID:      "",
+		ID:      result.ID,
 		Object:  constant.ValueOf[constant.ChatCompletion](),
 		Created: time.Now().Unix(),
 		Model:   model,
@@ -433,13 +444,13 @@ func finishReason(result *chat.Result) string {
 
 func toOpenAIOptions(req openai.ChatCompletionNewParams) structs.JSONMap {
 	opts := structs.NewJSONMap()
-	if req.N.Valid() && req.N.Value > 0 {
+	if req.N.Valid() && req.N.Value > 1 {
 		opts["n"] = req.N.Value
 	}
 	if req.Seed.Valid() {
 		opts["seed"] = req.Seed.Value
 	}
-	if req.Logprobs.Valid() {
+	if req.Logprobs.Valid() && req.Logprobs.Value {
 		opts["logprobs"] = req.Logprobs.Value
 	}
 	if req.TopLogprobs.Valid() {
@@ -470,16 +481,13 @@ func toOpenAIOptions(req openai.ChatCompletionNewParams) structs.JSONMap {
 	if req.SafetyIdentifier.Valid() {
 		opts["safety_identifier"] = req.SafetyIdentifier.Value
 	}
-	if req.ReasoningEffort != "" {
-		opts["reasoning_effort"] = string(req.ReasoningEffort)
-	}
 	if req.Verbosity != "" {
 		opts["verbosity"] = string(req.Verbosity)
 	}
 	if req.ServiceTier != "" {
 		opts["service_tier"] = string(req.ServiceTier)
 	}
-	if len(req.Modalities) > 0 {
+	if len(req.Modalities) > 0 && !(len(req.Modalities) == 1 && req.Modalities[0] == "text") {
 		opts["modalities"] = append([]string{}, req.Modalities...)
 	}
 	if len(req.LogitBias) > 0 {

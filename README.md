@@ -22,6 +22,24 @@ This package is intended to live in a Go module that provides `go.mod`.
 go get github.com/quailyquaily/uniai
 ```
 
+## Build the subscription proxy
+
+Build the example proxy for Linux ARM64 from the repository root:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go build -trimpath -o subscriptionproxy-linux-arm64 ./cmd/subscriptionproxy
+```
+
+For 32-bit Linux ARMv7:
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
+  go build -trimpath -o subscriptionproxy-linux-armv7 ./cmd/subscriptionproxy
+```
+
+See [`cmd/subscriptionproxy/README.md`](cmd/subscriptionproxy/README.md) for native and macOS ARM64 builds, login, explicit token-file configuration, and server usage.
+
 ## Chat
 
 ```go

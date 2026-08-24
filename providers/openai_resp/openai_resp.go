@@ -30,6 +30,7 @@ type Config struct {
 	BaseURL      string
 	DefaultModel string
 	Headers      map[string]string
+	HTTPClient   *http.Client
 	Debug        bool
 	OpenAICodex  bool
 }
@@ -49,6 +50,9 @@ func New(cfg Config) (*Provider, error) {
 	opts := []option.RequestOption{option.WithAPIKey(cfg.APIKey)}
 	if cfg.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	}
+	if cfg.HTTPClient != nil {
+		opts = append(opts, option.WithHTTPClient(cfg.HTTPClient))
 	}
 	for key, value := range httputil.CloneHeaders(cfg.Headers) {
 		opts = append(opts, option.WithHeader(key, value))
@@ -1397,14 +1401,22 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 }
 
 func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseStreamState, reasoningDetails bool, onStream chat.OnStreamFunc) error {
+	emitRaw := func() error {
+		if onStream == nil {
+			return nil
+		}
+		return onStream(chat.StreamEvent{Raw: ev})
+	}
 	switch event := ev.AsAny().(type) {
 	case responses.ResponseOutputItemAddedEvent:
 		registerStreamOutputItem(event.Item, int(event.OutputIndex), state)
+		return emitRaw()
 	case responses.ResponseOutputItemDoneEvent:
 		registerStreamOutputItem(event.Item, int(event.OutputIndex), state)
+		return emitRaw()
 	case responses.ResponseTextDeltaEvent:
 		if event.Delta == "" {
-			return nil
+			return emitRaw()
 		}
 		if state != nil {
 			state.text.WriteString(event.Delta)
@@ -1415,7 +1427,7 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		return onStream(chat.StreamEvent{Delta: event.Delta, Raw: ev})
 	case responses.ResponseReasoningSummaryTextDeltaEvent:
 		if !reasoningDetails || event.Delta == "" {
-			return nil
+			return emitRaw()
 		}
 		index := 0
 		if state != nil {
@@ -1438,7 +1450,7 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		})
 	case responses.ResponseReasoningTextDeltaEvent:
 		if !reasoningDetails || event.Delta == "" {
-			return nil
+			return emitRaw()
 		}
 		index := 0
 		if state != nil {
@@ -1509,12 +1521,16 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		})
 	case responses.ResponseCompletedEvent:
 		state.completed = &event.Response
+		return emitRaw()
 	case responses.ResponseIncompleteEvent:
 		state.completed = &event.Response
+		return emitRaw()
 	case responses.ResponseFailedEvent:
 		state.completed = &event.Response
+		return emitRaw()
+	default:
+		return emitRaw()
 	}
-	return nil
 }
 
 func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {

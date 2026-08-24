@@ -8,6 +8,13 @@ import (
 	"github.com/quailyquaily/uniai/chat"
 )
 
+func TestToOpenAIResponseHandlesNilResult(t *testing.T) {
+	response := ToOpenAIResponse(nil, "model")
+	if response.Model != "model" || len(response.Choices) != 1 {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
 func TestToChatOptions(t *testing.T) {
 	req := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel("gpt-4.1-mini"),
@@ -33,7 +40,7 @@ func TestToChatOptions(t *testing.T) {
 		}),
 	}
 
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -58,6 +65,29 @@ func TestToChatOptions(t *testing.T) {
 	}
 }
 
+func TestToChatOptionsMapsReasoningEffort(t *testing.T) {
+	req := openai.ChatCompletionNewParams{
+		Model:           openai.ChatModel("gpt-5.4"),
+		Messages:        []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+		ReasoningEffort: shared.ReasoningEffortHigh,
+	}
+
+	opts, err := ToChatOptions(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	chatReq, err := chat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("unexpected build error: %v", err)
+	}
+	if chatReq.Options.ReasoningEffort == nil || *chatReq.Options.ReasoningEffort != chat.ReasoningEffortHigh {
+		t.Fatalf("unexpected reasoning effort: %#v", chatReq.Options.ReasoningEffort)
+	}
+	if chatReq.Options.OpenAI.HasKey("reasoning_effort") {
+		t.Fatalf("reasoning_effort must use the provider-neutral option: %#v", chatReq.Options.OpenAI)
+	}
+}
+
 func TestToChatOptionsMapsPromptCacheOptions(t *testing.T) {
 	req := openai.ChatCompletionNewParams{
 		Model:                openai.ChatModel("gpt-5.6"),
@@ -69,7 +99,7 @@ func TestToChatOptionsMapsPromptCacheOptions(t *testing.T) {
 		},
 	}
 
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -102,7 +132,7 @@ func TestToChatOptionsWithUserImageParts(t *testing.T) {
 		},
 	}
 
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +183,7 @@ func TestToChatOptionsReadsThoughtSignatureFromExtraContent(t *testing.T) {
 		},
 	}
 
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +211,7 @@ func TestToChatOptionsReadsAssistantReasoningContent(t *testing.T) {
 		},
 	}
 
-	opts, err := toChatOptions(req)
+	opts, err := ToChatOptions(req)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

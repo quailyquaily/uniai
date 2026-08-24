@@ -13,9 +13,11 @@ import (
 	"github.com/quailyquaily/uniai/providers/azure"
 	"github.com/quailyquaily/uniai/providers/bedrock"
 	"github.com/quailyquaily/uniai/providers/cloudflare"
+	"github.com/quailyquaily/uniai/providers/codex"
 	"github.com/quailyquaily/uniai/providers/gemini"
 	"github.com/quailyquaily/uniai/providers/openai"
 	openairesp "github.com/quailyquaily/uniai/providers/openai_resp"
+	"github.com/quailyquaily/uniai/providers/xaioauth"
 	"github.com/quailyquaily/uniai/rerank"
 )
 
@@ -155,6 +157,9 @@ func (c *Client) wrapChatStreamCost(providerName string, req *chat.Request, onSt
 }
 
 func (c *Client) estimateChatUsageCost(providerName string, req *chat.Request, model string, usage chat.Usage) (*chat.UsageCost, bool) {
+	if c.isSubscriptionChatProvider(providerName) {
+		return nil, false
+	}
 	if c.cfg.Pricing == nil {
 		return nil, false
 	}
@@ -169,6 +174,10 @@ func (c *Client) estimateChatUsageCost(providerName string, req *chat.Request, m
 		inferenceProvider = req.InferenceProvider
 	}
 	return c.cfg.Pricing.EstimateChatCostWithInferenceProvider(inferenceProvider, model, usage)
+}
+
+func (c *Client) isSubscriptionChatProvider(providerName string) bool {
+	return providerName == "xai_oauth" || (providerName == "openai_codex" && c.cfg.CodexSubscription != nil)
 }
 
 func (c *Client) resolveChatCostModel(providerName string, req *chat.Request, resp *chat.Result) string {
@@ -226,7 +235,22 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		}
 		return p.Chat(ctx, req)
 
-	case "openai_resp", "openai_codex":
+	case "openai_codex":
+		if c.cfg.CodexSubscription != nil {
+			p, err := codex.New(codex.Config{
+				CredentialSource: c.cfg.CodexSubscription,
+				DefaultModel:     c.cfg.OpenAIModel,
+				Headers:          c.cfg.ChatHeaders,
+				HTTPClient:       c.cfg.SubscriptionHTTPClient,
+				Debug:            c.cfg.Debug,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return p.Chat(ctx, req)
+		}
+		fallthrough
+	case "openai_resp":
 		p, err := openairesp.New(openairesp.Config{
 			APIKey:       c.cfg.OpenAIAPIKey,
 			BaseURL:      c.cfg.OpenAIAPIBase,
@@ -234,6 +258,19 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 			Headers:      c.cfg.ChatHeaders,
 			Debug:        c.cfg.Debug,
 			OpenAICodex:  providerName == "openai_codex",
+		})
+		if err != nil {
+			return nil, err
+		}
+		return p.Chat(ctx, req)
+
+	case "xai_oauth":
+		p, err := xaioauth.New(xaioauth.Config{
+			CredentialSource: c.cfg.XAISubscription,
+			DefaultModel:     c.cfg.OpenAIModel,
+			Headers:          c.cfg.ChatHeaders,
+			HTTPClient:       c.cfg.SubscriptionHTTPClient,
+			Debug:            c.cfg.Debug,
 		})
 		if err != nil {
 			return nil, err

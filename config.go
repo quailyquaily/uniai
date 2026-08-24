@@ -1,8 +1,11 @@
 package uniai
 
 import (
+	"net/http"
+
 	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/providers/anthropic"
+	"github.com/quailyquaily/uniai/subscription"
 )
 
 // Config provides shared configuration for uniai clients.
@@ -23,6 +26,13 @@ type Config struct {
 	OpenAIAPIKey  string
 	OpenAIAPIBase string
 	OpenAIModel   string
+
+	// Subscription credential sources are implemented and owned by the caller.
+	// SubscriptionHTTPClient is optional and only affects subscription-backed
+	// inference requests; their upstream base URLs remain fixed.
+	CodexSubscription      subscription.CredentialSource
+	XAISubscription        subscription.CredentialSource
+	SubscriptionHTTPClient *http.Client
 
 	// Azure OpenAI
 	AzureOpenAIAPIKey     string
