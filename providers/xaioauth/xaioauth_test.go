@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/subscription"
 )
@@ -62,6 +63,46 @@ func TestChatRefreshesOnceAfterUnauthorized(t *testing.T) {
 	}
 	if requests != 2 || source.credentialCalls != 1 || source.refreshCalls != 1 || source.rejected != "access-old" {
 		t.Fatalf("calls: requests=%d credential=%d refresh=%d rejected=%q", requests, source.credentialCalls, source.refreshCalls, source.rejected)
+	}
+}
+
+func TestChatForwardsRawEasyMessageInput(t *testing.T) {
+	source := &fakeCredentialSource{credential: subscription.Credential{AccessToken: "access"}}
+	requests := 0
+	provider, err := New(Config{
+		CredentialSource: source,
+		DefaultModel:     "grok-4.5",
+		HTTPClient: testHTTPClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			input, ok := payload["input"].([]any)
+			if !ok || len(input) != 1 {
+				t.Fatalf("input = %#v", payload["input"])
+			}
+			message, ok := input[0].(map[string]any)
+			if !ok || message["role"] != "user" || message["content"] != "hello" {
+				t.Fatalf("message = %#v", input[0])
+			}
+			writeResponse(w, "ok")
+		})),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := provider.Chat(context.Background(), &chat.Request{
+		Model: "grok-4.5",
+		Options: chat.Options{OpenAI: structs.JSONMap{
+			"input": []map[string]any{{"role": "user", "content": "hello"}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if requests != 1 || result.Text != "ok" {
+		t.Fatalf("requests = %d result = %#v", requests, result)
 	}
 }
 

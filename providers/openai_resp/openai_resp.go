@@ -289,9 +289,8 @@ func buildParams(req *chat.Request, defaultModel string, openAICodex bool) (resp
 		if err := json.Unmarshal(data, &input); err == nil {
 			params.Input = input
 		} else {
-			if !openAICodex && !hasPromptCacheBreakpoint {
-				return responses.ResponseNewParams{}, fmt.Errorf("openai input: %w", err)
-			}
+			// openai-go can marshal valid easy-message input items without a
+			// type field but cannot unmarshal them back into this union.
 			params.Input = param.Override[responses.ResponseNewParamsInputUnion](json.RawMessage(data))
 		}
 	} else {

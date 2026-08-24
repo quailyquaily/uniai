@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -386,6 +387,57 @@ func TestBuildParamsAllowsRawInputWithoutMessages(t *testing.T) {
 	}
 	if !params.Input.OfString.Valid() || params.Input.OfString.Value != "raw input" {
 		t.Fatalf("expected raw string input, got %#v", params.Input)
+	}
+}
+
+func TestBuildParamsPreservesRawInputWhenSDKUnionDecodeFails(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{
+			name:  "easy message without type",
+			input: `[{"role":"user","content":"hello"}]`,
+		},
+		{
+			name: "message and function history",
+			input: `[
+				{"role":"user","content":"run uname"},
+				{"type":"function_call","call_id":"call_1","name":"bash","arguments":"{\"cmd\":\"uname -a\"}"},
+				{"type":"function_call_output","call_id":"call_1","output":"Linux"}
+			]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var input any
+			if err := json.Unmarshal([]byte(tt.input), &input); err != nil {
+				t.Fatal(err)
+			}
+			req := &chat.Request{
+				Model: "grok-4.5",
+				Options: chat.Options{OpenAI: structs.JSONMap{
+					"input": input,
+				}},
+			}
+
+			params, err := buildParams(req, "", false)
+			if err != nil {
+				t.Fatalf("buildParams: %v", err)
+			}
+			data, err := json.Marshal(params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(data, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(payload["input"], input) {
+				t.Fatalf("input = %#v, want %#v", payload["input"], input)
+			}
+		})
 	}
 }
 
