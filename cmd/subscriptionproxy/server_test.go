@@ -172,6 +172,52 @@ func TestResponsesEndpointReturnsRawUpstreamResponse(t *testing.T) {
 	}
 }
 
+func TestResponsesEndpointMergesNormalizedOutputIntoIncompleteRawResponse(t *testing.T) {
+	const arguments = `{"from":"新宿","to":"神田站"}`
+	response := decodeSDKResponse(t, `{
+		"id":"resp_1",
+		"object":"response",
+		"model":"gpt-5.6-luna",
+		"status":"completed",
+		"output":[]
+	}`)
+	runner := &fakeChatRunner{run: func(context.Context, ...chat.Option) (*chat.Result, error) {
+		return &chat.Result{
+			Text: "正在查询路线。",
+			ToolCalls: []chat.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: chat.ToolCallFunction{
+					Name:      "get_direction",
+					Arguments: arguments,
+				},
+			}},
+			Raw: response,
+		}, nil
+	}}
+	handler := newAPIHandler(runner, backendCodex, "gpt-5.6-luna")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"查询新宿到神田站的路线"}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	var roundTrip responses.Response
+	if err := json.Unmarshal(recorder.Body.Bytes(), &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if roundTrip.OutputText() != "正在查询路线。" {
+		t.Fatalf("output text = %q", roundTrip.OutputText())
+	}
+	if len(roundTrip.Output) != 2 {
+		t.Fatalf("output = %#v", roundTrip.Output)
+	}
+	call, ok := roundTrip.Output[1].AsAny().(responses.ResponseFunctionToolCall)
+	if !ok || call.CallID != "call_1" || call.Name != "get_direction" || call.Arguments != arguments {
+		t.Fatalf("function call = %#v", roundTrip.Output[1].AsAny())
+	}
+}
+
 func TestResponsesEndpointPreservesSDKFunctionCallArguments(t *testing.T) {
 	const arguments = `{"cmd":"uname -a"}`
 	response := decodeSDKResponse(t, `{
@@ -189,7 +235,17 @@ func TestResponsesEndpointPreservesSDKFunctionCallArguments(t *testing.T) {
 		}]
 	}`)
 	runner := &fakeChatRunner{run: func(context.Context, ...chat.Option) (*chat.Result, error) {
-		return &chat.Result{Raw: response}, nil
+		return &chat.Result{
+			ToolCalls: []chat.ToolCall{{
+				ID:   "call_1",
+				Type: "function",
+				Function: chat.ToolCallFunction{
+					Name:      "bash",
+					Arguments: arguments,
+				},
+			}},
+			Raw: response,
+		}, nil
 	}}
 	handler := newAPIHandler(runner, backendXAI, "gpt-5.4")
 	recorder := httptest.NewRecorder()

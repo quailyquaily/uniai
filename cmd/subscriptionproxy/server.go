@@ -269,7 +269,101 @@ func (h *apiHandler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		writeOpenAIError(w, http.StatusBadGateway, "upstream returned an empty Responses payload", "upstream_error")
 		return
 	}
-	writeJSON(w, http.StatusOK, result.Raw)
+	responsePayload, err := responsesResultPayload(result)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, err.Error(), "upstream_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, responsePayload)
+}
+
+func responsesResultPayload(result *chat.Result) (any, error) {
+	if result == nil {
+		return nil, nil
+	}
+	if result.Text == "" && len(result.ToolCalls) == 0 {
+		return result.Raw, nil
+	}
+
+	data, err := marshalJSON(result.Raw)
+	if err != nil {
+		return nil, fmt.Errorf("encode upstream Responses payload: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	response := map[string]any{}
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("decode upstream Responses payload: %w", err)
+	}
+
+	var output []any
+	if rawOutput, exists := response["output"]; exists && rawOutput != nil {
+		var ok bool
+		output, ok = rawOutput.([]any)
+		if !ok {
+			return nil, fmt.Errorf("upstream Responses output is not an array")
+		}
+	}
+
+	hasText := false
+	functionCalls := make(map[string]map[string]any)
+	for _, value := range output {
+		item, ok := value.(map[string]any)
+		if !ok {
+			continue
+		}
+		switch item["type"] {
+		case "message":
+			content, _ := item["content"].([]any)
+			for _, value := range content {
+				part, ok := value.(map[string]any)
+				if !ok || part["type"] != "output_text" {
+					continue
+				}
+				if text, _ := part["text"].(string); text != "" {
+					hasText = true
+				}
+			}
+		case "function_call":
+			if callID, _ := item["call_id"].(string); callID != "" {
+				functionCalls[callID] = item
+			}
+		}
+	}
+
+	if result.Text != "" && !hasText {
+		item := map[string]any{
+			"type": "message", "role": "assistant", "status": "completed",
+			"content": []any{map[string]any{
+				"type": "output_text", "text": result.Text, "annotations": []any{},
+			}},
+		}
+		if responseID, _ := response["id"].(string); responseID != "" {
+			item["id"] = "msg_" + strings.TrimPrefix(responseID, "resp_")
+		}
+		output = append(output, item)
+	}
+
+	for _, call := range result.ToolCalls {
+		if item := functionCalls[call.ID]; item != nil {
+			if name, _ := item["name"].(string); name == "" {
+				item["name"] = call.Function.Name
+			}
+			if arguments, _ := item["arguments"].(string); arguments == "" {
+				item["arguments"] = call.Function.Arguments
+			}
+			continue
+		}
+		output = append(output, map[string]any{
+			"type":      "function_call",
+			"status":    "completed",
+			"call_id":   call.ID,
+			"name":      call.Function.Name,
+			"arguments": call.Function.Arguments,
+		})
+	}
+	response["output"] = output
+	return response, nil
 }
 
 func (h *apiHandler) streamResponses(w http.ResponseWriter, r *http.Request, runner chatRunner, options []chat.Option) {
