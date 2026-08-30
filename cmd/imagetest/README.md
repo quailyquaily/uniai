@@ -5,6 +5,7 @@
 It reads provider credentials from:
 
 - `OPENAI_API_KEY`
+- `OPENAI_API_BASE` (optional; defaults to OpenAI's API endpoint)
 - `GEMINI_API_KEY`
 
 Run image generation with every configured provider:
@@ -17,6 +18,14 @@ Run OpenAI generation and editing:
 
 ```bash
 OPENAI_API_KEY=... go run ./cmd/imagetest --provider openai --mode all
+```
+
+Run OpenAI generation against a custom OpenAI-compatible endpoint:
+
+```bash
+OPENAI_API_KEY=... \
+OPENAI_API_BASE=https://example.com/v1 \
+go run ./cmd/imagetest --provider openai --mode generate
 ```
 
 Run Gemini generation and editing:

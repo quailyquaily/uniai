@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lyricat/goutils/structs"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/subscription"
 )
@@ -113,6 +115,71 @@ func TestChatReusesUpstreamClientForUnchangedCredential(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("requests = %d", requests)
+	}
+}
+
+func TestChatPassesImageGenerationToolAndPreservesResult(t *testing.T) {
+	source := &fakeCredentialSource{credential: subscription.Credential{
+		AccessToken: "access", AccountID: "account",
+	}}
+	provider, err := New(Config{
+		CredentialSource: source,
+		DefaultModel:     "gpt-5.6-sol",
+		HTTPClient: testHTTPClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload["model"] != "gpt-5.6-sol" || payload["input"] != "Draw a lighthouse." {
+				t.Fatalf("payload model/input = %#v", payload)
+			}
+			tools, ok := payload["tools"].([]any)
+			if !ok || len(tools) != 1 {
+				t.Fatalf("tools = %#v", payload["tools"])
+			}
+			tool, ok := tools[0].(map[string]any)
+			if !ok || tool["type"] != "image_generation" || tool["model"] != "gpt-image-2" {
+				t.Fatalf("image tool = %#v", tools[0])
+			}
+
+			w.Header().Set("Content-Type", "text/event-stream")
+			response := map[string]any{
+				"id": "resp_image", "object": "response", "model": "gpt-5.6-sol", "status": "completed",
+				"parallel_tool_calls": true,
+				"output": []any{map[string]any{
+					"id": "ig_1", "type": "image_generation_call", "status": "completed", "result": "QUJD",
+				}},
+				"usage": map[string]any{"input_tokens": 4, "output_tokens": 8, "total_tokens": 12},
+			}
+			data, _ := json.Marshal(map[string]any{
+				"type": "response.completed", "sequence_number": 1, "response": response,
+			})
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		})),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := provider.Chat(context.Background(), &chat.Request{
+		Model: "gpt-5.6-sol",
+		Options: chat.Options{OpenAI: structs.JSONMap{
+			"instructions": "You are a helpful assistant.",
+			"input":        "Draw a lighthouse.",
+			"tools": []any{map[string]any{
+				"type": "image_generation", "action": "generate", "model": "gpt-image-2",
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	raw, ok := result.Raw.(*responses.Response)
+	if !ok || len(raw.Output) != 1 {
+		t.Fatalf("raw response = %#v", result.Raw)
+	}
+	call, ok := raw.Output[0].AsAny().(responses.ResponseOutputItemImageGenerationCall)
+	if !ok || call.Result != "QUJD" {
+		t.Fatalf("image generation call = %#v", raw.Output[0].AsAny())
 	}
 }
 

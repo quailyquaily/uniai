@@ -269,6 +269,124 @@ func TestResponsesEndpointPreservesSDKFunctionCallArguments(t *testing.T) {
 	}
 }
 
+func TestImageGenerationsEndpointUsesCodexResponsesTool(t *testing.T) {
+	runner := &fakeChatRunner{run: func(_ context.Context, opts ...chat.Option) (*chat.Result, error) {
+		req, err := chat.BuildRequest(opts...)
+		if err != nil {
+			return nil, err
+		}
+		if req.Model != "gpt-5.6-sol" {
+			return nil, fmt.Errorf("mainline model = %q", req.Model)
+		}
+		if req.Options.OpenAI.GetString("input") != "Draw a small lighthouse." {
+			return nil, fmt.Errorf("input = %#v", req.Options.OpenAI["input"])
+		}
+		if req.Options.OpenAI.GetString("instructions") != defaultInstructions {
+			return nil, fmt.Errorf("instructions = %#v", req.Options.OpenAI["instructions"])
+		}
+		toolData, err := json.Marshal(req.Options.OpenAI["tools"])
+		if err != nil {
+			return nil, err
+		}
+		var tools []map[string]any
+		if err := json.Unmarshal(toolData, &tools); err != nil {
+			return nil, err
+		}
+		if len(tools) != 1 {
+			return nil, fmt.Errorf("tools = %#v", tools)
+		}
+		tool := tools[0]
+		if tool["type"] != "image_generation" || tool["action"] != "generate" || tool["model"] != "gpt-image-2" ||
+			tool["size"] != "1536x1024" || tool["quality"] != "high" || tool["background"] != "opaque" ||
+			tool["output_format"] != "webp" || tool["output_compression"] != float64(80) || tool["moderation"] != "low" {
+			return nil, fmt.Errorf("image tool = %#v", tool)
+		}
+		return &chat.Result{Raw: map[string]any{
+			"id": "resp_image", "object": "response", "created_at": int64(1234), "status": "completed",
+			"output": []any{map[string]any{
+				"id": "ig_1", "type": "image_generation_call", "status": "completed",
+				"result": "QUJD", "revised_prompt": "A precise lighthouse.",
+			}},
+			"usage": map[string]any{"input_tokens": 7, "output_tokens": 11, "total_tokens": 18},
+		}}, nil
+	}}
+	handler := newAPIHandler(runner, backendCodex, "gpt-5.6-sol")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{
+		"model":"gpt-image-2",
+		"prompt":"Draw a small lighthouse.",
+		"n":1,
+		"size":"1536x1024",
+		"quality":"high",
+		"background":"opaque",
+		"output_format":"webp",
+		"output_compression":80,
+		"moderation":"low"
+	}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var response struct {
+		Created int64 `json:"created"`
+		Data    []struct {
+			B64JSON       string `json:"b64_json"`
+			RevisedPrompt string `json:"revised_prompt"`
+		} `json:"data"`
+		Usage struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+			TotalTokens  int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Created != 1234 || len(response.Data) != 1 || response.Data[0].B64JSON != "QUJD" ||
+		response.Data[0].RevisedPrompt != "A precise lighthouse." {
+		t.Fatalf("response = %#v", response)
+	}
+	if response.Usage.InputTokens != 7 || response.Usage.OutputTokens != 11 || response.Usage.TotalTokens != 18 {
+		t.Fatalf("usage = %#v", response.Usage)
+	}
+}
+
+func TestImageGenerationsEndpointRejectsUnsupportedRequests(t *testing.T) {
+	tests := []struct {
+		name         string
+		backend      string
+		defaultModel string
+		body         string
+		want         string
+	}{
+		{name: "codex backend required", backend: backendXAI, defaultModel: "grok-4.5", body: `{"model":"gpt-image-2","prompt":"draw"}`, want: "Codex backend is not configured"},
+		{name: "mainline model required", backend: backendCodex, body: `{"model":"gpt-image-2","prompt":"draw"}`, want: "server default model is required"},
+		{name: "image model required", backend: backendCodex, defaultModel: "gpt-5.6-sol", body: `{"prompt":"draw"}`, want: "image model is required"},
+		{name: "prompt required", backend: backendCodex, defaultModel: "gpt-5.6-sol", body: `{"model":"gpt-image-2"}`, want: "prompt is required"},
+		{name: "one image only", backend: backendCodex, defaultModel: "gpt-5.6-sol", body: `{"model":"gpt-image-2","prompt":"draw","n":2}`, want: "supports only n=1"},
+		{name: "base64 only", backend: backendCodex, defaultModel: "gpt-5.6-sol", body: `{"model":"gpt-image-2","prompt":"draw","response_format":"url"}`, want: "supports only b64_json"},
+		{name: "non-streaming only", backend: backendCodex, defaultModel: "gpt-5.6-sol", body: `{"model":"gpt-image-2","prompt":"draw","stream":true}`, want: "does not support streaming"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			runner := &fakeChatRunner{run: func(context.Context, ...chat.Option) (*chat.Result, error) {
+				called = true
+				return &chat.Result{}, nil
+			}}
+			handler := newAPIHandler(runner, tt.backend, tt.defaultModel)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(tt.body)))
+			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), tt.want) {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if called {
+				t.Fatal("backend was called")
+			}
+		})
+	}
+}
+
 func TestDualBackendRoutesChatCompletionsByModel(t *testing.T) {
 	calls := map[string]int{}
 	newRunner := func(backend string) chatRunner {

@@ -105,9 +105,10 @@ go run ./cmd/subscriptionproxy serve \
 
 - `POST /v1/chat/completions`
 - `POST /v1/responses`
+- `POST /v1/images/generations`（仅 Codex）
 - `GET /healthz`
 
-两个模型接口都支持普通 JSON 响应和 `stream: true` 的 SSE 响应。
+`Chat Completions` 和 `Responses` 都支持普通 JSON 响应和 `stream: true` 的 SSE 响应。`Image Generations` 目前只支持普通 JSON 响应。
 
 Chat Completions 示例：
 
@@ -129,6 +130,38 @@ curl http://127.0.0.1:8080/v1/responses \
     "model": "MODEL_ID",
     "input": "Say hello."
   }'
+```
+
+Image Generations 使用 Codex Responses 的 `image_generation` 工具。启动参数 `--model` 是调用该工具的主模型，请求体中的 `model` 是图片模型：
+
+```bash
+go run ./cmd/subscriptionproxy serve \
+  --backend codex \
+  --token-file ./credentials/codex.json \
+  --model gpt-5.6-sol \
+  --listen 127.0.0.1:8080
+```
+
+```bash
+curl http://127.0.0.1:8080/v1/images/generations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "gpt-image-2",
+    "prompt": "A compact desk lamp on a plain background",
+    "n": 1,
+    "size": "1024x1024",
+    "quality": "auto"
+  }'
+```
+
+该端点返回 `data[].b64_json`，目前只支持 `n=1` 和非流式请求。它需要 Codex 后端和非空的服务端缺省主模型。订阅后端是否允许图片工具由上游账号决定。
+
+也可以直接使用 `cmd/imagetest`：
+
+```bash
+OPENAI_API_KEY=subscription-proxy \
+OPENAI_API_BASE=http://127.0.0.1:8080/v1 \
+go run ./cmd/imagetest --provider openai --mode generate --openai-model gpt-image-2
 ```
 
 程序启动时会读取全部已配置凭证并在必要时刷新。运行期间默认每 30 秒分别检查一次，到达 token 刷新窗口后刷新并保存；上游返回 401 时也会在对应凭据的调用方锁内刷新。可用 `--refresh-interval` 修改检查间隔。

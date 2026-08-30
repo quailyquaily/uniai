@@ -19,6 +19,7 @@ type providerConfig struct {
 	name      string
 	model     string
 	apiKey    string
+	apiBase   string
 	options   uniai.ImageOptions
 	editCount int
 }
@@ -84,6 +85,7 @@ func run() error {
 		switch cfg.name {
 		case "openai":
 			clientConfig.OpenAIAPIKey = cfg.apiKey
+			clientConfig.OpenAIAPIBase = cfg.apiBase
 		case "gemini":
 			clientConfig.GeminiAPIKey = cfg.apiKey
 		}
@@ -138,11 +140,13 @@ func selectedProviders(provider, openAIModel, geminiModel string) ([]providerCon
 
 	var out []providerConfig
 	openAIKey := strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	openAIBase := strings.TrimSpace(os.Getenv("OPENAI_API_BASE"))
 	if (provider == "all" || provider == "openai") && openAIKey != "" {
 		out = append(out, providerConfig{
 			name:      "openai",
 			model:     openAIModel,
 			apiKey:    openAIKey,
+			apiBase:   openAIBase,
 			editCount: 1,
 			options: uniai.ImageOptions{OpenAI: structs.JSONMap{
 				"size":       "1024x1024",

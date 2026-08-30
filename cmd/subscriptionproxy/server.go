@@ -32,6 +32,21 @@ type chatCompletionRequest struct {
 	Stream bool `json:"stream"`
 }
 
+type imageGenerationRequest struct {
+	Model             string `json:"model"`
+	Prompt            string `json:"prompt"`
+	N                 *int   `json:"n"`
+	Size              string `json:"size"`
+	Quality           string `json:"quality"`
+	Background        string `json:"background"`
+	OutputFormat      string `json:"output_format"`
+	OutputCompression *int   `json:"output_compression"`
+	Moderation        string `json:"moderation"`
+	ResponseFormat    string `json:"response_format"`
+	Stream            bool   `json:"stream"`
+	User              string `json:"user"`
+}
+
 type apiHandler struct {
 	runners      map[string]chatRunner
 	backend      string
@@ -80,6 +95,12 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.handleResponses(w, r)
+	case "/v1/images/generations":
+		if r.Method != http.MethodPost {
+			writeOpenAIError(w, http.StatusMethodNotAllowed, "method not allowed", "invalid_request_error")
+			return
+		}
+		h.handleImageGenerations(w, r)
 	default:
 		writeOpenAIError(w, http.StatusNotFound, "not found", "invalid_request_error")
 	}
@@ -275,6 +296,142 @@ func (h *apiHandler) handleResponses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, responsePayload)
+}
+
+func (h *apiHandler) handleImageGenerations(w http.ResponseWriter, r *http.Request) {
+	body, err := readRequestBody(w, r)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
+		return
+	}
+	var request imageGenerationRequest
+	if err := json.Unmarshal(body, &request); err != nil {
+		writeOpenAIError(w, http.StatusBadRequest, "invalid JSON request", "invalid_request_error")
+		return
+	}
+	runner := h.runners[backendCodex]
+	if runner == nil {
+		writeOpenAIError(w, http.StatusBadRequest, "Codex backend is not configured", "invalid_request_error")
+		return
+	}
+	mainlineModel := strings.TrimSpace(h.defaultModel)
+	if mainlineModel == "" {
+		writeOpenAIError(w, http.StatusBadRequest, "server default model is required for image generation", "invalid_request_error")
+		return
+	}
+	request.Model = strings.TrimSpace(request.Model)
+	if request.Model == "" {
+		writeOpenAIError(w, http.StatusBadRequest, "image model is required", "invalid_request_error")
+		return
+	}
+	request.Prompt = strings.TrimSpace(request.Prompt)
+	if request.Prompt == "" {
+		writeOpenAIError(w, http.StatusBadRequest, "prompt is required", "invalid_request_error")
+		return
+	}
+	if request.N != nil && *request.N != 1 {
+		writeOpenAIError(w, http.StatusBadRequest, "subscription proxy supports only n=1 for image generation", "invalid_request_error")
+		return
+	}
+	if format := strings.ToLower(strings.TrimSpace(request.ResponseFormat)); format != "" && format != "b64_json" {
+		writeOpenAIError(w, http.StatusBadRequest, "subscription proxy supports only b64_json image responses", "invalid_request_error")
+		return
+	}
+	if request.Stream {
+		writeOpenAIError(w, http.StatusBadRequest, "subscription proxy does not support streaming image generation", "invalid_request_error")
+		return
+	}
+	if strings.TrimSpace(request.User) != "" {
+		writeOpenAIError(w, http.StatusBadRequest, "subscription proxy does not support user for image generation", "invalid_request_error")
+		return
+	}
+
+	tool := map[string]any{
+		"type":   "image_generation",
+		"action": "generate",
+		"model":  request.Model,
+	}
+	if value := strings.TrimSpace(request.Size); value != "" {
+		tool["size"] = value
+	}
+	if value := strings.TrimSpace(request.Quality); value != "" {
+		tool["quality"] = value
+	}
+	if value := strings.TrimSpace(request.Background); value != "" {
+		tool["background"] = value
+	}
+	if value := strings.TrimSpace(request.OutputFormat); value != "" {
+		tool["output_format"] = value
+	}
+	if request.OutputCompression != nil {
+		tool["output_compression"] = *request.OutputCompression
+	}
+	if value := strings.TrimSpace(request.Moderation); value != "" {
+		tool["moderation"] = value
+	}
+
+	result, err := runner.Chat(r.Context(),
+		chat.WithModel(mainlineModel),
+		chat.WithOpenAIOptions(structs.JSONMap{
+			"instructions": defaultInstructions,
+			"input":        request.Prompt,
+			"tools":        []any{tool},
+		}),
+	)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, err.Error(), "upstream_error")
+		return
+	}
+	payload, err := imageGenerationResultPayload(result)
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, err.Error(), "upstream_error")
+		return
+	}
+	writeJSON(w, http.StatusOK, payload)
+}
+
+func imageGenerationResultPayload(result *chat.Result) (any, error) {
+	if result == nil || result.Raw == nil {
+		return nil, fmt.Errorf("upstream returned an empty image generation response")
+	}
+	data, err := marshalJSON(result.Raw)
+	if err != nil {
+		return nil, fmt.Errorf("encode upstream image generation response: %w", err)
+	}
+	var response struct {
+		CreatedAt int64 `json:"created_at"`
+		Output    []struct {
+			Type          string `json:"type"`
+			Result        string `json:"result"`
+			RevisedPrompt string `json:"revised_prompt"`
+		} `json:"output"`
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(data, &response); err != nil {
+		return nil, fmt.Errorf("decode upstream image generation response: %w", err)
+	}
+	images := make([]map[string]string, 0, 1)
+	for _, output := range response.Output {
+		if output.Type != "image_generation_call" || strings.TrimSpace(output.Result) == "" {
+			continue
+		}
+		image := map[string]string{"b64_json": output.Result}
+		if output.RevisedPrompt != "" {
+			image["revised_prompt"] = output.RevisedPrompt
+		}
+		images = append(images, image)
+	}
+	if len(images) == 0 {
+		return nil, fmt.Errorf("upstream response did not include a generated image")
+	}
+	payload := map[string]any{
+		"created": response.CreatedAt,
+		"data":    images,
+	}
+	if len(response.Usage) > 0 && string(response.Usage) != "null" {
+		payload["usage"] = response.Usage
+	}
+	return payload, nil
 }
 
 func responsesResultPayload(result *chat.Result) (any, error) {
