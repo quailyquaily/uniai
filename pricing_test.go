@@ -894,6 +894,7 @@ func TestPricingExampleYAML(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	mustHave := []string{
+		"gpt-6-astra",
 		"gpt-5.6",
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
@@ -909,6 +910,8 @@ func TestPricingExampleYAML(t *testing.T) {
 		"gpt-5.4-mini",
 		"gpt-5.4-nano",
 		"claude-fable-5",
+		"claude-fable-5-1",
+		"claude-mythos-5-1",
 		"claude-mythos-5",
 		"claude-opus-5",
 		"claude-opus-4-8",
@@ -922,6 +925,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-sonnet-5",
 		"claude-haiku-4-5",
 		"gemini-3.7-flash",
+		"gemini-3.8-flash",
 		"gemini-3.6-flash",
 		"gemini-3.5-flash",
 		"gemini-3.5-flash-lite",
@@ -943,16 +947,22 @@ func TestPricingExampleYAML(t *testing.T) {
 		"command-r-08-2024",
 		"command-r-plus-08-2024",
 		"glm-5.2",
+		"glm-5.3",
+		"glm-5.3-flash",
 		"glm-5.1",
 		"glm-5",
 		"glm-4.5-air",
 		"kimi-k3",
+		"kimi-k2.7-code",
+		"kimi-k2.7-code-highspeed",
 		"kimi-k2.6",
 		"kimi-k2.5",
 		"kimi-k2-0905-preview",
 		"MiniMax-M2.7",
+		"MiniMax-M3",
 		"MiniMax-M2.5-highspeed",
 		"deepseek-v4-flash",
+		"deepseek-v4-flash-vision-exp",
 		"deepseek-v4-pro",
 		"grok-4.6",
 		"grok-4.6-latest",
@@ -980,6 +990,9 @@ func TestPricingExampleYAML(t *testing.T) {
 		"muse-spark-1.1",
 		"fugu-ultra",
 		"fugu-ultra-20260615",
+		"fugu-ultra-v1.0",
+		"fugu-ultra-v1.1",
+		"sakana-namazu-v1.0",
 	}
 	for _, model := range mustHave {
 		if !catalogHasRule(catalog, model) {
@@ -993,7 +1006,6 @@ func TestPricingExampleYAML(t *testing.T) {
 		"claude-3-7-sonnet-20250219",
 		"claude-3-5-haiku-20241022",
 		"gemini-3.1-flash-lite-preview",
-		"glm-5.3",
 	}
 	for _, model := range mustNotHave {
 		if catalogHasRule(catalog, model) {
@@ -1100,14 +1112,14 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGPT56PriceMath(t *testing.T) {
 		t.Fatal("expected cost estimate from pricing.example.yaml")
 	}
 
-	assertNearlyEqual(t, cost.Input, 700*5.00/1_000_000)
-	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
-	assertNearlyEqual(t, cost.CacheCreationInput, 100*6.25/1_000_000)
-	assertNearlyEqual(t, cost.Output, 300*30.00/1_000_000)
-	assertNearlyEqual(t, cost.Total, 0.013225)
+	assertNearlyEqual(t, cost.Input, 700*4.00/1_000_000)
+	assertNearlyEqual(t, cost.CachedInput, 200*0.40/1_000_000)
+	assertNearlyEqual(t, cost.CacheCreationInput, 100*5.00/1_000_000)
+	assertNearlyEqual(t, cost.Output, 300*20.00/1_000_000)
+	assertNearlyEqual(t, cost.Total, 0.00938)
 }
 
-func TestPricingExampleYAMLEstimateChatCostUsesGPT56LongContextBoundary(t *testing.T) {
+func TestPricingExampleYAMLEstimateChatCostUsesGPT6AndGPT56LongContextBoundary(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	tests := []struct {
@@ -1116,15 +1128,37 @@ func TestPricingExampleYAMLEstimateChatCostUsesGPT56LongContextBoundary(t *testi
 		longInput, longCached, longWrite, longOutput     float64
 	}{
 		{
+			model:       "gpt-6-astra",
+			shortInput:  10.00,
+			shortCached: 1.00,
+			shortWrite:  12.50,
+			shortOutput: 50.00,
+			longInput:   20.00,
+			longCached:  2.00,
+			longWrite:   25.00,
+			longOutput:  75.00,
+		},
+		{
 			model:       "gpt-5.6",
-			shortInput:  5.00,
-			shortCached: 0.50,
-			shortWrite:  6.25,
-			shortOutput: 30.00,
-			longInput:   10.00,
-			longCached:  1.00,
-			longWrite:   12.50,
-			longOutput:  45.00,
+			shortInput:  4.00,
+			shortCached: 0.40,
+			shortWrite:  5.00,
+			shortOutput: 20.00,
+			longInput:   8.00,
+			longCached:  0.80,
+			longWrite:   10.00,
+			longOutput:  30.00,
+		},
+		{
+			model:       "gpt-5.6-sol",
+			shortInput:  4.00,
+			shortCached: 0.40,
+			shortWrite:  5.00,
+			shortOutput: 20.00,
+			longInput:   8.00,
+			longCached:  0.80,
+			longWrite:   10.00,
+			longOutput:  30.00,
 		},
 		{
 			model:       "gpt-5.6-terra",
@@ -1249,17 +1283,30 @@ func TestPricingExampleYAMLEstimateChatCostMatchesClaudeFableAndMythos5PriceMath
 		},
 	}
 
-	for _, model := range []string{"claude-fable-5", "claude-mythos-5"} {
-		cost, ok := catalog.EstimateChatCost(model, usage)
-		if !ok {
-			t.Fatalf("expected cost estimate from pricing.example.yaml for %s", model)
-		}
+	for _, tt := range []struct {
+		model      string
+		cachedRate float64
+		wantTotal  float64
+	}{
+		{"claude-fable-5", 1.00, 0.02375},
+		{"claude-mythos-5", 1.00, 0.02375},
+		{"claude-fable-5-1", 0.25, 0.0236},
+		{"claude-fable-5.1", 0.25, 0.0236},
+		{"claude-mythos-5-1", 0.25, 0.0236},
+		{"claude-mythos-5.1", 0.25, 0.0236},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			cost, ok := catalog.EstimateChatCost(tt.model, usage)
+			if !ok {
+				t.Fatalf("expected cost estimate from pricing.example.yaml for %s", tt.model)
+			}
 
-		assertNearlyEqual(t, cost.Input, 700*10.00/1_000_000)
-		assertNearlyEqual(t, cost.CachedInput, 200*1.00/1_000_000)
-		assertNearlyEqual(t, cost.CacheCreationInput, (40*20.00+60*12.50)/1_000_000)
-		assertNearlyEqual(t, cost.Output, 300*50.00/1_000_000)
-		assertNearlyEqual(t, cost.Total, 0.02375)
+			assertNearlyEqual(t, cost.Input, 700*10.00/1_000_000)
+			assertNearlyEqual(t, cost.CachedInput, 200*tt.cachedRate/1_000_000)
+			assertNearlyEqual(t, cost.CacheCreationInput, (40*20.00+60*12.50)/1_000_000)
+			assertNearlyEqual(t, cost.Output, 300*50.00/1_000_000)
+			assertNearlyEqual(t, cost.Total, tt.wantTotal)
+		})
 	}
 }
 
@@ -1734,9 +1781,9 @@ func TestPricingExampleYAMLEstimateChatCostMatchesOpenAILongContextTier(t *testi
 	catalog := loadExamplePricingCatalog(t)
 
 	usage := Usage{
-		InputTokens:  270001,
+		InputTokens:  272001,
 		OutputTokens: 300,
-		TotalTokens:  270301,
+		TotalTokens:  272301,
 		Cache: UsageCache{
 			CachedInputTokens: 200,
 		},
@@ -1747,10 +1794,10 @@ func TestPricingExampleYAMLEstimateChatCostMatchesOpenAILongContextTier(t *testi
 		t.Fatal("expected tiered cost estimate from pricing.example.yaml")
 	}
 
-	assertNearlyEqual(t, cost.Input, 269801*5.00/1_000_000)
+	assertNearlyEqual(t, cost.Input, 271801*5.00/1_000_000)
 	assertNearlyEqual(t, cost.CachedInput, 200*0.50/1_000_000)
 	assertNearlyEqual(t, cost.Output, 300*22.50/1_000_000)
-	assertNearlyEqual(t, cost.Total, 1.355855)
+	assertNearlyEqual(t, cost.Total, 1.365855)
 }
 
 func TestPricingExampleYAMLEstimateChatCostMatchesGeminiLongContextTier(t *testing.T) {
@@ -1818,6 +1865,7 @@ func TestPricingExampleYAMLEstimateChatCostMatchesNewGeminiFlashPrices(t *testin
 		expectedSum float64
 	}{
 		{model: "gemini-3.7-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
+		{model: "gemini-3.8-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
 		{model: "gemini-3.6-flash", inputRate: 0.75, cachedRate: 0.075, outputRate: 3.75, expectedSum: 0.00174},
 		{model: "gemini-3.5-flash-lite", inputRate: 0.30, cachedRate: 0.03, outputRate: 2.50, expectedSum: 0.000996},
 		{model: "gemini-3.1-flash-lite", inputRate: 0.25, cachedRate: 0.025, outputRate: 1.50, expectedSum: 0.000655},
@@ -1850,7 +1898,7 @@ func TestPricingExampleYAMLEstimateChatCostMatchesNewGLMPrices(t *testing.T) {
 		},
 	}
 
-	for _, model := range []string{"glm-5.2", "glm-5.1"} {
+	for _, model := range []string{"glm-5.3", "glm-5.2", "glm-5.1"} {
 		t.Run(model, func(t *testing.T) {
 			cost, ok := catalog.EstimateChatCost(model, usage)
 			if !ok {

@@ -39,6 +39,24 @@ Current scope is intentionally narrow:
 
 `Usage.Cost` is a local derived value. It is not an upstream billing record.
 
+## Current Catalog Rates
+
+The latest catalog refresh is dated 2026-09-06. Model rates and official sources
+are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
+
+Some embedded rates have time limits:
+
+- GPT-5.6 Sol promotional rates apply at least through 2026-11-21.
+- Gemini 3.8, 3.7, and 3.6 Flash introductory rates apply through 2026-12-31.
+- Direct Z.AI GLM-5.3-Flash rates include a 50% discount through
+  2026-09-09 24:00 UTC+8. Cloudflare's GLM-5.3-Flash rule uses its own published
+  rates, without that discount.
+
+These are static prices; the catalog does not switch rates by date. Update the
+catalog or supply an override when a promotion ends. Claude Sonnet 5 keeps
+$2 input / $10 output per million tokens as its standard price; Anthropic
+cancelled the previously announced September price increase.
+
 ## Main API
 
 Relevant types and functions:
@@ -94,7 +112,7 @@ chat:
   - inference_provider: openai
     model: gpt-5.4
     tiers:
-      - max_input_tokens: 270000
+      - max_input_tokens: 272000
         input_usd_per_million: 2.50
         cached_input_usd_per_million: 0.25
         output_usd_per_million: 15.00
