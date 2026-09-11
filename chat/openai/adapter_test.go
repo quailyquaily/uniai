@@ -15,6 +15,32 @@ func TestToOpenAIResponseHandlesNilResult(t *testing.T) {
 	}
 }
 
+func TestToOpenAIResponseFinishReason(t *testing.T) {
+	for _, tt := range []struct {
+		name, reason, want string
+		tool               bool
+	}{
+		{name: "legacy text", want: "stop"},
+		{name: "legacy tool", want: "tool_calls", tool: true},
+		{name: "normal stop", reason: "stop", want: "stop"},
+		{name: "truncated text", reason: "length", want: "length"},
+		{name: "truncated tool", reason: "length", want: "length", tool: true},
+		{name: "tool use", reason: "tool_calls", want: "tool_calls", tool: true},
+		{name: "refusal", reason: "content_filter", want: "content_filter"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			result := &chat.Result{Text: "{", FinishReason: tt.reason}
+			if tt.tool {
+				result.ToolCalls = []chat.ToolCall{{ID: "call_1", Function: chat.ToolCallFunction{Name: "lookup", Arguments: `{"n":`}}}
+			}
+			response := ToOpenAIResponse(result, "model")
+			if len(response.Choices) != 1 || response.Choices[0].FinishReason != tt.want {
+				t.Fatalf("choices=%+v want reason=%s", response.Choices, tt.want)
+			}
+		})
+	}
+}
+
 func TestToChatOptions(t *testing.T) {
 	req := openai.ChatCompletionNewParams{
 		Model: openai.ChatModel("gpt-4.1-mini"),

@@ -16,6 +16,8 @@ import (
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/internal/modelcompat"
+	"github.com/quailyquaily/uniai/subscription"
+	"github.com/quailyquaily/uniai/subscription/claude/claudecode"
 )
 
 type Config struct {
@@ -24,6 +26,11 @@ type Config struct {
 	DefaultModel string
 	Headers      map[string]string
 	Debug        bool
+	// CredentialSource selects Claude subscription authentication and a fixed
+	// upstream URL. APIKey and APIBase are ignored in this mode.
+	CredentialSource subscription.CredentialSource
+	HTTPClient       *http.Client
+	ClaudeCode       claudecode.Profile
 }
 
 type Provider struct {
@@ -52,7 +59,7 @@ type anthropicContentPart struct {
 	Source       *anthropicImageSource  `json:"source,omitempty"`
 	ID           string                 `json:"id,omitempty"`
 	Name         string                 `json:"name,omitempty"`
-	Input        any                    `json:"input,omitempty"`
+	Input        json.RawMessage        `json:"input,omitempty"`
 	ToolUseID    string                 `json:"tool_use_id,omitempty"`
 	Content      any                    `json:"content,omitempty"`
 	IsError      *bool                  `json:"is_error,omitempty"`
@@ -84,6 +91,7 @@ type anthropicRequest struct {
 }
 
 type anthropicResponse struct {
+	ID         string                 `json:"id"`
 	Content    []anthropicContentPart `json:"content"`
 	Model      string                 `json:"model"`
 	StopReason string                 `json:"stop_reason,omitempty"`
@@ -137,8 +145,11 @@ type anthropicUsage struct {
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
+	if req == nil {
+		return nil, fmt.Errorf("anthropic request is nil")
+	}
 	debugFn := req.Options.DebugFn
-	if p.cfg.APIKey == "" {
+	if p.cfg.APIKey == "" && p.cfg.CredentialSource == nil {
 		return nil, fmt.Errorf("anthropic api key is required")
 	}
 	model := req.Model
@@ -162,18 +173,22 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	if err != nil {
 		return nil, err
 	}
-	diag.LogText(p.cfg.Debug, debugFn, "anthropic.chat.request", string(data))
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, messagesURL(p.cfg.APIBase), bytes.NewReader(data))
-	if err != nil {
-		return nil, err
+	var resp *http.Response
+	if p.cfg.CredentialSource != nil {
+		resp, err = p.doSubscription(ctx, data, debugFn)
+	} else {
+		diag.LogText(p.cfg.Debug, debugFn, "anthropic.chat.request", string(data))
+		var httpReq *http.Request
+		httpReq, err = http.NewRequestWithContext(ctx, http.MethodPost, messagesURL(p.cfg.APIBase), bytes.NewReader(data))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+		httpReq.Header.Set("x-api-key", p.cfg.APIKey)
+		httpReq.Header.Set("anthropic-version", "2023-06-01")
+		httputil.ApplyHeaders(httpReq.Header, p.cfg.Headers)
+		resp, err = httputil.ClientForContext(ctx).Do(httpReq)
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", p.cfg.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-	httputil.ApplyHeaders(httpReq.Header, p.cfg.Headers)
-
-	resp, err := httputil.ClientForContext(ctx).Do(httpReq)
 	if err != nil {
 		diag.LogError(p.cfg.Debug, debugFn, "anthropic.chat.response", err)
 		return nil, err
@@ -455,6 +470,15 @@ func applyAnthropicOptions(body *anthropicRequest, opts structs.JSONMap) {
 	if userID := readUserID(opt); userID != "" {
 		body.Metadata = &anthropicMetadata{UserID: userID}
 	}
+	if opt.HasKey("disable_parallel_tool_use") && len(body.Tools) > 0 {
+		if body.ToolChoice == nil {
+			body.ToolChoice = &anthropicToolChoice{Type: "auto"}
+		}
+		if body.ToolChoice.Type != "none" {
+			disabled := opt.GetBool("disable_parallel_tool_use")
+			body.ToolChoice.DisableParallelToolUse = &disabled
+		}
+	}
 }
 
 func toAnthropicTools(tools []chat.Tool) ([]anthropicTool, error) {
@@ -520,7 +544,7 @@ func toAnthropicToolUses(calls []chat.ToolCall) ([]anthropicContentPart, error) 
 		if args == "" {
 			args = "{}"
 		}
-		var input any
+		var input json.RawMessage
 		if err := json.Unmarshal([]byte(args), &input); err != nil {
 			return nil, fmt.Errorf("invalid tool call arguments: %w", err)
 		}
@@ -560,6 +584,10 @@ func toResult(out *anthropicResponse, reasoningDetails bool) (*chat.Result, erro
 	if out == nil {
 		return &chat.Result{}, nil
 	}
+	finishReason, err := anthropicFinishReason(out.StopReason)
+	if err != nil {
+		return nil, err
+	}
 	textParts := make([]string, 0, len(out.Content))
 	toolCalls := make([]chat.ToolCall, 0)
 	var reasoning *chat.ReasoningResult
@@ -589,17 +617,41 @@ func toResult(out *anthropicResponse, reasoningDetails bool) (*chat.Result, erro
 
 	usage := usageFromAnthropicUsage(out.Usage)
 	result := &chat.Result{
-		Text:      text,
-		Model:     out.Model,
-		Parts:     []chat.Part{},
-		ToolCalls: toolCalls,
-		Reasoning: reasoning,
-		Usage:     usage,
+		FinishReason: finishReason,
+		ID:           out.ID,
+		Text:         text,
+		Model:        out.Model,
+		Parts:        []chat.Part{},
+		ToolCalls:    toolCalls,
+		Reasoning:    reasoning,
+		Usage:        usage,
 	}
 	if text != "" {
 		result.Parts = append(result.Parts, chat.TextPart(text))
 	}
 	return result, nil
+}
+
+func anthropicFinishReason(reason string) (string, error) {
+	switch reason {
+	case "":
+		// Older compatible endpoints may omit the termination reason.
+		return "", nil
+	case "end_turn", "stop_sequence":
+		return "stop", nil
+	case "max_tokens", "model_context_window_exceeded":
+		return "length", nil
+	case "tool_use":
+		return "tool_calls", nil
+	case "refusal":
+		return "content_filter", nil
+	case "pause_turn":
+		return "", fmt.Errorf("anthropic stop_reason pause_turn requires unsupported server-tool continuation")
+	default:
+		// Do not turn an unrecognized terminal state into a successful stop or
+		// echo arbitrary upstream text in subscription errors.
+		return "", fmt.Errorf("anthropic response contains an unsupported stop_reason")
+	}
 }
 
 func appendAnthropicReasoning(reasoning *chat.ReasoningResult, typ, text, signature, data string) *chat.ReasoningResult {
@@ -628,6 +680,7 @@ func appendAnthropicReasoning(reasoning *chat.ReasoningResult, typ, text, signat
 
 type sseMessageStart struct {
 	Message struct {
+		ID    string         `json:"id"`
 		Model string         `json:"model"`
 		Usage anthropicUsage `json:"usage"`
 	} `json:"message"`
@@ -652,6 +705,9 @@ type sseContentBlockDelta struct {
 }
 
 type sseMessageDelta struct {
+	Delta struct {
+		StopReason string `json:"stop_reason"`
+	} `json:"delta"`
 	Usage anthropicUsage `json:"usage"`
 }
 
@@ -660,10 +716,12 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
 
 	var (
-		model     string
-		usage     chat.Usage
-		textParts []string
-		toolCalls []chat.ToolCall
+		id         string
+		model      string
+		usage      chat.Usage
+		textParts  []string
+		toolCalls  []chat.ToolCall
+		stopReason string
 
 		// per-tool-call accumulator
 		currentToolIndex int = -1
@@ -691,6 +749,8 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 	}
 
 	var eventType string
+	stopped := false
+streamLoop:
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -703,6 +763,20 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 			continue
 		}
 		data := strings.TrimPrefix(line, "data: ")
+		if p.cfg.CredentialSource != nil {
+			var envelope struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal([]byte(data), &envelope) != nil {
+				return nil, fmt.Errorf("invalid Claude subscription stream event")
+			}
+			if envelope.Type == "error" || eventType == "error" {
+				return nil, fmt.Errorf("Claude subscription stream returned an upstream error")
+			}
+			if eventType == "" {
+				eventType = envelope.Type
+			}
+		}
 		raw := json.RawMessage(append([]byte(nil), data...))
 		if protocolEvent, err := anthropicstream.Decode(raw); err == nil {
 			if reasoningEvent := reasoningState.Apply(protocolEvent, reasoningDetails); reasoningEvent != nil {
@@ -716,6 +790,7 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 		case "message_start":
 			var ev sseMessageStart
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
+				id = ev.Message.ID
 				model = ev.Message.Model
 				applyAnthropicUsage(&usage, ev.Message.Usage)
 			}
@@ -774,30 +849,46 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 			var ev sseMessageDelta
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
 				applyAnthropicUsage(&usage, ev.Usage)
+				if ev.Delta.StopReason != "" {
+					stopReason = ev.Delta.StopReason
+				}
 			}
 
 		case "message_stop":
-			// handled after the loop
+			stopped = true
+			if p.cfg.CredentialSource != nil {
+				break streamLoop
+			}
 		}
 		eventType = ""
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
+	if p.cfg.CredentialSource != nil && !stopped {
+		return nil, fmt.Errorf("Claude subscription stream ended before message_stop")
+	}
 
 	flushToolCall()
 
+	finishReason, err := anthropicFinishReason(stopReason)
+	if err != nil {
+		return nil, err
+	}
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	if err := onStream(chat.StreamEvent{
-		Done:  true,
-		Usage: &usage,
+		FinishReason: finishReason,
+		Done:         true,
+		Usage:        &usage,
 	}); err != nil {
 		return nil, err
 	}
 
 	return &chat.Result{
-		Text:  strings.Join(textParts, ""),
-		Model: model,
+		FinishReason: finishReason,
+		ID:           id,
+		Text:         strings.Join(textParts, ""),
+		Model:        model,
 		Parts: func() []chat.Part {
 			text := strings.Join(textParts, "")
 			if text == "" {

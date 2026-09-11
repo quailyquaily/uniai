@@ -233,6 +233,10 @@ type Result struct {
 	Usage     Usage            `json:"usage,omitempty"`
 	Raw       any              `json:"raw,omitempty"`
 	Warnings  []string         `json:"warnings,omitempty"`
+
+	// FinishReason is stop, length, tool_calls, or content_filter when the
+	// provider reports a normalized termination reason. Empty means unavailable.
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 type ReasoningResult struct {
@@ -277,6 +281,9 @@ type StreamEvent struct {
 	Usage          *Usage
 	Raw            any
 	Done           bool
+	// FinishReason has the same values as Result.FinishReason and is set on
+	// the final Done event. Done alone does not imply a complete response.
+	FinishReason string
 }
 
 // ToolCallDelta represents an incremental update to a tool call during streaming.

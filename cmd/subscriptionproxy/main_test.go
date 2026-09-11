@@ -9,9 +9,10 @@ import (
 
 func TestNormalizeBackend(t *testing.T) {
 	tests := map[string]string{
-		"codex": backendCodex,
-		"grok":  backendXAI,
-		"xai":   backendXAI,
+		"codex":  backendCodex,
+		"grok":   backendXAI,
+		"xai":    backendXAI,
+		"claude": backendClaude,
 	}
 	for input, want := range tests {
 		got, err := normalizeBackend(input)
@@ -56,12 +57,12 @@ func TestCredentialCommandsRequireTokenFile(t *testing.T) {
 	}
 }
 
-func TestDualBackendServeRequiresBothTokenFiles(t *testing.T) {
+func TestMultiBackendServeRequiresAtLeastTwoTokenFiles(t *testing.T) {
 	err := run(context.Background(), []string{
 		"serve",
 		"--codex-token-file", "codex.json",
 	}, io.Discard, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "--grok-token-file is required") {
+	if err == nil || !strings.Contains(err.Error(), "at least two") {
 		t.Fatalf("error = %v", err)
 	}
 }

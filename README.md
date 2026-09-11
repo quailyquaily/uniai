@@ -96,12 +96,49 @@ Supported provider names:
 - `gemini` (native Gemini API)
 - `azure`
 - `anthropic`
+- `claude_oauth` (Claude subscription with a Claude Code HTTP request profile)
 - `bedrock`
 - `cloudflare`
 
 For custom OpenAI-compatible endpoints, use provider `openai` with `Config.OpenAIAPIBase`.
 
 For custom Anthropic-compatible endpoints, use provider `anthropic` with `Config.AnthropicAPIBase`. Set it to the provider's Messages API base, for example `https://api.anthropic.com/v1`; uniai appends `/messages`.
+
+### Claude subscriptions
+
+Use `claude_oauth` with a caller-owned `subscription.CredentialSource`:
+
+```go
+client := uniai.New(uniai.Config{
+    Provider:           "claude_oauth",
+    AnthropicModel:     "claude-sonnet-4-6",
+    ClaudeSubscription: source,
+})
+```
+
+The source supplies the Claude OAuth access token and account ID, and serializes
+refresh-token rotation. `subscription/claude` provides stateless PKCE login and
+refresh helpers. The library does not read credential files or start a CLI.
+
+`subscription/claude/claudecode` owns the HTTP compatibility profile: OAuth and
+CLI headers, an added Claude Code identity system block, and account-bound
+`metadata.user_id`. It preserves other system blocks and tool names, IDs, and
+arguments. Optional `Config.ClaudeCode` fields select the version, device ID, and
+conversation UUID; otherwise each Chat call gets a fresh session. This is not a
+complete client fingerprint or billing-signature implementation.
+
+The upstream URL is fixed. `AnthropicAPIKey` and `AnthropicAPIBase` are not used
+by `claude_oauth`; a missing subscription source is an error. A 401 triggers one
+refresh and retry; other upstream errors do not switch credentials or providers.
+`SubscriptionHTTPClient` can supply a custom transport. Redirects are disabled
+to keep credentials on the intended upstream.
+
+The [subscription proxy](cmd/subscriptionproxy/README.md) implements credential
+storage, browser login, automatic refresh, and OpenAI-compatible Chat Completions
+for Claude, including streaming and tool calls. Claude does not support the
+proxy's `/v1/responses` endpoint. Tests use a simulated upstream; live account
+compatibility has not been verified. `Usage.Cost`, when present, is an API-price
+estimate, not an additional subscription charge.
 
 ### `openai`, `openai_resp`, and `openai_codex`
 

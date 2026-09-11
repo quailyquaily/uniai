@@ -64,6 +64,16 @@ func TestDecodeChatCompletionRequest(t *testing.T) {
 	}
 }
 
+func TestDecodeChatCompletionFunctionToolChoice(t *testing.T) {
+	params, _, err := decodeChatCompletionRequest([]byte(`{"model":"claude-sonnet-4-6","tool_choice":{"type":"function","function":{"name":"lookup"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if params.ToolChoice.OfFunctionToolChoice == nil || params.ToolChoice.OfFunctionToolChoice.Function.Name != "lookup" {
+		t.Fatalf("tool choice=%+v", params.ToolChoice)
+	}
+}
+
 func TestDecodeResponsesRequestPreservesJSONNumbers(t *testing.T) {
 	payload, err := decodeResponsesRequest([]byte(`{"model":"gpt-5.4","max_output_tokens":9007199254740993}`))
 	if err != nil {
@@ -134,6 +144,88 @@ func TestChatCompletionsRejectsUnsupportedParametersBeforeCallingBackend(t *test
 				t.Fatal("backend was called")
 			}
 		})
+	}
+}
+
+func TestClaudeChatResponseFormatValidation(t *testing.T) {
+	formats := []struct {
+		name    string
+		field   string
+		allowed bool
+	}{
+		{name: "omitted", allowed: true},
+		{name: "text", field: `,"response_format":{"type":"text"}`, allowed: true},
+		{name: "json object", field: `,"response_format":{"type":"json_object"}`},
+		{name: "json schema", field: `,"response_format":{"type":"json_schema","json_schema":{"name":"answer","strict":true,"schema":{"type":"object","properties":{"ok":{"type":"boolean"}},"required":["ok"],"additionalProperties":false}}}`},
+		{name: "schema without name", field: `,"response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object"}}}`},
+	}
+	for _, routed := range []bool{false, true} {
+		for _, stream := range []bool{false, true} {
+			for _, tt := range formats {
+				t.Run(fmt.Sprintf("routed=%t/stream=%t/%s", routed, stream, tt.name), func(t *testing.T) {
+					called := false
+					runner := &fakeChatRunner{run: func(_ context.Context, opts ...chat.Option) (*chat.Result, error) {
+						called = true
+						req, err := chat.BuildRequest(opts...)
+						if err != nil {
+							return nil, err
+						}
+						if req.Options.OnStream != nil {
+							if err := req.Options.OnStream(chat.StreamEvent{Done: true}); err != nil {
+								return nil, err
+							}
+						}
+						return &chat.Result{Text: "ok"}, nil
+					}}
+					handler := newAPIHandler(runner, backendClaude, "claude-sonnet-4-6")
+					model := ""
+					if routed {
+						handler = newRoutedAPIHandler(map[string]chatRunner{backendClaude: runner}, "")
+						model = `,"model":"claude-sonnet-4-6"`
+					}
+					body := fmt.Sprintf(`{"messages":[{"role":"user","content":"hi"}],"stream":%t%s%s}`, stream, model, tt.field)
+					recorder := httptest.NewRecorder()
+					handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+					if tt.allowed {
+						if recorder.Code != http.StatusOK || !called {
+							t.Fatalf("status=%d called=%t body=%s", recorder.Code, called, recorder.Body.String())
+						}
+						return
+					}
+					if recorder.Code != http.StatusBadRequest || called || recorder.Header().Get("Content-Type") != "application/json" {
+						t.Fatalf("status=%d called=%t headers=%v body=%s", recorder.Code, called, recorder.Header(), recorder.Body.String())
+					}
+					if !strings.Contains(recorder.Body.String(), "response_format") || strings.Contains(recorder.Body.String(), "data:") {
+						t.Fatalf("expected parameter error before SSE starts: %s", recorder.Body.String())
+					}
+				})
+			}
+		}
+	}
+}
+
+func TestOtherSubscriptionBackendsPreserveResponseFormat(t *testing.T) {
+	for _, backend := range []string{backendCodex, backendXAI} {
+		for _, format := range []string{`{"type":"json_object"}`, `{"type":"json_schema","json_schema":{"name":"answer","strict":true,"schema":{"type":"object","properties":{},"additionalProperties":false}}}`} {
+			t.Run(backend+"/"+format, func(t *testing.T) {
+				runner := &fakeChatRunner{run: func(_ context.Context, opts ...chat.Option) (*chat.Result, error) {
+					req, err := chat.BuildRequest(opts...)
+					if err != nil {
+						return nil, err
+					}
+					if !req.Options.OpenAI.HasKey("response_format") {
+						t.Fatal("response_format was lost")
+					}
+					return &chat.Result{Text: "{}"}, nil
+				}}
+				recorder := httptest.NewRecorder()
+				body := `{"messages":[{"role":"user","content":"hi"}],"response_format":` + format + `}`
+				newAPIHandler(runner, backend, "model").ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+				if recorder.Code != http.StatusOK {
+					t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+				}
+			})
+		}
 	}
 }
 
@@ -399,7 +491,7 @@ func TestDualBackendRoutesChatCompletionsByModel(t *testing.T) {
 			return &chat.Result{ID: backend, Text: backend, Model: req.Model}, nil
 		}}
 	}
-	handler := newRoutedAPIHandler(newRunner(backendCodex), newRunner(backendXAI), "")
+	handler := newRoutedAPIHandler(map[string]chatRunner{backendCodex: newRunner(backendCodex), backendXAI: newRunner(backendXAI)}, "")
 
 	for _, model := range []string{"gpt-5.4", "grok-4.5"} {
 		recorder := httptest.NewRecorder()
@@ -428,7 +520,7 @@ func TestDualBackendRoutesResponsesByModel(t *testing.T) {
 			}}, nil
 		}}
 	}
-	handler := newRoutedAPIHandler(newRunner(backendCodex), newRunner(backendXAI), "")
+	handler := newRoutedAPIHandler(map[string]chatRunner{backendCodex: newRunner(backendCodex), backendXAI: newRunner(backendXAI)}, "")
 
 	for _, model := range []string{"o3", "GROK-4.5"} {
 		recorder := httptest.NewRecorder()
@@ -449,7 +541,7 @@ func TestDualBackendRequiresModelWithoutDefault(t *testing.T) {
 		called = true
 		return &chat.Result{}, nil
 	}}
-	handler := newRoutedAPIHandler(runner, runner, "")
+	handler := newRoutedAPIHandler(map[string]chatRunner{backendCodex: runner, backendXAI: runner}, "")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hi"}`)))
 	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "model is required") {
@@ -485,6 +577,59 @@ func TestChatCompletionsStreamingEndpoint(t *testing.T) {
 	if recorder.Code != http.StatusOK || !strings.Contains(body, `"object":"chat.completion.chunk"`) ||
 		!strings.Contains(body, `"content":"hel"`) || !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("status=%d body=%s", recorder.Code, body)
+	}
+}
+
+func TestChatCompletionsStreamingFinishReason(t *testing.T) {
+	for _, tt := range []struct {
+		name, reason, want string
+		tool               bool
+	}{
+		{name: "legacy text", want: "stop"},
+		{name: "legacy tool", want: "tool_calls", tool: true},
+		{name: "normal stop", reason: "stop", want: "stop"},
+		{name: "truncated text", reason: "length", want: "length"},
+		{name: "truncated tool", reason: "length", want: "length", tool: true},
+		{name: "tool use", reason: "tool_calls", want: "tool_calls", tool: true},
+		{name: "refusal", reason: "content_filter", want: "content_filter"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runner := &fakeChatRunner{run: func(_ context.Context, opts ...chat.Option) (*chat.Result, error) {
+				req, err := chat.BuildRequest(opts...)
+				if err != nil {
+					return nil, err
+				}
+				delta := chat.StreamEvent{Delta: "{"}
+				if tt.tool {
+					delta = chat.StreamEvent{ToolCallDelta: &chat.ToolCallDelta{ID: "call_1", Name: "lookup", ArgsChunk: `{"n":`}}
+				}
+				if err := req.Options.OnStream(delta); err != nil {
+					return nil, err
+				}
+				if err := req.Options.OnStream(chat.StreamEvent{Done: true, FinishReason: tt.reason}); err != nil {
+					return nil, err
+				}
+				return &chat.Result{FinishReason: tt.reason}, nil
+			}}
+			recorder := httptest.NewRecorder()
+			newAPIHandler(runner, backendClaude, "claude-sonnet-4-6").ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"messages":[{"role":"user","content":"hi"}],"stream":true}`)))
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status=%d body=%s", recorder.Code, recorder.Body.String())
+			}
+			var reasons []string
+			for _, event := range decodeSSEJSONEvents(t, recorder.Body.String()) {
+				choices, _ := event["choices"].([]any)
+				if len(choices) != 1 {
+					t.Fatalf("unexpected chunk: %+v", event)
+				}
+				if reason, ok := choices[0].(map[string]any)["finish_reason"].(string); ok {
+					reasons = append(reasons, reason)
+				}
+			}
+			if len(reasons) != 1 || reasons[0] != tt.want {
+				t.Fatalf("reasons=%v want=%s body=%s", reasons, tt.want, recorder.Body.String())
+			}
+		})
 	}
 }
 

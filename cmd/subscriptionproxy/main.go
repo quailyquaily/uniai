@@ -16,13 +16,16 @@ import (
 
 	"github.com/quailyquaily/uniai"
 	"github.com/quailyquaily/uniai/subscription"
+	claudeauth "github.com/quailyquaily/uniai/subscription/claude"
+	"github.com/quailyquaily/uniai/subscription/claude/claudecode"
 	codexauth "github.com/quailyquaily/uniai/subscription/codex"
 	xaiauth "github.com/quailyquaily/uniai/subscription/xai"
 )
 
 const (
-	backendCodex = "codex"
-	backendXAI   = "xai"
+	backendCodex  = "codex"
+	backendXAI    = "xai"
+	backendClaude = "claude"
 )
 
 func main() {
@@ -58,7 +61,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 func runLogin(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	backendFlag := fs.String("backend", "", "backend: codex|grok")
+	backendFlag := fs.String("backend", "", "backend: codex|grok|claude")
 	tokenFileFlag := fs.String("token-file", "", "credential file path (required)")
 	clientID := fs.String("client-id", "", "OAuth client ID (optional)")
 	scope := fs.String("scope", "", "xAI OAuth scopes (optional)")
@@ -77,6 +80,8 @@ func runLogin(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return err
 	}
 	switch backend {
+	case backendClaude:
+		return loginClaude(ctx, tokenPath, claudeauth.OAuthConfig{ClientID: strings.TrimSpace(*clientID)}, os.Stdin, stdout)
 	case backendCodex:
 		return loginCodex(ctx, tokenPath, codexauth.OAuthConfig{
 			ClientID: strings.TrimSpace(*clientID),
@@ -160,7 +165,7 @@ func loginXAI(ctx context.Context, tokenPath string, cfg xaiauth.OAuthConfig, st
 func runStatus(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	backendFlag := fs.String("backend", "", "backend: codex|grok")
+	backendFlag := fs.String("backend", "", "backend: codex|grok|claude")
 	tokenFileFlag := fs.String("token-file", "", "credential file path (required)")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -178,6 +183,18 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 	}
 	now := time.Now().UTC()
 	switch backend {
+	case backendClaude:
+		token, err := readTokenFile[claudeauth.Token](tokenPath)
+		if errors.Is(err, os.ErrNotExist) {
+			_, _ = fmt.Fprintln(stdout, "backend=claude logged_in=false")
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, _ = fmt.Fprintf(stdout, "backend=claude logged_in=%t access_usable=%t expires_at=%s account_id=%s\n",
+			strings.TrimSpace(token.AccessToken) != "" || strings.TrimSpace(token.RefreshToken) != "",
+			token.IsAccessTokenUsable(now), formatTime(token.ExpiresAt), token.AccountID)
 	case backendCodex:
 		token, err := readTokenFile[codexauth.Token](tokenPath)
 		if errors.Is(err, os.ErrNotExist) {
@@ -209,7 +226,7 @@ func runStatus(args []string, stdout, stderr io.Writer) error {
 func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("logout", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	backendFlag := fs.String("backend", "", "backend: codex|grok")
+	backendFlag := fs.String("backend", "", "backend: codex|grok|claude")
 	tokenFileFlag := fs.String("token-file", "", "credential file path (required)")
 	clientID := fs.String("client-id", "", "OAuth client ID (optional)")
 	if err := fs.Parse(args); err != nil {
@@ -246,11 +263,14 @@ func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer) err
 func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	backendFlag := fs.String("backend", "", "backend: codex|grok")
+	backendFlag := fs.String("backend", "", "backend: codex|grok|claude")
 	tokenFileFlag := fs.String("token-file", "", "credential file path (required)")
 	clientID := fs.String("client-id", "", "OAuth client ID used during login (optional)")
-	codexTokenFileFlag := fs.String("codex-token-file", "", "Codex credential file path (dual-backend mode)")
-	grokTokenFileFlag := fs.String("grok-token-file", "", "Grok credential file path (dual-backend mode)")
+	codexTokenFileFlag := fs.String("codex-token-file", "", "Codex credential file path (multi-backend mode)")
+	grokTokenFileFlag := fs.String("grok-token-file", "", "Grok credential file path (multi-backend mode)")
+	claudeTokenFileFlag := fs.String("claude-token-file", "", "Claude credential file path (multi-backend mode)")
+	claudeClientID := fs.String("claude-client-id", "", "Claude OAuth client ID used during login (optional)")
+	claudeCodeVersion := fs.String("claude-code-version", claudecode.DefaultVersion, "Claude Code HTTP compatibility profile version")
 	codexClientID := fs.String("codex-client-id", "", "Codex OAuth client ID used during login (optional)")
 	grokClientID := fs.String("grok-client-id", "", "Grok OAuth client ID used during login (optional)")
 	model := fs.String("model", "", "default upstream model")
@@ -269,55 +289,39 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		return fmt.Errorf("--refresh-interval must be greater than zero")
 	}
 
+	type backendSpec struct{ name, path, clientID string }
 	type configuredBackend struct {
 		name   string
 		source subscription.CredentialSource
 	}
+	var specs []backendSpec
 	var configured []configuredBackend
 	var handler http.Handler
 	var serverDescription string
 	defaultModel := strings.TrimSpace(*model)
-	dualMode := strings.TrimSpace(*codexTokenFileFlag) != "" ||
-		strings.TrimSpace(*grokTokenFileFlag) != "" ||
-		strings.TrimSpace(*codexClientID) != "" ||
-		strings.TrimSpace(*grokClientID) != ""
-
-	if dualMode {
+	multiMode := strings.TrimSpace(*codexTokenFileFlag) != "" || strings.TrimSpace(*grokTokenFileFlag) != "" ||
+		strings.TrimSpace(*claudeTokenFileFlag) != "" || strings.TrimSpace(*codexClientID) != "" ||
+		strings.TrimSpace(*grokClientID) != "" || strings.TrimSpace(*claudeClientID) != ""
+	if multiMode {
 		if strings.TrimSpace(*backendFlag) != "" || strings.TrimSpace(*tokenFileFlag) != "" || strings.TrimSpace(*clientID) != "" {
-			return fmt.Errorf("dual-backend options cannot be combined with --backend, --token-file, or --client-id")
+			return fmt.Errorf("multi-backend options cannot be combined with --backend, --token-file, or --client-id")
 		}
-		codexTokenPath := strings.TrimSpace(*codexTokenFileFlag)
-		if codexTokenPath == "" {
-			return fmt.Errorf("--codex-token-file is required in dual-backend mode")
+		for _, spec := range []backendSpec{
+			{backendCodex, *codexTokenFileFlag, *codexClientID},
+			{backendXAI, *grokTokenFileFlag, *grokClientID},
+			{backendClaude, *claudeTokenFileFlag, *claudeClientID},
+		} {
+			spec.path, spec.clientID = strings.TrimSpace(spec.path), strings.TrimSpace(spec.clientID)
+			if spec.path == "" {
+				if spec.clientID != "" {
+					return fmt.Errorf("--%s-token-file is required with --%s-client-id", displayBackend(spec.name), displayBackend(spec.name))
+				}
+				continue
+			}
+			specs = append(specs, spec)
 		}
-		grokTokenPath := strings.TrimSpace(*grokTokenFileFlag)
-		if grokTokenPath == "" {
-			return fmt.Errorf("--grok-token-file is required in dual-backend mode")
-		}
-		codexSource := newCodexCredentialSource(filepath.Clean(codexTokenPath), codexauth.OAuthConfig{
-			ClientID: strings.TrimSpace(*codexClientID),
-		})
-		grokSource := newXAICredentialSource(filepath.Clean(grokTokenPath), xaiauth.OAuthConfig{
-			ClientID: strings.TrimSpace(*grokClientID),
-		})
-		configured = []configuredBackend{
-			{name: backendCodex, source: codexSource},
-			{name: backendXAI, source: grokSource},
-		}
-		codexClient := uniai.New(uniai.Config{
-			Provider:          "openai_codex",
-			OpenAIModel:       defaultModel,
-			CodexSubscription: codexSource,
-		})
-		grokClient := uniai.New(uniai.Config{
-			Provider:        "xai_oauth",
-			OpenAIModel:     defaultModel,
-			XAISubscription: grokSource,
-		})
-		handler = newRoutedAPIHandler(codexClient, grokClient, defaultModel)
-		serverDescription = "backends=codex,grok"
-		if defaultModel != "" {
-			serverDescription += " default_model=" + defaultModel
+		if len(specs) < 2 {
+			return fmt.Errorf("multi-backend mode requires at least two token files; use --backend and --token-file for one backend")
 		}
 	} else {
 		backend, err := normalizeBackend(*backendFlag)
@@ -327,27 +331,55 @@ func runServe(ctx context.Context, args []string, stdout, stderr io.Writer) erro
 		if defaultModel == "" {
 			return fmt.Errorf("--model is required")
 		}
-		tokenPath, err := resolveTokenPath(*tokenFileFlag)
+		path, err := resolveTokenPath(*tokenFileFlag)
 		if err != nil {
 			return err
 		}
+		specs = []backendSpec{{backend, path, strings.TrimSpace(*clientID)}}
+	}
+	runners := make(map[string]chatRunner)
+	paths := make(map[string]bool)
+	var names []string
+	for _, spec := range specs {
+		path, err := filepath.Abs(spec.path)
+		if err != nil {
+			return err
+		}
+		if paths[path] {
+			return fmt.Errorf("backends require distinct token files")
+		}
+		paths[path] = true
 		var source subscription.CredentialSource
-		cfg := uniai.Config{OpenAIModel: defaultModel}
-		switch backend {
+		cfg := uniai.Config{OpenAIModel: defaultModel, AnthropicModel: defaultModel}
+		switch spec.name {
 		case backendCodex:
-			source = newCodexCredentialSource(tokenPath, codexauth.OAuthConfig{ClientID: strings.TrimSpace(*clientID)})
+			source = newCodexCredentialSource(path, codexauth.OAuthConfig{ClientID: spec.clientID})
 			cfg.Provider = "openai_codex"
 			cfg.CodexSubscription = source
 		case backendXAI:
-			source = newXAICredentialSource(tokenPath, xaiauth.OAuthConfig{ClientID: strings.TrimSpace(*clientID)})
+			source = newXAICredentialSource(path, xaiauth.OAuthConfig{ClientID: spec.clientID})
 			cfg.Provider = "xai_oauth"
 			cfg.XAISubscription = source
+		case backendClaude:
+			source = newClaudeCredentialSource(path, claudeauth.OAuthConfig{ClientID: spec.clientID})
+			cfg.Provider = "claude_oauth"
+			cfg.ClaudeSubscription = source
+			cfg.ClaudeCode = claudecode.Profile{Version: strings.TrimSpace(*claudeCodeVersion)}
 		}
-		configured = []configuredBackend{{name: backend, source: source}}
-		handler = newAPIHandler(uniai.New(cfg), backend, defaultModel)
-		serverDescription = fmt.Sprintf("backend=%s model=%s", displayBackend(backend), defaultModel)
+		configured = append(configured, configuredBackend{spec.name, source})
+		runners[spec.name] = uniai.New(cfg)
+		names = append(names, displayBackend(spec.name))
 	}
-
+	if multiMode {
+		handler = newRoutedAPIHandler(runners, defaultModel)
+		serverDescription = "backends=" + strings.Join(names, ",")
+		if defaultModel != "" {
+			serverDescription += " default_model=" + defaultModel
+		}
+	} else {
+		handler = newAPIHandler(runners[specs[0].name], specs[0].name, defaultModel)
+		serverDescription = fmt.Sprintf("backend=%s model=%s", displayBackend(specs[0].name), defaultModel)
+	}
 	for _, backend := range configured {
 		if _, err := backend.source.Credential(ctx); err != nil {
 			return fmt.Errorf("load or refresh %s credentials: %w", displayBackend(backend.name), err)
@@ -395,10 +427,12 @@ func normalizeBackend(value string) (string, error) {
 		return backendCodex, nil
 	case "grok", backendXAI:
 		return backendXAI, nil
+	case backendClaude:
+		return backendClaude, nil
 	case "":
-		return "", fmt.Errorf("--backend is required (codex or grok)")
+		return "", fmt.Errorf("--backend is required (codex, grok, or claude)")
 	default:
-		return "", fmt.Errorf("unsupported backend %q; use codex or grok", value)
+		return "", fmt.Errorf("unsupported backend %q; use codex, grok, or claude", value)
 	}
 }
 
@@ -443,9 +477,13 @@ func usageText() string {
 	return `usage: subscriptionproxy <command> [options]
 
 commands:
-  login   --backend codex|grok --token-file path
-  status  --backend codex|grok --token-file path
-  logout  --backend codex|grok --token-file path
-  serve   --backend codex|grok --token-file path --model model [--listen 127.0.0.1:8080]
-  serve   --codex-token-file path --grok-token-file path [--model default-model] [--listen 127.0.0.1:8080]`
+  login   --backend codex|grok|claude --token-file path
+  status  --backend codex|grok|claude --token-file path
+  logout  --backend codex|grok|claude --token-file path
+  serve   --backend codex|grok|claude --token-file path --model model [--listen 127.0.0.1:8080]
+  serve   --codex-token-file path --grok-token-file path [--claude-token-file path] [--model default-model]
+
+Multi-backend serve accepts any two or all three backend token-file options.
+Claude login uses browser authorization with a pasted code#state, not a device code.
+Claude serves /v1/chat/completions; /v1/responses is supported only by Codex and Grok.`
 }

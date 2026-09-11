@@ -436,6 +436,9 @@ func ToOpenAIResponse(result *chat.Result, model string) openai.ChatCompletion {
 }
 
 func finishReason(result *chat.Result) string {
+	if result != nil && result.FinishReason != "" {
+		return result.FinishReason
+	}
 	if result != nil && len(result.ToolCalls) > 0 {
 		return "tool_calls"
 	}

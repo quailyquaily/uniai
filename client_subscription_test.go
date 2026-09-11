@@ -90,6 +90,32 @@ func rootSubscriptionPricing() *PricingCatalog {
 	}}
 }
 
+func TestClientClaudeOAuthUsesSubscriptionNotAPIKey(t *testing.T) {
+	source := &rootCredentialSource{credential: subscription.Credential{AccessToken: "claude-token", AccountID: "account"}}
+	client := New(Config{
+		Provider: "claude_oauth", AnthropicModel: "claude-sonnet-4-6", AnthropicAPIKey: "wrong", AnthropicAPIBase: "https://other.example",
+		ClaudeSubscription: source,
+		SubscriptionHTTPClient: rootTestHTTPClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Host != "api.anthropic.com" || r.Header.Get("Authorization") != "Bearer claude-token" {
+				t.Fatalf("request = %s", r.URL)
+			}
+			fmt.Fprint(w, `{"model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":2,"output_tokens":1}}`)
+		})),
+	})
+	result, err := client.Chat(context.Background(), chat.WithMessages(chat.User("hello")))
+	if err != nil || result.Text != "ok" {
+		t.Fatalf("Chat = %+v, %v", result, err)
+	}
+	view := client.GetConfig()
+	if view.Model != "claude-sonnet-4-6" || view.APIBase != DefaultAnthropicAPIBase {
+		t.Fatalf("config = %+v", view)
+	}
+	client = New(Config{Provider: "claude_oauth", AnthropicAPIKey: "must-not-fall-back"})
+	if _, err := client.Chat(context.Background(), chat.WithMessages(chat.User("hello"))); err == nil {
+		t.Fatal("missing credential source accepted")
+	}
+}
+
 type rootCredentialSource struct {
 	credential subscription.Credential
 	calls      int

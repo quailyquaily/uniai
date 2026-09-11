@@ -59,6 +59,9 @@ func (c *Client) GetConfig() ClientConfigView {
 	case "anthropic":
 		out.Model = c.cfg.AnthropicModel
 		out.APIBase = c.cfg.AnthropicAPIBase
+	case "claude_oauth":
+		out.Model = c.cfg.AnthropicModel
+		out.APIBase = DefaultAnthropicAPIBase
 	case "bedrock":
 		out.Model = c.cfg.AwsBedrockModelArn
 		out.APIBase = c.cfg.AwsRegion

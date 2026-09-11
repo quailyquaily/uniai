@@ -192,7 +192,7 @@ func (c *Client) resolveChatRequestedModel(providerName string, req *chat.Reques
 		return c.cfg.OpenAIModel
 	case "azure":
 		return c.cfg.AzureOpenAIModel
-	case "anthropic":
+	case "anthropic", "claude_oauth":
 		return c.cfg.AnthropicModel
 	case "bedrock":
 		return c.cfg.AwsBedrockModelArn
@@ -316,6 +316,20 @@ func (c *Client) chatOnce(ctx context.Context, providerName string, req *chat.Re
 		if err != nil {
 			return nil, err
 		}
+		return p.Chat(ctx, req)
+
+	case "claude_oauth":
+		if c.cfg.ClaudeSubscription == nil {
+			return nil, fmt.Errorf("Claude subscription credential source is required")
+		}
+		p := anthropic.New(anthropic.Config{
+			CredentialSource: c.cfg.ClaudeSubscription,
+			DefaultModel:     c.cfg.AnthropicModel,
+			Headers:          c.cfg.ChatHeaders,
+			HTTPClient:       c.cfg.SubscriptionHTTPClient,
+			ClaudeCode:       c.cfg.ClaudeCode,
+			Debug:            c.cfg.Debug,
+		})
 		return p.Chat(ctx, req)
 
 	case "anthropic":

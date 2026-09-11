@@ -29,7 +29,8 @@ type chatCompletionParams openai.ChatCompletionNewParams
 
 type chatCompletionRequest struct {
 	chatCompletionParams
-	Stream bool `json:"stream"`
+	Stream         bool            `json:"stream"`
+	ToolChoiceJSON json.RawMessage `json:"tool_choice"`
 }
 
 type imageGenerationRequest struct {
@@ -61,12 +62,9 @@ func newAPIHandler(runner chatRunner, backend, defaultModel string) http.Handler
 	}
 }
 
-func newRoutedAPIHandler(codexRunner, xaiRunner chatRunner, defaultModel string) http.Handler {
+func newRoutedAPIHandler(runners map[string]chatRunner, defaultModel string) http.Handler {
 	return &apiHandler{
-		runners: map[string]chatRunner{
-			backendCodex: codexRunner,
-			backendXAI:   xaiRunner,
-		},
+		runners:      runners,
 		defaultModel: strings.TrimSpace(defaultModel),
 	}
 }
@@ -80,7 +78,13 @@ func (h *apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		backend := h.backend
 		if backend == "" {
-			backend = "codex,grok"
+			var names []string
+			for _, name := range []string{backendCodex, backendXAI, backendClaude} {
+				if h.runners[name] != nil {
+					names = append(names, displayBackend(name))
+				}
+			}
+			backend = strings.Join(names, ",")
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "backend": backend})
 	case "/v1/chat/completions":
@@ -126,12 +130,19 @@ func (h *apiHandler) handleChatCompletions(w http.ResponseWriter, r *http.Reques
 		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
 		return
 	}
+	if backend == backendClaude && (params.ResponseFormat.OfJSONObject != nil || params.ResponseFormat.OfJSONSchema != nil) {
+		writeOpenAIError(w, http.StatusBadRequest, "Claude subscriptions do not support response_format json_object or json_schema; omit response_format or use text", "invalid_request_error")
+		return
+	}
 	options, err := openaiadapter.ToChatOptions(params)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
 		return
 	}
 	options = append(options, chat.WithModel(model))
+	if backend == backendClaude && params.ParallelToolCalls.Valid() {
+		options = append(options, chat.WithAnthropicOptions(structs.JSONMap{"disable_parallel_tool_use": !params.ParallelToolCalls.Value}))
+	}
 	if backend == backendCodex && !chatParamsHaveInstructions(params) {
 		options = append(options, chat.WithMessages(chat.System(defaultInstructions)))
 	}
@@ -177,9 +188,12 @@ func (h *apiHandler) streamChatCompletions(w http.ResponseWriter, r *http.Reques
 	nextToolCallIndex := 0
 	options = append(options, chat.WithOnStream(func(event chat.StreamEvent) error {
 		if event.Done {
-			finishReason := "stop"
-			if toolCallsSeen {
-				finishReason = "tool_calls"
+			finishReason := event.FinishReason
+			if finishReason == "" {
+				finishReason = "stop"
+				if toolCallsSeen {
+					finishReason = "tool_calls"
+				}
 			}
 			chunk := map[string]any{
 				"id": id, "object": "chat.completion.chunk", "created": created, "model": model,
@@ -264,6 +278,10 @@ func (h *apiHandler) handleResponses(w http.ResponseWriter, r *http.Request) {
 	model, backend, runner, err := h.resolveTarget(requestedModel)
 	if err != nil {
 		writeOpenAIError(w, http.StatusBadRequest, err.Error(), "invalid_request_error")
+		return
+	}
+	if backend == backendClaude {
+		writeOpenAIError(w, http.StatusBadRequest, "Claude subscriptions support /v1/chat/completions, not /v1/responses", "invalid_request_error")
 		return
 	}
 	delete(payload, "model")
@@ -600,6 +618,27 @@ func decodeChatCompletionRequest(body []byte) (openai.ChatCompletionNewParams, b
 	if err := json.Unmarshal(body, &request); err != nil {
 		return openai.ChatCompletionNewParams{}, false, err
 	}
+	if raw := request.ToolChoiceJSON; len(raw) != 0 {
+		// The SDK's untagged tool-choice union can decode a named function as
+		// allowed_tools. Decode this discriminator explicitly to retain the
+		// caller's forced function selection.
+		var kind struct {
+			Type string `json:"type"`
+		}
+		_ = json.Unmarshal(raw, &kind)
+		if kind.Type == "function" {
+			var choice openai.ChatCompletionNamedToolChoiceParam
+			if err := json.Unmarshal(raw, &choice); err != nil {
+				return openai.ChatCompletionNewParams{}, false, err
+			}
+			if strings.TrimSpace(choice.Function.Name) == "" {
+				return openai.ChatCompletionNewParams{}, false, fmt.Errorf("tool_choice function name is required")
+			}
+			request.chatCompletionParams.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfFunctionToolChoice: &choice}
+		} else if err := json.Unmarshal(raw, &request.chatCompletionParams.ToolChoice); err != nil {
+			return openai.ChatCompletionNewParams{}, false, err
+		}
+	}
 	return openai.ChatCompletionNewParams(request.chatCompletionParams), request.Stream, nil
 }
 
@@ -626,6 +665,8 @@ func (h *apiHandler) resolveTarget(requestedModel string) (string, string, chatR
 		backend = backendCodex
 		if strings.HasPrefix(strings.ToLower(model), "grok-") {
 			backend = backendXAI
+		} else if strings.HasPrefix(strings.ToLower(model), "claude-") {
+			backend = backendClaude
 		}
 	}
 	runner := h.runners[backend]

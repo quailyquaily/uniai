@@ -6,6 +6,7 @@ import (
 	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/providers/anthropic"
 	"github.com/quailyquaily/uniai/subscription"
+	"github.com/quailyquaily/uniai/subscription/claude/claudecode"
 )
 
 // Config provides shared configuration for uniai clients.
@@ -32,7 +33,11 @@ type Config struct {
 	// inference requests; their upstream base URLs remain fixed.
 	CodexSubscription      subscription.CredentialSource
 	XAISubscription        subscription.CredentialSource
+	ClaudeSubscription     subscription.CredentialSource
 	SubscriptionHTTPClient *http.Client
+
+	// ClaudeCode controls the HTTP compatibility profile for claude_oauth only.
+	ClaudeCode claudecode.Profile
 
 	// Azure OpenAI
 	AzureOpenAIAPIKey     string
