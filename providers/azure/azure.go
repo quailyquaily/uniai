@@ -114,7 +114,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	diag.LogJSON(p.debug, debugFn, "azure.chat.request", params)
 
 	if req.Options.OnStream != nil {
-		result, err := oaicompat.ChatStream(ctx, &p.client, params, false, req.Options.OnStream)
+		result, err := oaicompat.ChatStream(ctx, &p.client, params, req.Options.ReasoningDetails, req.Options.OnStream)
 		if err != nil {
 			diag.LogError(p.debug, debugFn, "azure.chat.response", err)
 			return nil, err
@@ -132,7 +132,11 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	} else {
 		diag.LogJSON(p.debug, debugFn, "azure.chat.response", resp)
 	}
-	return toResult(resp), nil
+	result := toResult(resp)
+	if req.Options.ReasoningDetails {
+		oaicompat.ApplyReasoningDetails(result)
+	}
+	return result, nil
 }
 
 func applyAzureOptions(params *openai.ChatCompletionNewParams, azureOpts, openaiOpts structs.JSONMap) error {

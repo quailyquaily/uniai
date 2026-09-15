@@ -176,16 +176,9 @@ A small shared helper may be added only if two or more providers use identical i
 
 Without it, providers keep current behavior and do not emit normalized reasoning deltas.
 
-### OpenAI-compatible validation
+### OpenAI-compatible reasoning capture
 
-The previous OpenAI Chat Completions implementation rejected `WithReasoningDetails()` before it could reach DeepSeek or Kimi, even though the shared response parser already read their `reasoning_content`.
-
-This feature must distinguish the resolved provider route:
-
-- official OpenAI Chat Completions continues to reject `WithReasoningDetails()`
-- `deepseek` accepts it and uses it as an output-normalization switch
-- Kimi models accept it and use it as an output-normalization switch
-- other compatible routes continue to reject it until their response contract is verified
+`WithReasoningDetails()` is an output-normalization switch for OpenAI Chat Completions, compatible endpoints, and Azure. Capture returned `reasoning_content` regardless of provider route or model name, including custom aliases. Responses without reasoning fields still succeed with no normalized reasoning output.
 
 The compatible adapter must not add an upstream request field merely to expose `reasoning_content`; it parses the field when the upstream returns it.
 
@@ -356,7 +349,7 @@ Tests:
 Add:
 
 - compatible `reasoning_content` callbacks and final normalization
-- resolved-provider validation for `WithReasoningDetails()`
+- response-field-based capture for `WithReasoningDetails()`, including custom model aliases
 - OpenAI Responses summary and reasoning text callbacks
 
 Tests:

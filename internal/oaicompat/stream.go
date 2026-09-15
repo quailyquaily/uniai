@@ -1,6 +1,7 @@
 package oaicompat
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/http"
@@ -24,29 +25,60 @@ func ChatStream(
 	opts ...option.RequestOption,
 ) (*chat.Result, error) {
 	ensureChatCompletionStreamIncludesUsage(&params)
-	stream := client.Chat.Completions.NewStreaming(ctx, params, opts...)
-	return consumeChatCompletionStream(stream, reasoningDetails, onStream)
+	var resp *http.Response
+	opts = append(opts, option.WithJSONSet("stream", true))
+	if err := client.Execute(ctx, http.MethodPost, "chat/completions", params, &resp, opts...); err != nil {
+		return nil, err
+	}
+	return ChatStreamFromResponse(resp, reasoningDetails, onStream)
+}
+
+// The SDK consumes past [DONE] until EOF. Stop at the protocol boundary and
+// retain it so endpoints that omit finish_reason can still signal completion.
+type chatCompletionDecoder struct {
+	ssestream.Decoder
+	done bool
+}
+
+func (d *chatCompletionDecoder) Next() bool {
+	if d.done {
+		return false
+	}
+	for d.Decoder.Next() {
+		data := bytes.TrimSpace(d.Event().Data)
+		if len(data) == 0 {
+			continue
+		}
+		if bytes.Equal(data, []byte("[DONE]")) {
+			d.done = true
+			return false
+		}
+		return true
+	}
+	return false
 }
 
 func ChatStreamFromResponse(resp *http.Response, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
 	if resp == nil || resp.Body == nil {
 		return nil, fmt.Errorf("openai chat stream response is empty")
 	}
-	stream := ssestream.NewStream[openai.ChatCompletionChunk](ssestream.NewDecoder(resp), nil)
-	return consumeChatCompletionStream(stream, reasoningDetails, onStream)
-}
-
-func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionChunk], reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
+	decoder := &chatCompletionDecoder{Decoder: ssestream.NewDecoder(resp)}
+	stream := ssestream.NewStream[openai.ChatCompletionChunk](decoder, nil)
+	defer stream.Close()
 	acc := openai.ChatCompletionAccumulator{}
 	toolCalls := streamToolCallAccumulator{}
 	var finalUsage *chat.Usage
 	var reasoningContent strings.Builder
 	rawChunks := make([]openai.ChatCompletionChunk, 0)
+	finishedChoices := map[int64]bool{}
 
 	for stream.Next() {
 		chunk := stream.Current()
 		rawChunks = append(rawChunks, chunk)
 		acc.AddChunk(sanitizeChatCompletionChunkForAccumulator(chunk))
+		for _, choice := range chunk.Choices {
+			finishedChoices[choice.Index] = finishedChoices[choice.Index] || choice.FinishReason != ""
+		}
 		if chunk.JSON.Usage.Valid() {
 			usage := ChatCompletionUsageToChatUsage(chunk.Usage)
 			finalUsage = &usage
@@ -67,7 +99,6 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 					},
 					Raw: chunk,
 				}); err != nil {
-					stream.Close()
 					return nil, err
 				}
 			}
@@ -80,7 +111,6 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 				Delta: delta,
 				Raw:   chunk,
 			}); err != nil {
-				stream.Close()
 				return nil, err
 			}
 		}
@@ -92,7 +122,6 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 					ToolCallDelta: &toolCallDelta,
 					Raw:           chunk,
 				}); err != nil {
-					stream.Close()
 					return nil, err
 				}
 			}
@@ -102,9 +131,17 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 	if err := stream.Err(); err != nil {
 		return nil, err
 	}
+	if !decoder.done {
+		finished := len(finishedChoices) > 0
+		for _, complete := range finishedChoices {
+			finished = finished && complete
+		}
+		if !finished {
+			return nil, fmt.Errorf("openai chat stream ended without finish_reason or [DONE]")
+		}
+	}
 
-	completion := acc.ChatCompletion
-	result := accumulatedToResult(&completion)
+	result := ChatCompletionToResult(&acc.ChatCompletion)
 	applyStreamToolCallsToResult(result, toolCalls.toolCalls())
 	applyReasoningContentToResult(result, reasoningContent.String())
 	if reasoningDetails {
@@ -117,9 +154,10 @@ func consumeChatCompletionStream(stream *ssestream.Stream[openai.ChatCompletionC
 
 	if onStream != nil {
 		if err := onStream(chat.StreamEvent{
-			Done:  true,
-			Usage: &result.Usage,
-			Raw:   rawChunks,
+			FinishReason: result.FinishReason,
+			Done:         true,
+			Usage:        &result.Usage,
+			Raw:          rawChunks,
 		}); err != nil {
 			return nil, err
 		}
@@ -140,10 +178,6 @@ func sanitizeChatCompletionChunkForAccumulator(chunk openai.ChatCompletionChunk)
 		}
 	}
 	return chunk
-}
-
-func accumulatedToResult(resp *openai.ChatCompletion) *chat.Result {
-	return ChatCompletionToResult(resp)
 }
 
 func ensureChatCompletionStreamIncludesUsage(params *openai.ChatCompletionNewParams) {

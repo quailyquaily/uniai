@@ -631,27 +631,7 @@ func TestBuildParamsRejectsReasoningBudget(t *testing.T) {
 	}
 }
 
-func TestBuildParamsRejectsReasoningDetails(t *testing.T) {
-	req := &chat.Request{
-		Model: "gpt-5",
-		Messages: []chat.Message{
-			chat.User("hello"),
-		},
-		Options: chat.Options{
-			ReasoningDetails: true,
-		},
-	}
-
-	_, err := buildParams(req, "")
-	if err == nil {
-		t.Fatalf("expected error")
-	}
-	if got := err.Error(); got == "" || !strings.Contains(got, "Responses API") || !strings.Contains(got, "not supported") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBuildParamsAllowsReasoningDetailsForCompatibleThinkingModels(t *testing.T) {
+func TestBuildParamsAllowsReasoningDetailsRegardlessOfModel(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider string
@@ -661,6 +641,9 @@ func TestBuildParamsAllowsReasoningDetailsForCompatibleThinkingModels(t *testing
 		{name: "DeepSeek model", provider: "openai", model: "deepseek-reasoner"},
 		{name: "Kimi model", provider: "openai", model: "moonshotai/kimi-k2.6"},
 		{name: "Kimi K3", provider: "openai", model: "kimi-k3"},
+		{name: "OpenAI model", provider: "openai", model: "gpt-5.4"},
+		{name: "custom model", provider: "openai", model: "deployment-alias"},
+		{name: "compatible provider", provider: "xai", model: "deployment-alias"},
 	}
 
 	for _, tt := range tests {

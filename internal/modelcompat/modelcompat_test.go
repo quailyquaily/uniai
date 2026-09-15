@@ -21,25 +21,6 @@ func TestKimiUsesFixedSampling(t *testing.T) {
 	}
 }
 
-func TestOpenAIChatCompletionReasoningDetailsSupported(t *testing.T) {
-	for _, tc := range []struct {
-		provider string
-		model    string
-	}{
-		{provider: "deepseek", model: "custom-model"},
-		{provider: "openai", model: "deepseek-reasoner"},
-		{provider: "openai", model: "moonshotai/kimi-k2.6"},
-		{provider: "openai", model: "kimi-k3"},
-	} {
-		if !OpenAIChatCompletionReasoningDetailsSupported(tc.provider, tc.model) {
-			t.Fatalf("expected provider %q model %q to support reasoning details", tc.provider, tc.model)
-		}
-	}
-	if OpenAIChatCompletionReasoningDetailsSupported("openai", "gpt-5.4") {
-		t.Fatalf("official OpenAI Chat Completions must reject reasoning details")
-	}
-}
-
 func TestAnthropicSonnet5UsesAdaptiveThinkingWithoutSampling(t *testing.T) {
 	model := "claude-sonnet-5"
 	if !AnthropicPrefersReasoningEffort(model) {

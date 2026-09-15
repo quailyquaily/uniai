@@ -43,14 +43,22 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 		parts = append(parts, chat.TextPart(text))
 	}
 
+	finishReason := ""
+	if len(resp.Choices) > 0 {
+		finishReason = string(resp.Choices[0].FinishReason)
+		if finishReason == "function_call" {
+			finishReason = "tool_calls"
+		}
+	}
 	return &chat.Result{
-		Text:      text,
-		Parts:     parts,
-		Model:     resp.Model,
-		Messages:  messages,
-		ToolCalls: toolCalls,
-		Usage:     ChatCompletionUsageToChatUsage(resp.Usage),
-		Raw:       resp,
+		FinishReason: finishReason,
+		Text:         text,
+		Parts:        parts,
+		Model:        resp.Model,
+		Messages:     messages,
+		ToolCalls:    toolCalls,
+		Usage:        ChatCompletionUsageToChatUsage(resp.Usage),
+		Raw:          resp,
 	}
 }
 

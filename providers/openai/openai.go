@@ -128,9 +128,6 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if req.Options.ReasoningBudget != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider does not support reasoning budget tokens; use reasoning effort")
 	}
-	if req.Options.ReasoningDetails && !modelcompat.OpenAIChatCompletionReasoningDetailsSupported(req.Provider, model) {
-		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider reasoning details require a Responses API path; chat completions are not supported yet")
-	}
 	var cacheControlErr error
 	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
 		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai")

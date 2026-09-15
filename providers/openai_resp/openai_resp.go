@@ -1140,6 +1140,9 @@ func toResult(resp *responses.Response) *chat.Result {
 		Usage: usage,
 		Raw:   resp,
 	}
+	if resp.Status == responses.ResponseStatusCompleted {
+		result.FinishReason = "stop"
+	}
 
 	var textMessages []chat.Message
 	var toolCalls []chat.ToolCall
@@ -1147,14 +1150,28 @@ func toResult(resp *responses.Response) *chat.Result {
 	for _, item := range resp.Output {
 		switch out := item.AsAny().(type) {
 		case responses.ResponseOutputMessage:
-			text, parts := extractOutputMessage(out)
+			var text strings.Builder
+			parts := make([]chat.Part, 0, len(out.Content))
+			for _, content := range out.Content {
+				switch content := content.AsAny().(type) {
+				case responses.ResponseOutputText:
+					if content.Text != "" {
+						text.WriteString(content.Text)
+						parts = append(parts, chat.TextPart(content.Text))
+					}
+				case responses.ResponseOutputRefusal:
+					if resp.Status == responses.ResponseStatusCompleted {
+						result.FinishReason = "content_filter"
+					}
+				}
+			}
 			if len(parts) > 0 {
 				result.Parts = append(result.Parts, parts...)
 			}
-			if strings.TrimSpace(text) != "" {
+			if strings.TrimSpace(text.String()) != "" {
 				textMessages = append(textMessages, chat.Message{
 					Role:    chat.RoleAssistant,
-					Content: text,
+					Content: text.String(),
 					Parts:   parts,
 				})
 			}
@@ -1195,6 +1212,9 @@ func toResult(resp *responses.Response) *chat.Result {
 
 	if len(toolCalls) > 0 {
 		result.ToolCalls = toolCalls
+		if result.FinishReason == "stop" {
+			result.FinishReason = "tool_calls"
+		}
 		textMessages = append(textMessages, chat.Message{
 			Role:      chat.RoleAssistant,
 			ToolCalls: append([]chat.ToolCall{}, toolCalls...),
@@ -1249,22 +1269,6 @@ func responseUsageToChatUsage(usage responses.ResponseUsage) chat.Usage {
 			CacheCreationInputTokens: inputDetails.CacheWriteTokens,
 		},
 	}
-}
-
-func extractOutputMessage(msg responses.ResponseOutputMessage) (string, []chat.Part) {
-	var text strings.Builder
-	parts := make([]chat.Part, 0, len(msg.Content))
-	for _, content := range msg.Content {
-		switch item := content.AsAny().(type) {
-		case responses.ResponseOutputText:
-			if item.Text == "" {
-				continue
-			}
-			text.WriteString(item.Text)
-			parts = append(parts, chat.TextPart(item.Text))
-		}
-	}
-	return text.String(), parts
 }
 
 func responseStatusError(resp *responses.Response) error {
@@ -1368,6 +1372,7 @@ func streamChatFromResponse(resp *http.Response, reasoningDetails bool) (*chat.R
 }
 
 func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
+	defer stream.Close()
 	state := &responseStreamState{
 		toolCalls: map[int]streamToolCallState{},
 	}
@@ -1376,8 +1381,10 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 		ev := stream.Current()
 		state.events++
 		if err := processStreamEvent(ev, state, reasoningDetails, onStream); err != nil {
-			stream.Close()
 			return nil, err
+		}
+		if state.completed != nil {
+			break
 		}
 	}
 	if err := stream.Err(); err != nil {
@@ -1389,9 +1396,10 @@ func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEven
 	}
 	if onStream != nil {
 		if err := onStream(chat.StreamEvent{
-			Done:  true,
-			Usage: &result.Usage,
-			Raw:   state.completed,
+			FinishReason: result.FinishReason,
+			Done:         true,
+			Usage:        &result.Usage,
+			Raw:          state.completed,
 		}); err != nil {
 			return nil, err
 		}
@@ -1407,6 +1415,8 @@ func processStreamEvent(ev responses.ResponseStreamEventUnion, state *responseSt
 		return onStream(chat.StreamEvent{Raw: ev})
 	}
 	switch event := ev.AsAny().(type) {
+	case responses.ResponseErrorEvent:
+		return fmt.Errorf("openai responses stream error: %s", event.Message)
 	case responses.ResponseOutputItemAddedEvent:
 		registerStreamOutputItem(event.Item, int(event.OutputIndex), state)
 		return emitRaw()
@@ -1556,6 +1566,9 @@ func finalizeStreamResult(state *responseStreamState) (*chat.Result, error) {
 	if fallback := accumulatedStreamToolCalls(state); len(fallback) > 0 {
 		result.ToolCalls = mergeStreamToolCalls(result.ToolCalls, fallback)
 		ensureResultToolCallMessage(result)
+		if result.FinishReason == "stop" {
+			result.FinishReason = "tool_calls"
+		}
 	}
 	return result, nil
 }

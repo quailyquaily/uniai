@@ -31,14 +31,6 @@ func KimiUsesFixedSampling(model string) bool {
 		modelHasPrefix(model, "kimi-k2-5")
 }
 
-func OpenAIChatCompletionReasoningDetailsSupported(provider, model string) bool {
-	if strings.EqualFold(strings.TrimSpace(provider), "deepseek") {
-		return true
-	}
-	model = Normalize(model)
-	return modelHasPrefix(model, "deepseek") || modelHasPrefix(model, "kimi")
-}
-
 func AnthropicDropsSamplingParameters(model string) bool {
 	model = strings.ToLower(model)
 	return strings.Contains(model, "fable-5") ||

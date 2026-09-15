@@ -390,19 +390,12 @@ func applyBedrockReasoningOptions(payload map[string]any, model string, opts cha
 		payload["output_config"] = map[string]any{"effort": string(*opts.ReasoningEffort)}
 	}
 
-	if opts.ReasoningDetails {
-		switch {
-		case modelcompat.AnthropicPrefersReasoningEffort(model):
-			thinking := map[string]any{"type": "adaptive"}
-			if modelcompat.AnthropicSummarizesThinkingDetails(model) {
-				thinking["display"] = "summarized"
-			}
-			payload["thinking"] = thinking
-		case payload["thinking"] != nil:
-			// explicit budget already set
-		default:
-			return fmt.Errorf("bedrock anthropic model %q requires WithReasoningBudgetTokens(...) to return reasoning details", model)
+	if opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model) {
+		thinking := map[string]any{"type": "adaptive"}
+		if modelcompat.AnthropicSummarizesThinkingDetails(model) {
+			thinking["display"] = "summarized"
 		}
+		payload["thinking"] = thinking
 	}
 
 	return nil

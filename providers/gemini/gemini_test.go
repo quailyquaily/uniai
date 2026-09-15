@@ -456,6 +456,7 @@ func TestChatStreamsThoughtTextAndToolCalls(t *testing.T) {
 			}}}},
 		})
 		writeGeminiSSE(t, w, map[string]any{
+			"candidates": []any{map[string]any{"finishReason": "STOP"}},
 			"usageMetadata": map[string]any{
 				"promptTokenCount":        3,
 				"cachedContentTokenCount": 1,

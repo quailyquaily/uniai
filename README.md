@@ -154,7 +154,7 @@ Practical differences:
 - `openai_resp` uses `/v1/responses`
 - `openai_codex` also uses `/v1/responses`, with the same response and streaming parser as `openai_resp`
 - `openai` is the safer choice for Chat Completions-compatible endpoints such as DeepSeek, xAI, Groq, Meta, or custom compatible bases
-- `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and `WithReasoningDetails()`
+- `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and requesting reasoning summaries
 - `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
 - `openai_codex` omits `temperature`, token limits, reasoning budget, and explicit prompt-cache settings; it preserves reasoning effort
 - In JSON object mode, `openai_codex` sends `text.format.type=json_object` and adds a user input instruction containing `JSON` when the input messages do not contain it
@@ -193,11 +193,12 @@ Behavior notes:
 - `WithReasoningEffort(...)` controls reasoning level when the selected provider/model supports effort-style controls.
 - `WithReasoningBudgetTokens(...)` controls reasoning token budget when the selected provider/model supports budget-style controls.
 - `WithReasoningDetails()` opts in to retrieving provider reasoning details into `resp.Reasoning`.
+- Reasoning details are read from returned protocol fields without a model-name allowlist. A response without reasoning fields still succeeds and leaves `resp.Reasoning` empty. Effort and budget request mappings remain provider-specific.
 
 Provider guidance:
 
-- Official OpenAI Chat Completions (`openai`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is not supported on this path.
-- DeepSeek and Kimi through the OpenAI-compatible provider: `WithReasoningDetails()` captures returned `reasoning_content`.
+- OpenAI Chat Completions (`openai`) and compatible endpoints: `WithReasoningDetails()` captures returned `reasoning_content`, including for custom model names. It does not add a reasoning request field or require the server to return reasoning.
+- Azure: `WithReasoningDetails()` captures returned `reasoning_content` in blocking and streaming responses.
 - OpenAI Responses (`openai_resp`): use `WithReasoningEffort(...)`. `WithReasoningDetails()` is supported. For `gpt-5.6-luna`, normalized reasoning details are provider-generated summaries, not raw chain-of-thought.
 - OpenAI Codex (`openai_codex`): use `WithReasoningEffort(...)`; `WithReasoningBudgetTokens(...)` is ignored. Reasoning output and streaming use the `openai_resp` parser.
 - Gemini 3.x: use `WithReasoningEffort(...)`.
@@ -205,6 +206,7 @@ Provider guidance:
 - Anthropic Claude Sonnet 5 and Claude 4.6 adaptive-thinking models: use
   `WithReasoningEffort(...)`.
 - Anthropic manual-thinking models: use `WithReasoningBudgetTokens(...)`.
+- Gemini, Anthropic, and Bedrock also accept `WithReasoningDetails()` alone for custom model names. Gemini requests thought summaries; Anthropic and Bedrock capture returned thinking blocks without inventing a manual budget. Details may be absent if the server does not produce them.
 
 Example:
 
@@ -400,7 +402,11 @@ resp, err := client.Chat(ctx,
 Use the [stream reasoning test](cmd/stream/README.md) to verify live
 `ReasoningDelta` events with API keys supplied through environment variables.
 
-Text streaming is implemented for OpenAI (`openai`, `openai_resp`, `openai_codex`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, and Bedrock. Cloudflare ignores streaming and falls back to blocking. This list does not mean that every provider or model exposes readable reasoning.
+Text streaming is implemented for OpenAI (`openai`, `openai_resp`, `openai_codex`), OpenAI-compatible (`deepseek`, `xai`, `groq`, `meta`), Sakana (`sakana`), Azure, Anthropic, Gemini, and Bedrock. Cloudflare ignores streaming and falls back to blocking. This list does not mean that every provider or model exposes readable reasoning.
+
+For OpenAI Chat Completions, Responses, Anthropic, and Gemini, stream errors and premature EOF return an error without a final `Done` event. Completion is checked against the protocol: Chat Completions accepts `[DONE]` or finish reasons for all received choices, Responses requires a terminal response, Anthropic requires `message_stop`, and Gemini requires a finish reason or prompt-block feedback. Chat Completions and Gemini preserve trailing usage chunks before the stream ends.
+
+`Result.FinishReason` and the final event's `FinishReason` distinguish `stop`, `length`, `tool_calls`, and `content_filter` when the provider reports them. `Done` alone does not mean that the answer is complete: token limits and filtering can also end a response. Responses API `failed` and `incomplete` states continue to return errors. A compatible Chat Completions endpoint that sends `[DONE]` without a finish reason leaves `FinishReason` empty.
 
 The bundled live reasoning test contains cases for DeepSeek V4 Pro, Kimi K3, Claude Sonnet 5, and GPT-5.6 Luna. A case passes only when its callback receives a non-empty `ReasoningDelta` and a final `Done` event.
 

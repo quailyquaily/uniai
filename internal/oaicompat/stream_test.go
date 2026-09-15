@@ -32,7 +32,7 @@ func TestEnsureChatCompletionStreamIncludesUsage(t *testing.T) {
 	}
 }
 
-func TestAccumulatedToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
+func TestChatCompletionToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
 	var resp openai.ChatCompletion
 	if err := json.Unmarshal([]byte(`{
 		"model": "kimi-k2.6",
@@ -54,7 +54,7 @@ func TestAccumulatedToResultReadsTopLevelCachedTokensFallback(t *testing.T) {
 		t.Fatalf("unmarshal response: %v", err)
 	}
 
-	result := accumulatedToResult(&resp)
+	result := ChatCompletionToResult(&resp)
 	if result.Usage.Cache.CachedInputTokens != 7 {
 		t.Fatalf("unexpected cache usage: %#v", result.Usage.Cache)
 	}

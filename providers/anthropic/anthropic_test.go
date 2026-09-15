@@ -351,7 +351,7 @@ func TestBuildRequestRejectsReasoningBudgetOnOpus47(t *testing.T) {
 	}
 }
 
-func TestBuildRequestRejectsReasoningDetailsWithoutBudgetOnManualModel(t *testing.T) {
+func TestBuildRequestAllowsReasoningDetailsWithoutBudgetOnManualModel(t *testing.T) {
 	req := &chat.Request{
 		Model: "claude-opus-4-5-20250929",
 		Messages: []chat.Message{
@@ -362,12 +362,12 @@ func TestBuildRequestRejectsReasoningDetailsWithoutBudgetOnManualModel(t *testin
 		},
 	}
 
-	_, err := buildRequest(req, req.Model)
-	if err == nil {
-		t.Fatalf("expected error")
+	body, err := buildRequest(req, req.Model)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
 	}
-	if !strings.Contains(err.Error(), "WithReasoningBudgetTokens") {
-		t.Fatalf("unexpected error: %v", err)
+	if body.Thinking != nil {
+		t.Fatalf("details alone must not invent a manual thinking budget: %#v", body.Thinking)
 	}
 }
 

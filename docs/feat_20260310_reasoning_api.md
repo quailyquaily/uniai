@@ -6,11 +6,12 @@
 - Scope: `chat` API only
 - Target providers: `openai`, `gemini`, `anthropic`
 
-## Current Implementation Note (2026-08-02)
+## Current Implementation Note (2026-09-15)
 
 The public reasoning API proposed here is implemented. The original design history remains in this document; current provider behavior differs in these places:
 
-- `openai` still uses Chat Completions and rejects `WithReasoningDetails()`.
+- `openai` and Azure normalize returned `reasoning_content` when `WithReasoningDetails()` is enabled, regardless of model name.
+- Reasoning detail capture uses response fields, without a model-name allowlist. Gemini accepts details-only requests for any model name; Anthropic and Bedrock capture returned thinking blocks even when no manual budget was supplied. A response without reasoning fields still succeeds.
 - `openai_resp` uses the Responses API and normalizes supported reasoning output. GPT-5.6 Luna uses this route and exposes provider-generated reasoning summaries.
 - Claude Sonnet 5 uses adaptive thinking controlled by `WithReasoningEffort(...)`; it does not use a manual thinking budget.
 - Streaming reasoning uses the existing `WithOnStream(...)` callback and `StreamEvent.ReasoningDelta`. See [Streaming Reasoning Capture](feat/feat_20260802_streaming_reasoning_capture.md).
@@ -135,8 +136,8 @@ Examples:
 
 - `WithReasoningBudgetTokens(...)` on OpenAI
 - unsupported `ReasoningEffort` value for a specific Gemini model family
-- `WithReasoningDetails()` on an OpenAI code path that still uses Chat Completions instead of Responses
-- `WithReasoningDetails()` on an Anthropic model that requires manual thinking, when no thinking budget is available
+
+`WithReasoningDetails()` alone must not be rejected based on a model name or a missing manual budget. Normalize the reasoning fields the provider returns; leave the reasoning result empty when none are present.
 
 ## Provider Guidance
 
@@ -144,7 +145,7 @@ The following guidance is what the docs and API comments should communicate clea
 
 | Provider | Preferred control | Secondary control | `WithReasoningDetails()` | Notes |
 | --- | --- | --- | --- | --- |
-| OpenAI Chat Completions (`openai`) | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Unsupported | The Chat Completions route does not expose normalized reasoning details |
+| OpenAI Chat Completions (`openai`) | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Captures returned `reasoning_content` | Available for any model name; no reasoning request field is added |
 | OpenAI Responses (`openai_resp`) | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported | Supported via reasoning summaries | GPT-5.6 Luna uses this route; raw chain-of-thought is not exposed |
 | Gemini 3.x | `WithReasoningEffort` | `WithReasoningBudgetTokens` unsupported in the current native path | Supported via thought summaries | Native control is level-based |
 | Gemini 2.5 | `WithReasoningBudgetTokens` | `WithReasoningEffort` as compatibility mapping only | Supported via thought summaries | Native control is token-budget-based |
@@ -173,7 +174,7 @@ Output behavior:
 
 Provider routes:
 
-- `providers/openai` uses Chat Completions and rejects `WithReasoningDetails()`
+- `providers/openai` uses Chat Completions and captures returned `reasoning_content` when `WithReasoningDetails()` is enabled, regardless of model name
 - `providers/openai_resp` uses Responses and supports normalized reasoning summaries
 - GPT-5.6 Luna should use `openai_resp`; its readable reasoning output is a summary, not raw chain-of-thought
 
@@ -239,7 +240,7 @@ Output behavior:
 
 - `WithReasoningDetails()` means `uniai` should try to retrieve Claude thinking blocks
 - if the selected model supports adaptive thinking, the provider may enable the appropriate thinking mode automatically when output is requested
-- if the selected model requires manual thinking and no budget is available, request building should fail explicitly
+- without a manual budget, capture any returned thinking blocks; do not reject the request or invent a budget
 
 Normalization rules:
 
@@ -377,10 +378,10 @@ This means:
 
 Allowed, but provider-specific behavior applies:
 
-- OpenAI Chat Completions (`openai`): unsupported
+- OpenAI Chat Completions (`openai`) and Azure: capture returned `reasoning_content` without adding a reasoning request field
 - OpenAI Responses (`openai_resp`): request reasoning summaries with provider defaults
 - Gemini: enable thought summaries with provider defaults
-- Anthropic: enable appropriate thinking mode if the model allows it; otherwise require explicit budget
+- Anthropic and Bedrock: enable adaptive thinking for known adaptive models; otherwise capture returned thinking blocks without adding a manual budget
 
 ### `WithReasoningEffort(...)` and `WithReasoningBudgetTokens(...)` together
 

@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -13,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/lyricat/goutils/structs"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
@@ -116,10 +116,15 @@ type geminiThinkingConfig struct {
 }
 
 type geminiResponse struct {
-	Candidates []geminiCandidate `json:"candidates,omitempty"`
-	Usage      geminiUsage       `json:"usageMetadata,omitempty"`
-	Model      string            `json:"modelVersion,omitempty"`
-	Error      *geminiError      `json:"error,omitempty"`
+	Candidates     []geminiCandidate     `json:"candidates,omitempty"`
+	Usage          geminiUsage           `json:"usageMetadata,omitempty"`
+	Model          string                `json:"modelVersion,omitempty"`
+	Error          *geminiError          `json:"error,omitempty"`
+	PromptFeedback *geminiPromptFeedback `json:"promptFeedback,omitempty"`
+}
+
+type geminiPromptFeedback struct {
+	BlockReason string `json:"blockReason,omitempty"`
 }
 
 type geminiCandidate struct {
@@ -236,8 +241,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 }
 
 func (p *Provider) chatStream(body io.Reader, fallbackModel string, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	decoder := ssestream.NewDecoder(&http.Response{Body: io.NopCloser(body)})
 
 	var (
 		parts                []geminiPart
@@ -248,16 +252,17 @@ func (p *Provider) chatStream(body io.Reader, fallbackModel string, reasoningDet
 		activeThoughtPart    = -1
 		activeReasoningIndex = -1
 		nextReasoningIndex   int
+		finishReason         string
+		promptFeedback       *geminiPromptFeedback
 	)
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
+	for decoder.Next() {
+		data := bytes.TrimSpace(decoder.Event().Data)
+		if len(data) == 0 {
 			continue
 		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "" || data == "[DONE]" {
-			continue
+		if string(data) == "[DONE]" {
+			break
 		}
 
 		raw := json.RawMessage(append([]byte(nil), data...))
@@ -276,8 +281,14 @@ func (p *Provider) chatStream(body io.Reader, fallbackModel string, reasoningDet
 			model = chunk.Model
 		}
 		mergeGeminiUsage(&usage, chunk.Usage)
+		if chunk.PromptFeedback != nil {
+			promptFeedback = chunk.PromptFeedback
+		}
 		if len(chunk.Candidates) == 0 {
 			continue
+		}
+		if chunk.Candidates[0].FinishReason != "" {
+			finishReason = chunk.Candidates[0].FinishReason
 		}
 
 		for _, part := range chunk.Candidates[0].Content.Parts {
@@ -336,24 +347,28 @@ func (p *Provider) chatStream(body io.Reader, fallbackModel string, reasoningDet
 			}
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	if err := decoder.Err(); err != nil {
 		return nil, err
 	}
-
 	accumulated := &geminiResponse{
-		Candidates: []geminiCandidate{{Content: geminiContent{Parts: parts}}},
-		Usage:      usage,
-		Model:      model,
+		Candidates:     []geminiCandidate{{Content: geminiContent{Parts: parts}, FinishReason: finishReason}},
+		Usage:          usage,
+		Model:          model,
+		PromptFeedback: promptFeedback,
 	}
 	result, err := toChatResult(accumulated, fallbackModel, reasoningDetails)
 	if err != nil {
 		return nil, err
 	}
+	if result.FinishReason == "" {
+		return nil, fmt.Errorf("gemini stream ended without a finish reason")
+	}
 	result.Raw = rawChunks
 	if err := onStream(chat.StreamEvent{
-		Done:  true,
-		Usage: &result.Usage,
-		Raw:   rawChunks,
+		FinishReason: result.FinishReason,
+		Done:         true,
+		Usage:        &result.Usage,
+		Raw:          rawChunks,
 	}); err != nil {
 		return nil, err
 	}
@@ -852,7 +867,9 @@ func applyGeminiReasoningOptions(model string, cfg *geminiGenerationConfig, opts
 			thinking.ThinkingBudget = intPtr(budget)
 		}
 	default:
-		return fmt.Errorf("gemini provider model %q does not support unified reasoning controls", model)
+		if opts.ReasoningEffort != nil || opts.ReasoningBudget != nil {
+			return fmt.Errorf("gemini provider model %q does not support unified reasoning controls", model)
+		}
 	}
 
 	if thinking.IncludeThoughts != nil || thinking.ThinkingBudget != nil || strings.TrimSpace(thinking.ThinkingLevel) != "" {
@@ -983,6 +1000,9 @@ func toChatResult(in *geminiResponse, fallbackModel string, reasoningDetails boo
 	if result.Model == "" {
 		result.Model = fallbackModel
 	}
+	if in.PromptFeedback != nil && in.PromptFeedback.BlockReason != "" && in.PromptFeedback.BlockReason != "BLOCK_REASON_UNSPECIFIED" {
+		result.FinishReason = "content_filter"
+	}
 
 	if len(in.Candidates) == 0 {
 		return result, nil
@@ -1026,6 +1046,22 @@ func toChatResult(in *geminiResponse, fallbackModel string, reasoningDetails boo
 	result.Text = strings.Join(text, "")
 	result.Parts = outParts
 	result.ToolCalls = calls
+	if result.FinishReason == "" {
+		switch reason := in.Candidates[0].FinishReason; reason {
+		case "", "FINISH_REASON_UNSPECIFIED":
+		case "STOP":
+			result.FinishReason = "stop"
+			if len(calls) > 0 {
+				result.FinishReason = "tool_calls"
+			}
+		case "MAX_TOKENS":
+			result.FinishReason = "length"
+		case "SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
+			result.FinishReason = "content_filter"
+		default:
+			return nil, fmt.Errorf("gemini response contains unsupported finish reason %q", reason)
+		}
+	}
 	return result, nil
 }
 

@@ -293,20 +293,33 @@ func TestChatStreamConsumesBedrockRuntimeV2Stream(t *testing.T) {
 	}
 }
 
-func TestChatReasoningDetailsRequiresBudgetForManualModel(t *testing.T) {
-	p := &Provider{
-		client:   &fakeBedrockRuntimeClient{},
-		modelArn: "anthropic.claude-sonnet-4-20250514-v1:0",
-	}
-
-	_, err := p.Chat(context.Background(), &chat.Request{
-		Messages: []chat.Message{chat.User("hi")},
-		Options: chat.Options{
-			ReasoningDetails: true,
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "WithReasoningBudgetTokens") {
-		t.Fatalf("unexpected error: %v", err)
+func TestChatReasoningDetailsWithoutBudget(t *testing.T) {
+	for _, model := range []string{"anthropic.claude-sonnet-4-20250514-v1:0", "deployment-alias"} {
+		t.Run(model, func(t *testing.T) {
+			fake := &fakeBedrockRuntimeClient{
+				invokeModelOutput: &bedrockruntime.InvokeModelOutput{
+					Body: []byte(`{"content":[{"type":"thinking","thinking":"inspect"},{"type":"text","text":"answer"}]}`),
+				},
+			}
+			p := &Provider{client: fake, modelArn: model}
+			result, err := p.Chat(context.Background(), &chat.Request{
+				Messages: []chat.Message{chat.User("hi")},
+				Options:  chat.Options{ReasoningDetails: true},
+			})
+			if err != nil {
+				t.Fatalf("chat: %v", err)
+			}
+			if result.Text != "answer" || result.Reasoning == nil || len(result.Reasoning.Blocks) != 1 || result.Reasoning.Blocks[0].Text != "inspect" {
+				t.Fatalf("unexpected result: %#v", result)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(fake.invokeModelInput.Body, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := payload["thinking"]; ok {
+				t.Fatalf("details alone must not invent a manual thinking budget: %#v", payload)
+			}
+		})
 	}
 }
 

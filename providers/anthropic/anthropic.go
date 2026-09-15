@@ -1,7 +1,6 @@
 package anthropic
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/lyricat/goutils/structs"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/anthropicstream"
 	"github.com/quailyquaily/uniai/internal/diag"
@@ -431,17 +431,10 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
 	}
 
-	if opts.ReasoningDetails {
-		switch {
-		case modelcompat.AnthropicPrefersReasoningEffort(model):
-			body.Thinking = &anthropicThinking{Type: "adaptive"}
-			if modelcompat.AnthropicSummarizesThinkingDetails(model) {
-				body.Thinking.Display = "summarized"
-			}
-		case body.Thinking != nil:
-			// explicit budget already set
-		default:
-			return fmt.Errorf("anthropic model %q requires WithReasoningBudgetTokens(...) to return reasoning details", model)
+	if opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model) {
+		body.Thinking = &anthropicThinking{Type: "adaptive"}
+		if modelcompat.AnthropicSummarizesThinkingDetails(model) {
+			body.Thinking.Display = "summarized"
 		}
 	}
 
@@ -712,8 +705,7 @@ type sseMessageDelta struct {
 }
 
 func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024) // allow lines up to 1 MB
+	decoder := ssestream.NewDecoder(&http.Response{Body: io.NopCloser(body)})
 
 	var (
 		id         string
@@ -748,41 +740,38 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 		currentToolArgs.Reset()
 	}
 
-	var eventType string
 	stopped := false
 streamLoop:
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		if strings.HasPrefix(line, "event: ") {
-			eventType = strings.TrimPrefix(line, "event: ")
+	for decoder.Next() {
+		event := decoder.Event()
+		data := bytes.TrimSpace(event.Data)
+		if len(data) == 0 {
 			continue
 		}
-
-		if !strings.HasPrefix(line, "data: ") {
-			continue
+		protocolEvent, err := anthropicstream.Decode(data)
+		if err != nil {
+			return nil, fmt.Errorf("invalid anthropic stream event")
 		}
-		data := strings.TrimPrefix(line, "data: ")
-		if p.cfg.CredentialSource != nil {
-			var envelope struct {
-				Type string `json:"type"`
-			}
-			if json.Unmarshal([]byte(data), &envelope) != nil {
-				return nil, fmt.Errorf("invalid Claude subscription stream event")
-			}
-			if envelope.Type == "error" || eventType == "error" {
+		eventType := event.Type
+		if eventType == "" {
+			eventType = protocolEvent.Type
+		}
+		if eventType == "error" || protocolEvent.Type == "error" {
+			if p.cfg.CredentialSource != nil {
 				return nil, fmt.Errorf("Claude subscription stream returned an upstream error")
 			}
-			if eventType == "" {
-				eventType = envelope.Type
+			var envelope struct {
+				Error struct{ Type, Message string } `json:"error"`
 			}
+			if err := json.Unmarshal(data, &envelope); err != nil {
+				return nil, fmt.Errorf("invalid anthropic stream error")
+			}
+			return nil, fmt.Errorf("anthropic stream error: %s: %s", envelope.Error.Type, envelope.Error.Message)
 		}
 		raw := json.RawMessage(append([]byte(nil), data...))
-		if protocolEvent, err := anthropicstream.Decode(raw); err == nil {
-			if reasoningEvent := reasoningState.Apply(protocolEvent, reasoningDetails); reasoningEvent != nil {
-				if err := onStream(*reasoningEvent); err != nil {
-					return nil, err
-				}
+		if reasoningEvent := reasoningState.Apply(protocolEvent, reasoningDetails); reasoningEvent != nil {
+			if err := onStream(*reasoningEvent); err != nil {
+				return nil, err
 			}
 		}
 
@@ -793,6 +782,8 @@ streamLoop:
 				id = ev.Message.ID
 				model = ev.Message.Model
 				applyAnthropicUsage(&usage, ev.Message.Usage)
+			} else {
+				return nil, fmt.Errorf("invalid anthropic message_start event")
 			}
 
 		case "content_block_start":
@@ -814,6 +805,8 @@ streamLoop:
 						return nil, err
 					}
 				}
+			} else {
+				return nil, fmt.Errorf("invalid anthropic content_block_start event")
 			}
 
 		case "content_block_delta":
@@ -840,6 +833,8 @@ streamLoop:
 						return nil, err
 					}
 				}
+			} else {
+				return nil, fmt.Errorf("invalid anthropic content_block_delta event")
 			}
 
 		case "content_block_stop":
@@ -852,21 +847,20 @@ streamLoop:
 				if ev.Delta.StopReason != "" {
 					stopReason = ev.Delta.StopReason
 				}
+			} else {
+				return nil, fmt.Errorf("invalid anthropic message_delta event")
 			}
 
 		case "message_stop":
 			stopped = true
-			if p.cfg.CredentialSource != nil {
-				break streamLoop
-			}
+			break streamLoop
 		}
-		eventType = ""
 	}
-	if err := scanner.Err(); err != nil {
+	if err := decoder.Err(); err != nil {
 		return nil, err
 	}
-	if p.cfg.CredentialSource != nil && !stopped {
-		return nil, fmt.Errorf("Claude subscription stream ended before message_stop")
+	if !stopped {
+		return nil, fmt.Errorf("anthropic stream ended before message_stop")
 	}
 
 	flushToolCall()
