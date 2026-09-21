@@ -18,7 +18,7 @@ func TestDefaultPricingCatalogCurrentFlatRates(t *testing.T) {
 		provider, model       string
 		input, cached, output float64
 	}{
-		{"zai", "glm-5.3-flash", 0.075, 0.015, 0.25},
+		{"zai", "glm-5.3-flash", 0.15, 0.03, 0.50},
 		{"moonshot", "kimi-k2.7-code", 0.95, 0.19, 4.00},
 		{"moonshot", "kimi-k2.7-code-highspeed", 1.90, 0.38, 8.00},
 		{"sakana", "sakana-namazu-v1.0", 0.95, 0.15, 4.00},
@@ -28,7 +28,7 @@ func TestDefaultPricingCatalogCurrentFlatRates(t *testing.T) {
 		{"mistral", "mistral-medium-3-5", 1.50, 0.15, 7.50},
 		{"mistral", "mistral-medium-3", 1.50, 0.15, 7.50},
 		{"mistral", "mistral-medium-latest", 1.50, 0.15, 7.50},
-		{"deepseek", "deepseek-v4-flash-vision-exp", 0.22, 0.007, 0.66},
+		{"deepseek", "deepseek-v4-flash-vision-exp", 0.15, 0.003, 0.60},
 		{"deepseek", "@cf/deepseek-ai/deepseek-v4-flash-0731", 0.44, 0.014, 1.32},
 		{"deepseek", "@cf/deepseek-ai/deepseek-v4-pro-0813", 1.32, 0.044, 3.96},
 		{"zai", "@cf/zai-org/glm-5.2", 1.40, 0.26, 4.40},
@@ -107,9 +107,9 @@ func TestDefaultPricingCatalogDeepSeekVisionPeakRates(t *testing.T) {
 	if rule == nil || rule.PeakRates == nil || rule.PeakRates.CachedInputUSDPerMillion == nil {
 		t.Fatal("expected vision model peak rates")
 	}
-	assertNearlyEqual(t, rule.PeakRates.InputUSDPerMillion, 0.44)
-	assertNearlyEqual(t, *rule.PeakRates.CachedInputUSDPerMillion, 0.014)
-	assertNearlyEqual(t, rule.PeakRates.OutputUSDPerMillion, 1.32)
+	assertNearlyEqual(t, rule.PeakRates.InputUSDPerMillion, 0.30)
+	assertNearlyEqual(t, *rule.PeakRates.CachedInputUSDPerMillion, 0.006)
+	assertNearlyEqual(t, rule.PeakRates.OutputUSDPerMillion, 1.20)
 }
 
 func TestDefaultPricingCatalogGPTImage15TextOutput(t *testing.T) {

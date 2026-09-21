@@ -64,6 +64,7 @@ OpenAI uses the Images API:
 
 The OpenAI path supports GPT image models such as:
 
+- `gpt-image-2.5-sunburst` and `gpt-image-2.5-flare`, including dated snapshots
 - `gpt-image-2`
 - `gpt-image-2-*` snapshot IDs
 - `gpt-image-1.5`
@@ -82,10 +83,21 @@ Cloudflare Workers AI accepts `@cf/...` model IDs and forwards provider-specific
 
 `EditImage` is currently implemented for:
 
-- OpenAI `gpt-image-2`, `gpt-image-2-*`, `gpt-image-1`, and `gpt-image-1-*`
+- OpenAI GPT Image 2.5 Sunburst/Flare, `gpt-image-2`, `gpt-image-2-*`, `gpt-image-1`, and `gpt-image-1-*`
 - Gemini `gemini-3-pro-image`, `gemini-3.1-flash-image`, and `gemini-3.1-flash-lite-image`
 
 Cloudflare image editing is not implemented yet.
+
+## OpenAI GPT Image 2.5
+
+`gpt-image-2.5-sunburst` and `gpt-image-2.5-flare` support generation and editing
+with the same options shown below. They also accept `quality="xhigh"` and
+`quality="max"`, and support transparent PNG or WebP output. Custom dimensions
+follow the same limits as GPT Image 2. `uniai` defaults to `quality="medium"`;
+set `quality="auto"` to let the model choose.
+
+The embedded catalog includes both models and their `2026-09-08` snapshots.
+See the [official image guide](https://developers.openai.com/api/docs/guides/image-generation).
 
 ## OpenAI `gpt-image-2`
 

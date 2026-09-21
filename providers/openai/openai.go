@@ -125,6 +125,9 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if model == "" {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("model is required")
 	}
+	if len(req.Tools) > 0 && modelcompat.IsGPT6Astra(model) {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q requires the Responses API for tool calling; use provider openai_resp", model)
+	}
 	if req.Options.ReasoningBudget != nil {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai provider does not support reasoning budget tokens; use reasoning effort")
 	}
@@ -214,6 +217,10 @@ func applyModelParameterOverlay(params *openai.ChatCompletionNewParams, hasPromp
 		return
 	}
 	model := string(params.Model)
+	if modelcompat.DeepSeekUsesThinkingMode(model) && params.ReasoningEffort == "none" {
+		params.SetExtraFields(map[string]any{"thinking": map[string]string{"type": "disabled"}})
+		params.ReasoningEffort = ""
+	}
 	if modelcompat.KimiUsesFixedSampling(model) {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}
@@ -221,7 +228,7 @@ func applyModelParameterOverlay(params *openai.ChatCompletionNewParams, hasPromp
 		params.PresencePenalty = param.Opt[float64]{}
 		params.FrequencyPenalty = param.Opt[float64]{}
 	}
-	if modelcompat.OpenAIGPT5DropsSampling(model, string(params.ReasoningEffort), params.ReasoningEffort != "") {
+	if modelcompat.OpenAIDropsSampling(model, string(params.ReasoningEffort), params.ReasoningEffort != "") {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}
 		params.Logprobs = param.Opt[bool]{}

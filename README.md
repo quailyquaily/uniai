@@ -168,6 +168,26 @@ Important GPT-5.4 edge case:
 
 There is a runnable repro/demo for this in [`cmd/openairesptest`](cmd/openairesptest).
 
+Current model compatibility (checked 2026-09-21):
+
+- `gpt-6-astra`: use `openai_resp` for tools. `openai` rejects requests with
+  tools before sending them. Both paths omit unsupported sampling and logprob
+  fields, accept `low` through `max` reasoning effort, and reject `none` and
+  `minimal`. Legacy cache retention maps to `prompt_cache_options.ttl="30m"`;
+  explicit cache options take precedence. System cache breakpoints are supported.
+  See [OpenAI's migration guide](https://developers.openai.com/api/docs/guides/latest-model).
+- `claude-fable-5-1` and `claude-mythos-5-1`: tool choice supports `auto` and
+  `none`; `required` and a named function return a local error. Function tool
+  `Strict` values are forwarded. `WithReasoningDetails()` requests summarized
+  thinking. See [Claude 5.1 API changes](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1).
+- `deepseek-flash`: selects V4.1 Flash on the `deepseek` provider, including
+  image inputs and tools. `WithReasoningEffort(ReasoningEffortNone)` sends
+  `thinking.type="disabled"` for this model and V4 models. Preserve assistant
+  `ReasoningContent` when replaying tool conversations. See
+  [DeepSeek's thinking guide](https://api-docs.deepseek.com/guides/thinking_mode).
+- `gemini-3.8-flash`: supports `low`, `medium`, and `high` effort; `minimal`
+  returns a local error. See [model details](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
+
 ### Reasoning
 
 Reasoning-related chat interfaces:
@@ -203,7 +223,7 @@ Provider guidance:
 - OpenAI Codex (`openai_codex`): use `WithReasoningEffort(...)`; `WithReasoningBudgetTokens(...)` is ignored. Reasoning output and streaming use the `openai_resp` parser.
 - Gemini 3.x: use `WithReasoningEffort(...)`.
 - Gemini 2.5: use `WithReasoningBudgetTokens(...)`.
-- Anthropic Claude Sonnet 5 and Claude 4.6 adaptive-thinking models: use
+- Anthropic Claude Fable/Mythos 5.1, Sonnet 5, and Claude 4.6 adaptive-thinking models: use
   `WithReasoningEffort(...)`.
 - Anthropic manual-thinking models: use `WithReasoningBudgetTokens(...)`.
 - Gemini, Anthropic, and Bedrock also accept `WithReasoningDetails()` alone for custom model names. Gemini requests thought summaries; Anthropic and Bedrock capture returned thinking blocks without inventing a manual budget. Details may be absent if the server does not produce them.
@@ -493,6 +513,9 @@ img, err := client.Image(ctx,
 Image generation, editing, supported models, and provider-specific options are in [docs/images.md](docs/images.md).
 
 ## Audio (ASR)
+
+The audio API supports Cloudflare transcription. GPT-Live and Gemini Live
+realtime sessions are not implemented.
 
 ```go
 resp, err := client.Audio(ctx,

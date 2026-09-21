@@ -847,6 +847,9 @@ func applyGeminiReasoningOptions(model string, cfg *geminiGenerationConfig, opts
 			if err != nil {
 				return err
 			}
+			if (model == "gemini-3.8-flash" || strings.HasPrefix(model, "gemini-3.8-flash-")) && level == "minimal" {
+				return fmt.Errorf("gemini model %q does not support minimal reasoning effort; use low, medium, or high", model)
+			}
 			thinking.ThinkingLevel = level
 		}
 	case strings.HasPrefix(model, "gemini-2.5"):

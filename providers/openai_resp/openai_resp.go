@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -541,10 +542,15 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams, hasPromptCa
 		params.Reasoning.Mode != "" ||
 		params.Reasoning.Context != ""
 	if modelcompat.KimiUsesFixedSampling(model) ||
-		modelcompat.OpenAIGPT5DropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
+		modelcompat.OpenAIDropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}
 		params.TopLogprobs = param.Opt[int64]{}
+	}
+	if modelcompat.IsGPT6Astra(model) {
+		params.Include = slices.DeleteFunc(params.Include, func(item responses.ResponseIncludable) bool {
+			return item == "message.output_text.logprobs"
+		})
 	}
 	if modelcompat.OpenAIRequires24hPromptCacheRetention(model) {
 		if params.PromptCacheKey.Valid() || params.PromptCacheRetention != "" {

@@ -41,21 +41,24 @@ Current scope is intentionally narrow:
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-09-06. Model rates and official sources
+The latest catalog refresh is dated 2026-09-21. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
 
 Some embedded rates have time limits:
 
 - GPT-5.6 Sol promotional rates apply at least through 2026-11-21.
 - Gemini 3.8, 3.7, and 3.6 Flash introductory rates apply through 2026-12-31.
-- Direct Z.AI GLM-5.3-Flash rates include a 50% discount through
-  2026-09-09 24:00 UTC+8. Cloudflare's GLM-5.3-Flash rule uses its own published
-  rates, without that discount.
 
 These are static prices; the catalog does not switch rates by date. Update the
 catalog or supply an override when a promotion ends. Claude Sonnet 5 keeps
 $2 input / $10 output per million tokens as its standard price; Anthropic
 cancelled the previously announced September price increase.
+
+GLM-5.3-Flash now uses standard rates after its September 9 promotion ended.
+GLM-5.3-FlashX and GPT Image 2.5 Sunburst/Flare are also included.
+DeepSeek V4.1 Flash uses `deepseek-flash`; the legacy `deepseek-v4-flash` and
+`deepseek-v4-flash-vision-exp` names share its current rates. Cloudflare model
+IDs retain their separate hosted rates.
 
 ## Main API
 
@@ -131,14 +134,17 @@ chat:
     output_usd_per_million: 15.00
 
   - inference_provider: deepseek
-    model: deepseek-v4-flash
-    input_usd_per_million: 0.22
-    cached_input_usd_per_million: 0.007
-    output_usd_per_million: 0.66
+    model: deepseek-flash
+    aliases:
+      - deepseek-v4-flash
+      - deepseek-v4-flash-vision-exp
+    input_usd_per_million: 0.15
+    cached_input_usd_per_million: 0.003
+    output_usd_per_million: 0.60
     peak_rates:
-      input_usd_per_million: 0.44
-      cached_input_usd_per_million: 0.014
-      output_usd_per_million: 1.32
+      input_usd_per_million: 0.30
+      cached_input_usd_per_million: 0.006
+      output_usd_per_million: 1.20
 
 image:
   - inference_provider: openai

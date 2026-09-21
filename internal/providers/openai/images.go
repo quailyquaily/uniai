@@ -342,6 +342,9 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	input.OutputFormat = normalizeOutputFormat(input.OutputFormat)
 
 	quality := []string{"high", "medium", "low", "auto"}
+	if isGPTImage25Model(input.Model) {
+		quality = append(quality, "xhigh", "max")
+	}
 	outputFormat := []string{"", "webp", "png", "jpeg"}
 	background := []string{"auto", "opaque", "transparent"}
 	moderation := []string{"", "auto", "low"}
@@ -391,8 +394,8 @@ func verifyOpenAIImageSize(model, size string) error {
 	if size == "auto" {
 		return nil
 	}
-	if isGPTImage2Model(model) {
-		return verifyGPTImage2Size(size)
+	if isGPTImage2Model(model) || isGPTImage25Model(model) {
+		return verifyOpenAICustomImageSize(size)
 	}
 
 	allowed := []string{"1024x1024", "1024x1536", "1536x1024", "auto"}
@@ -402,27 +405,27 @@ func verifyOpenAIImageSize(model, size string) error {
 	return nil
 }
 
-func verifyGPTImage2Size(size string) error {
+func verifyOpenAICustomImageSize(size string) error {
 	width, height, err := parseImageSize(size)
 	if err != nil {
 		return fmt.Errorf("size must be auto or <width>x<height>: %w", err)
 	}
 	if width%16 != 0 || height%16 != 0 {
-		return fmt.Errorf("gpt-image-2 size edges must be multiples of 16")
+		return fmt.Errorf("image size edges must be multiples of 16")
 	}
 	long, short := width, height
 	if height > width {
 		long, short = height, width
 	}
 	if long > 3840 {
-		return fmt.Errorf("gpt-image-2 maximum edge length is 3840")
+		return fmt.Errorf("image maximum edge length is 3840")
 	}
 	if long > short*3 {
-		return fmt.Errorf("gpt-image-2 long edge to short edge ratio must not exceed 3:1")
+		return fmt.Errorf("image long edge to short edge ratio must not exceed 3:1")
 	}
 	pixels := width * height
 	if pixels < 655360 || pixels > 8294400 {
-		return fmt.Errorf("gpt-image-2 total pixels must be between 655360 and 8294400")
+		return fmt.Errorf("image total pixels must be between 655360 and 8294400")
 	}
 	return nil
 }
@@ -456,6 +459,11 @@ func normalizeOutputFormat(format string) string {
 
 func isGPTImage2Model(model string) bool {
 	return model == "gpt-image-2" || strings.HasPrefix(model, "gpt-image-2-")
+}
+
+func isGPTImage25Model(model string) bool {
+	return model == "gpt-image-2.5-sunburst" || strings.HasPrefix(model, "gpt-image-2.5-sunburst-") ||
+		model == "gpt-image-2.5-flare" || strings.HasPrefix(model, "gpt-image-2.5-flare-")
 }
 
 func getMimeType(format string) string {

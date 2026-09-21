@@ -37,20 +37,20 @@ func TestAnthropicSonnet5UsesAdaptiveThinkingWithoutSampling(t *testing.T) {
 	}
 }
 
-func TestOpenAIGPT5DropsSampling(t *testing.T) {
-	if !OpenAIGPT5DropsSampling("gpt-5.2", "high", true) {
+func TestOpenAIDropsSampling(t *testing.T) {
+	if !OpenAIDropsSampling("gpt-5.2", "high", true) {
 		t.Fatalf("expected gpt-5.2 with reasoning to drop sampling")
 	}
-	if OpenAIGPT5DropsSampling("gpt-5.2", "none", true) {
+	if OpenAIDropsSampling("gpt-5.2", "none", true) {
 		t.Fatalf("expected gpt-5.2 with reasoning none to keep sampling")
 	}
-	if !OpenAIGPT5DropsSampling("gpt-5.5", "none", true) {
+	if !OpenAIDropsSampling("gpt-5.5", "none", true) {
 		t.Fatalf("expected gpt-5.5 to drop sampling")
 	}
-	if !OpenAIGPT5DropsSampling("gpt-5", "", false) {
+	if !OpenAIDropsSampling("gpt-5", "", false) {
 		t.Fatalf("expected older gpt-5 to drop sampling")
 	}
-	if OpenAIGPT5DropsSampling("gpt-4.1", "high", true) {
+	if OpenAIDropsSampling("gpt-4.1", "high", true) {
 		t.Fatalf("expected gpt-4.1 not to match GPT-5 sampling rules")
 	}
 }
@@ -93,6 +93,30 @@ func TestOpenAIReasoningEffortSupported(t *testing.T) {
 	}
 	if !OpenAIReasoningEffortSupported("gpt-5", "minimal") {
 		t.Fatalf("expected legacy GPT-5 minimal reasoning effort to remain supported")
+	}
+}
+
+func TestOpenAIReasoningEffortModelBoundaries(t *testing.T) {
+	for _, tt := range []struct {
+		model, effort string
+		want          bool
+	}{
+		{"gpt-6-astra", "", true},
+		{"gpt-6-astra", "none", false},
+		{"gpt-6-astra", "minimal", false},
+		{"gpt-6-astra", "max", true},
+		{"gpt-6-astra", "HIGH", false},
+		{"models/GPT-6-ASTRA", "none", false},
+		{"openai/gpt-6-astra-preview", "none", false},
+		{"gpt-6-astral", "none", true},
+		{"openai/gpt-5.6-sol", "none", true},
+		{"gpt-5.5", "none", true},
+	} {
+		t.Run(tt.model+"/"+tt.effort, func(t *testing.T) {
+			if got := OpenAIReasoningEffortSupported(tt.model, tt.effort); got != tt.want {
+				t.Fatalf("supported = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

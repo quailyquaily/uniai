@@ -31,6 +31,12 @@ func KimiUsesFixedSampling(model string) bool {
 		modelHasPrefix(model, "kimi-k2-5")
 }
 
+func DeepSeekUsesThinkingMode(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "deepseek-flash") ||
+		modelHasPrefix(model, "deepseek-v4-flash") || modelHasPrefix(model, "deepseek-v4-pro")
+}
+
 func AnthropicDropsSamplingParameters(model string) bool {
 	model = strings.ToLower(model)
 	return strings.Contains(model, "fable-5") ||
@@ -60,7 +66,13 @@ func AnthropicPrefersReasoningEffort(model string) bool {
 
 func AnthropicSummarizesThinkingDetails(model string) bool {
 	model = strings.ToLower(model)
-	return strings.Contains(model, "opus-5") || strings.Contains(model, "opus-4-7")
+	return strings.Contains(model, "opus-5") || strings.Contains(model, "opus-4-7") ||
+		strings.Contains(model, "fable-5") || strings.Contains(model, "mythos-5")
+}
+
+func AnthropicRejectsForcedToolChoice(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "claude-fable-5-1") || modelHasPrefix(model, "claude-mythos-5-1")
 }
 
 func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
@@ -79,8 +91,11 @@ func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
 	}
 }
 
-func OpenAIGPT5DropsSampling(model, reasoningEffort string, reasoningRequested bool) bool {
+func OpenAIDropsSampling(model, reasoningEffort string, reasoningRequested bool) bool {
 	model = Normalize(model)
+	if modelHasPrefix(model, "gpt-6-astra") {
+		return true
+	}
 	if !strings.HasPrefix(model, "gpt-5") {
 		return false
 	}
@@ -101,7 +116,11 @@ func OpenAIRequires24hPromptCacheRetention(model string) bool {
 
 func OpenAIUsesPromptCacheOptions(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "gpt-5-6")
+	return modelHasPrefix(model, "gpt-5-6") || modelHasPrefix(model, "gpt-6-astra")
+}
+
+func IsGPT6Astra(model string) bool {
+	return modelHasPrefix(Normalize(model), "gpt-6-astra")
 }
 
 func OpenAIReasoningEffortSupported(model, effort string) bool {
@@ -109,7 +128,9 @@ func OpenAIReasoningEffortSupported(model, effort string) bool {
 		return true
 	}
 	switch effort {
-	case "", "none", "low", "medium", "high", "xhigh", "max":
+	case "none":
+		return !IsGPT6Astra(model)
+	case "", "low", "medium", "high", "xhigh", "max":
 		return true
 	default:
 		return false

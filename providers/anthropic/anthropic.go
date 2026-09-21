@@ -106,6 +106,7 @@ type anthropicTool struct {
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description,omitempty"`
 	InputSchema  any                    `json:"input_schema"`
+	Strict       *bool                  `json:"strict,omitempty"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -386,6 +387,10 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 		}
 	}
 	if req.ToolChoice != nil {
+		if modelcompat.AnthropicRejectsForcedToolChoice(modelKey) &&
+			(req.ToolChoice.Mode == "required" || req.ToolChoice.Mode == "function") {
+			return nil, fmt.Errorf("anthropic model %q does not support forced tool_choice %q; use auto or none", model, req.ToolChoice.Mode)
+		}
 		choice, err := toAnthropicToolChoice(req.ToolChoice)
 		if err != nil {
 			return nil, err
@@ -495,6 +500,7 @@ func toAnthropicTools(tools []chat.Tool) ([]anthropicTool, error) {
 			Name:         tool.Function.Name,
 			Description:  tool.Function.Description,
 			InputSchema:  schema,
+			Strict:       tool.Function.Strict,
 			CacheControl: toAnthropicCacheControl(tool.CacheControl),
 		}
 		out = append(out, at)

@@ -1,6 +1,8 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-09-06 from official pricing and model documentation:
+# Refreshed on 2026-09-21: DeepSeek V4.1 Flash rates and legacy aliases,
+# GLM-5.3-Flash standard rates, GLM-5.3-FlashX, and GPT Image 2.5.
+# Previous refresh on 2026-09-06 from official pricing and model documentation:
 # - OpenAI GPT-6 Astra, GPT-5.6 Sol promotional rates, GPT-5.4/5.5 context
 #   thresholds, and GPT Image 1.5 text output.
 # - Claude Fable/Mythos 5.1 and Sonnet 5 permanent pricing.
@@ -51,6 +53,8 @@
 # Sources used for this file:
 # - OpenAI: https://developers.openai.com/api/docs/pricing
 # - OpenAI GPT-6 Astra: https://developers.openai.com/api/docs/models/gpt-6-astra
+# - OpenAI GPT Image 2.5: https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
+# - OpenAI GPT Image 2.5 Flare: https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
 # - OpenAI GPT-5.4: https://developers.openai.com/api/docs/models/gpt-5.4
 # - OpenAI GPT-5.5: https://developers.openai.com/api/docs/models/gpt-5.5
 # - OpenAI GPT-5.6 Sol: https://developers.openai.com/api/docs/models/gpt-5.6-sol
@@ -120,14 +124,14 @@
 #   client's driver/provider name. Callers can optionally pass an explicit
 #   `inference_provider` hint. If that provider exists in the catalog, matching
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
-# - DeepSeek `deepseek-v4-flash` serves V4-Flash-0731 and `deepseek-v4-pro`
-#   serves V4-Pro-0813. The retired
+# - DeepSeek `deepseek-flash` serves V4.1 Flash. Legacy `deepseek-v4-flash`
+#   and `deepseek-v4-flash-vision-exp` route to it at the same rates.
+#   `deepseek-v4-pro` serves V4-Pro-0813. The retired
 #   `deepseek-chat` and `deepseek-reasoner` model names are not pricing aliases.
 # - Direct DeepSeek flat fields contain off-peak rates and `peak_rates` contains peak
 #   rates. Callers decide which rate set applies.
-# - GLM-5.3-Flash direct Z.AI rates include the 50% promotion through
-#   2026-09-09 24:00 UTC+8. List input/cached/output rates are $0.15/$0.03/$0.50
-#   per MTok. Cloudflare uses these list rates without the Z.AI promotion.
+# - GLM-5.3-Flash uses standard input/cached/output rates of $0.15/$0.03/$0.50
+#   per MTok. Its 50% promotion ended on 2026-09-09 24:00 UTC+8.
 # - Promotional prices are a static snapshot; they do not expire automatically.
 # - Mistral aliases below follow explicit mappings in the official model docs.
 # - OpenAI image generation pricing uses separate rates for text input, image
@@ -159,6 +163,24 @@ pricing_references:
 
 image:
   # OpenAI Images API
+  - inference_provider: openai
+    model: gpt-image-2.5-sunburst
+    aliases:
+      - gpt-image-2.5-sunburst-2026-09-08
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8.00
+    cached_image_input_usd_per_million: 2.00
+    output_usd_per_million: 30.00
+  - inference_provider: openai
+    model: gpt-image-2.5-flare
+    aliases:
+      - gpt-image-2.5-flare-2026-09-08
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8.00
+    cached_image_input_usd_per_million: 2.00
+    output_usd_per_million: 30.00
   - inference_provider: openai
     model: gpt-image-2
     aliases:
@@ -622,9 +644,14 @@ chat:
   # Z.AI
   - inference_provider: zai
     model: GLM-5.3-Flash
-    input_usd_per_million: 0.075
-    cached_input_usd_per_million: 0.015
-    output_usd_per_million: 0.25
+    input_usd_per_million: 0.15
+    cached_input_usd_per_million: 0.03
+    output_usd_per_million: 0.50
+  - inference_provider: zai
+    model: GLM-5.3-FlashX
+    input_usd_per_million: 0.37
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 1.25
   - inference_provider: zai
     model: GLM-5.3
     input_usd_per_million: 1.40
@@ -783,23 +810,17 @@ chat:
 
   # DeepSeek
   - inference_provider: deepseek
-    model: deepseek-v4-flash-vision-exp
-    input_usd_per_million: 0.22
-    cached_input_usd_per_million: 0.007
-    output_usd_per_million: 0.66
+    model: deepseek-flash
+    aliases:
+      - deepseek-v4-flash
+      - deepseek-v4-flash-vision-exp
+    input_usd_per_million: 0.15
+    cached_input_usd_per_million: 0.003
+    output_usd_per_million: 0.60
     peak_rates:
-      input_usd_per_million: 0.44
-      cached_input_usd_per_million: 0.014
-      output_usd_per_million: 1.32
-  - inference_provider: deepseek
-    model: deepseek-v4-flash
-    input_usd_per_million: 0.22
-    cached_input_usd_per_million: 0.007
-    output_usd_per_million: 0.66
-    peak_rates:
-      input_usd_per_million: 0.44
-      cached_input_usd_per_million: 0.014
-      output_usd_per_million: 1.32
+      input_usd_per_million: 0.30
+      cached_input_usd_per_million: 0.006
+      output_usd_per_million: 1.20
   - inference_provider: deepseek
     model: deepseek-v4-pro
     input_usd_per_million: 0.66

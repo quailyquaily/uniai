@@ -623,9 +623,9 @@ func TestDefaultPricingCatalog(t *testing.T) {
 	}
 	deepSeek = again.findChatPricingRule("deepseek-v4-flash")
 	if deepSeek == nil || deepSeek.PeakRates == nil ||
-		deepSeek.PeakRates.InputUSDPerMillion != 0.44 ||
+		deepSeek.PeakRates.InputUSDPerMillion != 0.30 ||
 		deepSeek.PeakRates.CachedInputUSDPerMillion == nil ||
-		*deepSeek.PeakRates.CachedInputUSDPerMillion != 0.014 {
+		*deepSeek.PeakRates.CachedInputUSDPerMillion != 0.006 {
 		t.Fatalf("expected embedded peak rates clone to stay intact: %#v", deepSeek)
 	}
 }
@@ -1464,18 +1464,18 @@ func TestPricingExampleYAMLContainsDeepSeekV4OffPeakAndPeakRates(t *testing.T) {
 	if !ok {
 		t.Fatal("expected flash cost estimate from pricing.example.yaml")
 	}
-	assertNearlyEqual(t, flash.Input, 800*0.22/1_000_000)
-	assertNearlyEqual(t, flash.CachedInput, 200*0.007/1_000_000)
-	assertNearlyEqual(t, flash.Output, 300*0.66/1_000_000)
-	assertNearlyEqual(t, flash.Total, 0.0003754)
+	assertNearlyEqual(t, flash.Input, 800*0.15/1_000_000)
+	assertNearlyEqual(t, flash.CachedInput, 200*0.003/1_000_000)
+	assertNearlyEqual(t, flash.Output, 300*0.60/1_000_000)
+	assertNearlyEqual(t, flash.Total, 0.0003006)
 
 	flashRule := catalog.findChatPricingRule("deepseek-v4-flash")
 	if flashRule == nil || flashRule.PeakRates == nil || flashRule.PeakRates.CachedInputUSDPerMillion == nil {
 		t.Fatal("expected flash peak rates")
 	}
-	assertNearlyEqual(t, flashRule.PeakRates.InputUSDPerMillion, 0.44)
-	assertNearlyEqual(t, *flashRule.PeakRates.CachedInputUSDPerMillion, 0.014)
-	assertNearlyEqual(t, flashRule.PeakRates.OutputUSDPerMillion, 1.32)
+	assertNearlyEqual(t, flashRule.PeakRates.InputUSDPerMillion, 0.30)
+	assertNearlyEqual(t, *flashRule.PeakRates.CachedInputUSDPerMillion, 0.006)
+	assertNearlyEqual(t, flashRule.PeakRates.OutputUSDPerMillion, 1.20)
 
 	pro, ok := catalog.EstimateChatCost("deepseek-v4-pro", usage)
 	if !ok {
