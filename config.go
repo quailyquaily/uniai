@@ -3,6 +3,7 @@ package uniai
 import (
 	"net/http"
 
+	"github.com/quailyquaily/uniai/evaluate"
 	"github.com/quailyquaily/uniai/internal/httputil"
 	"github.com/quailyquaily/uniai/providers/anthropic"
 	"github.com/quailyquaily/uniai/subscription"
@@ -17,6 +18,16 @@ type Config struct {
 
 	// ChatHeaders are applied to chat provider HTTP requests only.
 	ChatHeaders map[string]string
+
+	// Evaluate defaults are independent of the Chat provider and model defaults.
+	EvaluateProvider         string
+	EvaluateModel            string
+	EvaluateEmulationMode    evaluate.EmulationMode
+	EvaluateEmulationOptions *evaluate.EmulationOptions
+	// EvaluateHTTPClient affects native Evaluate requests only.
+	EvaluateHTTPClient *http.Client
+	TypeSafeAPIKey     string
+	TypeSafeAPIBase    string
 
 	// Pricing overrides the default cost estimation rules. When nil, uniai uses
 	// the embedded default pricing catalog. Use an empty catalog to disable
@@ -84,6 +95,7 @@ const (
 
 func (cfg Config) withDefaults() Config {
 	cfg.ChatHeaders = httputil.CloneHeaders(cfg.ChatHeaders)
+	cfg.EvaluateEmulationOptions = cloneEvaluateEmulationOptions(cfg.EvaluateEmulationOptions)
 	if cfg.Pricing == nil {
 		cfg.Pricing = DefaultPricingCatalog()
 	} else {

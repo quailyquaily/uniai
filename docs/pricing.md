@@ -4,18 +4,18 @@ This document describes how `uniai` derives `Usage.Cost` from its embedded defau
 
 ## What This Feature Does
 
-`uniai` ships an embedded default pricing catalog for common chat and image generation models.
+`uniai` ships an embedded default pricing catalog for common chat, image generation, and native Evaluate models.
 
 By default, `uniai` calculates a local cost estimate from:
 
 - model
-- token usage attached to the `Client.Chat()` or `Client.Image()` result
+- token usage attached to the `Client.Chat()`, `Client.Image()`, or `Client.Evaluate()` result
 - the embedded default price table
 
 If you provide a `PricingCatalog` through `Config.Pricing`, `uniai` uses your override instead:
 
 - model
-- token usage attached to the `Client.Chat()` or `Client.Image()` result
+- token usage attached to the `Client.Chat()`, `Client.Image()`, or `Client.Evaluate()` result
 - your own price table
 
 When a rule matches:
@@ -23,6 +23,7 @@ When a rule matches:
 - blocking `Chat()` responses populate `resp.Usage.Cost`
 - the final streaming event populates `ev.Usage.Cost`
 - `Image()` responses populate `resp.Usage.Cost`
+- `Evaluate()` responses populate `resp.Usage.Cost` when the applicable native or Chat rule and usage are available
 
 When no rule matches, `Usage.Cost` stays `nil`.
 
@@ -32,7 +33,7 @@ When tool emulation triggers, `Usage` and `Usage.Cost` are aggregated across the
 
 Current scope is intentionally narrow:
 
-- supported: chat and image generation cost estimation
+- supported: chat, image generation, and Evaluate cost estimation
 - not supported: embeddings, audio, rerank, classify
 - currency: USD only
 - price unit: USD per 1 million tokens
@@ -68,11 +69,13 @@ Relevant types and functions:
 - `uniai.ChatPricingRule`
 - `uniai.ChatPricingRates`
 - `uniai.ImagePricingRule`
+- `uniai.EvaluationPricingRule`
 - `uniai.DefaultPricingCatalog()`
 - `uniai.ParsePricingYAML([]byte)`
 - `uniai.WithInferenceProvider(...)`
 - `(*uniai.PricingCatalog).EstimateChatCostWithInferenceProvider(...)`
 - `(*uniai.PricingCatalog).EstimateImageCostWithInferenceProvider(...)`
+- `(*uniai.PricingCatalog).EstimateEvaluateCost(provider, model, usage)`
 - `Config.Pricing`
 
 Example:
@@ -105,6 +108,39 @@ client := uniai.New(uniai.Config{
 	Pricing:  &uniai.PricingCatalog{},
 })
 ```
+
+## Evaluate pricing
+
+Native Evaluate uses the `evaluate` price group. Each rule requires an
+`inference_provider` and a model; aliases are explicit. Matching uses normalized
+names, including numeric version normalization, but never tries arbitrary slash
+suffixes or another provider. A missing provider or an unknown response model
+leaves Cost nil. The request model is not substituted for the response model.
+
+Both input and output token pointers must be present and non-negative. Zero
+counts and zero rates are valid. Missing counts leave Cost nil, even when the
+missing output would have a zero price. Rates must be finite and non-negative;
+model and alias conflicts within the same provider are rejected across rules.
+
+```yaml
+evaluate:
+  - inference_provider: typesafe
+    model: jev-1.13.0
+    aliases: [jev-latest, jev-preview]
+    input_usd_per_million: 0.042
+    output_usd_per_million: 0
+```
+
+These TypeSafe rates and aliases were checked on 2026-09-21 against the
+[official model list](https://docs.typesafe.ai/models). An empty catalog disables
+estimation. Existing YAML with only `chat` and `image` remains valid.
+
+Chat-emulated Evaluate uses the `chat` group and the existing Chat cache rates.
+Its `Request.InferenceProvider` is a Chat pricing hint; it does not change the
+HTTP target. Native Evaluate rejects that hint and prices against the actual
+provider. Native and emulated results never use each other's price groups.
+See [Evaluate](evaluate.md) for usage and missing-count semantics. The remaining
+matching and tier examples below concern Chat and Image pricing.
 
 ## YAML Format
 

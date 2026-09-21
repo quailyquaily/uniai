@@ -10,6 +10,7 @@
 - Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
+- Structured judgments with native TypeSafe/Jev and Chat emulation, including self-hosted Qwen (see [`docs/evaluate.md`](docs/evaluate.md)).
 - Optional OpenAI-compatible adapter to reuse the official `github.com/openai/openai-go/v3` request types.
 - Tool calling with emulation, to support models which do not natively support tool calling (see [`docs/tool_emulation.md`](docs/tool_emulation.md)).
 - Prompt-cache usage reporting and explicit cache boundaries for supported providers (see [`docs/cache.md`](docs/cache.md)).
@@ -434,9 +435,47 @@ For OpenAI Chat Completions streaming providers (`openai`, OpenAI-compatible pro
 
 When combined with tool emulation (`WithToolsEmulationMode`), only the final text response streams. The final `Usage` / `Usage.Cost` values reflect the whole `Client.Chat()` call, including internal tool-emulation requests.
 
+## Evaluate
+
+Use the `evaluate` package to describe named Boolean, Choice, and Score questions over shared state:
+
+```go
+client := uniai.New(uniai.Config{
+    TypeSafeAPIKey: "...",
+    EvaluateModel: "jev-1.13.0",
+})
+result, err := client.Evaluate(ctx, evaluate.Request{
+    State: "Please refund my duplicate payment.",
+    Questions: map[string]evaluate.Question{
+        "refund": {Kind: evaluate.Boolean, Instructions: "Is a refund requested?"},
+    },
+})
+```
+
+To run the same questions through a self-hosted OpenAI-compatible Chat service:
+
+```go
+client := uniai.New(uniai.Config{
+    OpenAIAPIBase: qwenAPIBase,
+    OpenAIAPIKey: qwenAPIKey,
+    EvaluateProvider: "openai",
+    EvaluateModel: qwenModel,
+    EvaluateEmulationMode: evaluate.EmulationForce,
+})
+```
+
+`off` requires native Evaluate; `fallback` selects Chat only when the chosen provider has no native path; `force` selects Chat directly. Native errors never trigger Chat fallback. Jev returns `ProbabilityTrue`; emulation returns `BooleanValue` without invented probabilities. See [Evaluate usage and generation controls](docs/evaluate.md).
+
+Use [`cmd/evalbench`](cmd/evalbench/README.md) to benchmark latency and judgments with credentials from environment variables. It includes 360 labeled cases across 18 scenarios, per-call answers, latency percentiles, and JSON reports:
+
+```bash
+go run ./cmd/evalbench --dry-run
+go run ./cmd/evalbench --limit 18
+```
+
 ## Cost estimation
 
-`uniai` ships an embedded default pricing catalog for common chat and image generation models.
+`uniai` ships an embedded default pricing catalog for common chat, image generation, and native Evaluate models. Evaluate emulation uses the actual Chat model's pricing.
 
 By default, `uniai` fills `Usage.Cost` on blocking chat results, final chat streaming events, and image generation results when the current model matches the embedded catalog. Under tool emulation, `Usage` and `Usage.Cost` are aggregated across the internal chat requests used to satisfy the single `Client.Chat()` call.
 

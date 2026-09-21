@@ -161,6 +161,14 @@ pricing_references:
     qwen: "https://help.aliyun.com/zh/model-studio/model-pricing"
     doubao: "https://www.volcengine.com/docs/82379/1544106"
 
+evaluate:
+  # TypeSafe models and aliases verified 2026-09-21: https://docs.typesafe.ai/models
+  - inference_provider: typesafe
+    model: jev-1.13.0
+    aliases: [jev-latest, jev-preview]
+    input_usd_per_million: 0.042
+    output_usd_per_million: 0
+
 image:
   # OpenAI Images API
   - inference_provider: openai

@@ -95,8 +95,9 @@ type bedrockMsgContent struct {
 }
 
 type bedrockResponse struct {
-	Content []bedrockMsgContent `json:"content"`
-	Usage   bedrockUsage        `json:"usage"`
+	Content    []bedrockMsgContent `json:"content"`
+	Usage      bedrockUsage        `json:"usage"`
+	StopReason string              `json:"stop_reason"`
 }
 
 type bedrockCacheControl struct {
@@ -206,9 +207,23 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, err
 	}
 	usage := parseBedrockUsage(out.Usage)
+	finishReason := out.StopReason
+	switch finishReason {
+	case "end_turn", "stop_sequence":
+		finishReason = "stop"
+	case "max_tokens":
+		finishReason = "length"
+	case "refusal":
+		finishReason = "content_filter"
+	case "tool_use":
+		finishReason = "tool_calls"
+	}
 
 	var textParts []string
 	for _, c := range out.Content {
+		if c.Type == "tool_use" && (finishReason == "" || finishReason == "stop") {
+			finishReason = "tool_calls"
+		}
 		if c.Type == "text" && c.Text != "" {
 			textParts = append(textParts, c.Text)
 		}
@@ -216,8 +231,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	text := strings.Join(textParts, "")
 
 	result := &chat.Result{
-		Text:      text,
-		Reasoning: bedrockReasoningResult(out.Content, req.Options.ReasoningDetails),
+		FinishReason: finishReason,
+		Text:         text,
+		Reasoning:    bedrockReasoningResult(out.Content, req.Options.ReasoningDetails),
 		Parts: func() []chat.Part {
 			if text == "" {
 				return nil

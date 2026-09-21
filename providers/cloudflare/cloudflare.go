@@ -539,6 +539,7 @@ func toChatResult(resultRaw []byte, fallbackModel string) *chat.Result {
 	result := &chat.Result{Raw: raw}
 	if m, ok := raw.(map[string]any); ok {
 		result.Text = extractText(m)
+		result.FinishReason = extractFinishReason(m)
 		result.Model = extractString(m, "model")
 		result.ToolCalls = extractToolCalls(m)
 		if usage := extractUsage(m); usage != nil {
@@ -552,6 +553,45 @@ func toChatResult(resultRaw []byte, fallbackModel string) *chat.Result {
 		result.Parts = []chat.Part{chat.TextPart(result.Text)}
 	}
 	return result
+}
+
+// Workers AI uses both flat results and OpenAI-compatible response formats.
+// Preserve explicit incomplete/refused outcomes even when text looks complete.
+func extractFinishReason(m map[string]any) string {
+	reason := extractString(m, "finish_reason")
+	if status := extractString(m, "status"); status != "" {
+		if status != "completed" {
+			return status
+		}
+		if reason == "" {
+			reason = "stop"
+		}
+	}
+	if choices, ok := m["choices"].([]any); ok {
+		for _, value := range choices {
+			choice, _ := value.(map[string]any)
+			if finish := extractString(choice, "finish_reason"); finish != "" && (reason == "" || reason == "stop") {
+				reason = finish
+			}
+			message, _ := choice["message"].(map[string]any)
+			if extractString(message, "refusal") != "" {
+				return "content_filter"
+			}
+		}
+	}
+	if output, ok := m["output"].([]any); ok {
+		for _, value := range output {
+			item, _ := value.(map[string]any)
+			content, _ := item["content"].([]any)
+			for _, value := range content {
+				part, _ := value.(map[string]any)
+				if extractString(part, "type") == "refusal" {
+					return "content_filter"
+				}
+			}
+		}
+	}
+	return reason
 }
 
 func extractText(m map[string]any) string {

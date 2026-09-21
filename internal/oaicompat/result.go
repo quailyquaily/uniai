@@ -50,6 +50,12 @@ func ChatCompletionToResult(resp *openai.ChatCompletion) *chat.Result {
 			finishReason = "tool_calls"
 		}
 	}
+	for _, choice := range resp.Choices {
+		if choice.Message.Refusal != "" {
+			finishReason = "content_filter"
+			break
+		}
+	}
 	return &chat.Result{
 		FinishReason: finishReason,
 		Text:         text,

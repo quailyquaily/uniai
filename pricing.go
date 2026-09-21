@@ -5,14 +5,26 @@ import (
 	"math"
 	"strings"
 
+	"github.com/quailyquaily/uniai/evaluate"
 	"github.com/quailyquaily/uniai/image"
 	"gopkg.in/yaml.v3"
 )
 
 // PricingCatalog is the price table used by uniai to derive Usage.Cost.
 type PricingCatalog struct {
-	Chat  []ChatPricingRule  `json:"chat,omitempty" yaml:"chat,omitempty"`
-	Image []ImagePricingRule `json:"image,omitempty" yaml:"image,omitempty"`
+	Chat     []ChatPricingRule       `json:"chat,omitempty" yaml:"chat,omitempty"`
+	Image    []ImagePricingRule      `json:"image,omitempty" yaml:"image,omitempty"`
+	Evaluate []EvaluationPricingRule `json:"evaluate,omitempty" yaml:"evaluate,omitempty"`
+}
+
+// EvaluationPricingRule prices native Evaluate calls only. Provider is required;
+// matching never falls back to another provider or a model's slash suffix.
+type EvaluationPricingRule struct {
+	InferenceProvider   string   `json:"inference_provider" yaml:"inference_provider"`
+	Model               string   `json:"model" yaml:"model"`
+	Aliases             []string `json:"aliases,omitempty" yaml:"aliases,omitempty"`
+	InputUSDPerMillion  float64  `json:"input_usd_per_million" yaml:"input_usd_per_million"`
+	OutputUSDPerMillion float64  `json:"output_usd_per_million" yaml:"output_usd_per_million"`
 }
 
 // ChatPricingRule defines one chat model price entry.
@@ -134,6 +146,12 @@ func (c *PricingCatalog) Clone() *PricingCatalog {
 			out.Image[i] = cloneImagePricingRule(c.Image[i])
 		}
 	}
+	if len(c.Evaluate) > 0 {
+		out.Evaluate = append([]EvaluationPricingRule(nil), c.Evaluate...)
+		for i := range out.Evaluate {
+			out.Evaluate[i].Aliases = append([]string(nil), c.Evaluate[i].Aliases...)
+		}
+	}
 	return out
 }
 
@@ -159,7 +177,57 @@ func (c *PricingCatalog) Validate() error {
 	if err := validateUniqueImagePricingRuleModels(c.Image); err != nil {
 		return err
 	}
+	seen := make(map[string]int)
+	for i, rule := range c.Evaluate {
+		provider := normalizeInferenceProvider(rule.InferenceProvider)
+		if provider == "" {
+			return fmt.Errorf("evaluate[%d]: inference_provider is required", i)
+		}
+		for field, rate := range map[string]float64{"input_usd_per_million": rule.InputUSDPerMillion, "output_usd_per_million": rule.OutputUSDPerMillion} {
+			if err := validateFinitePrice(field, rate); err != nil {
+				return fmt.Errorf("evaluate[%d]: %w", i, err)
+			}
+			if rate < 0 {
+				return fmt.Errorf("evaluate[%d]: %s must be non-negative", i, field)
+			}
+		}
+		for _, name := range append([]string{rule.Model}, rule.Aliases...) {
+			model := normalizeModel(name)
+			if model == "" {
+				return fmt.Errorf("evaluate[%d]: model and aliases must not be blank", i)
+			}
+			key := provider + "\x00" + model
+			if prev, ok := seen[key]; ok && prev != i {
+				return fmt.Errorf("evaluate[%d]: model or alias %q conflicts with evaluate[%d] under inference_provider %q", i, name, prev, rule.InferenceProvider)
+			}
+			seen[key] = i
+		}
+	}
 	return nil
+}
+
+// EstimateEvaluateCost estimates native Evaluate usage using the response model
+// and the exact provider. Both token counts must be present and non-negative.
+// Chat-emulated Evaluate results use the Chat pricing methods instead.
+func (c *PricingCatalog) EstimateEvaluateCost(provider, model string, usage evaluate.Usage) (*UsageCost, bool) {
+	provider, model = normalizeInferenceProvider(provider), normalizeModel(model)
+	if c == nil || provider == "" || model == "" || usage.InputTokens == nil || usage.OutputTokens == nil || *usage.InputTokens < 0 || *usage.OutputTokens < 0 {
+		return nil, false
+	}
+	for _, rule := range c.Evaluate {
+		if normalizeInferenceProvider(rule.InferenceProvider) != provider {
+			continue
+		}
+		for _, name := range append([]string{rule.Model}, rule.Aliases...) {
+			if normalizeModel(name) != model {
+				continue
+			}
+			input := tokensCost(*usage.InputTokens, rule.InputUSDPerMillion)
+			output := tokensCost(*usage.OutputTokens, rule.OutputUSDPerMillion)
+			return &UsageCost{Currency: "USD", Estimated: true, Input: roundUSD(input), Output: roundUSD(output), Total: roundUSD(input + output)}, true
+		}
+	}
+	return nil, false
 }
 
 // EstimateChatCost derives a cost estimate from the catalog, model, and usage.

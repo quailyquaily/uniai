@@ -11,8 +11,8 @@ import (
 )
 
 type ClassifyInput struct {
-	Text  string
-	Image string
+	Text  string `json:"text,omitempty"`
+	Image string `json:"image,omitempty"`
 }
 
 type jinaClassifyInputText struct {
@@ -32,16 +32,20 @@ func Classify(ctx context.Context, token, base, model string, labels []string, i
 		data []byte
 		err  error
 	)
-	if model == "jina-embeddings-v3" {
+	switch model {
+	case "jina-embeddings-v3", "jina-embeddings-v5-text-small", "jina-embeddings-v5-text-nano":
 		textInput := &jinaClassifyInputText{
 			Model:  model,
 			Labels: append([]string{}, labels...),
 		}
 		for _, item := range inputs {
+			if item.Image != "" {
+				return nil, fmt.Errorf("%s only accepts text inputs", model)
+			}
 			textInput.Input = append(textInput.Input, item.Text)
 		}
 		data, err = json.Marshal(textInput)
-	} else {
+	default:
 		newInput := &jinaClassifyInput{
 			Model:  model,
 			Input:  append([]ClassifyInput{}, inputs...),
