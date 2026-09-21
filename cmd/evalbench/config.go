@@ -15,13 +15,13 @@ import (
 )
 
 type cliOptions struct {
-	request                             evaluate.Request
-	options                             runOptions
-	apiBase, casePath, category, output string
-	preset                              string
-	limit                               int
-	seed                                int64
-	list, dryRun                        bool
+	request                                               evaluate.Request
+	options                                               runOptions
+	apiBase, casePath, category, domain, language, output string
+	preset                                                string
+	limit                                                 int
+	seed                                                  int64
+	list, dryRun                                          bool
 }
 
 func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (cliOptions, error) {
@@ -37,8 +37,10 @@ func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (
 	timeout := fs.String("timeout", getenv("EVALUATE_TIMEOUT"), "per-call duration, e.g. 90s (default 90s)")
 	fs.StringVar(&o.request.InferenceProvider, "inference-provider", getenv("EVALUATE_INFERENCE_PROVIDER"), "Chat pricing hint")
 	fs.StringVar(&o.apiBase, "api-base", getenv("EVALUATE_API_BASE"), "override provider API base")
-	fs.StringVar(&o.casePath, "cases", "", "custom JSONL dataset; default embeds 360 cases")
+	fs.StringVar(&o.casePath, "cases", "", "custom JSONL dataset; default embeds 614 cases")
 	fs.StringVar(&o.category, "category", "", "run only this category")
+	fs.StringVar(&o.domain, "domain", "", "run only this content domain: "+strings.Join(domainNames, ", "))
+	fs.StringVar(&o.language, "language", "", "run only this language tag, e.g. zh, ja, en")
 	fs.StringVar(&o.output, "output", "", "write JSON report to a new file")
 	fs.IntVar(&o.limit, "limit", 0, "max selected cases; 0 means all")
 	fs.IntVar(&o.options.Repeat, "repeat", 1, "measured passes over selected cases")

@@ -2,7 +2,7 @@
 
 `evalbench` 从环境变量读取模型连接配置，输出每次调用的耗时、实际答案和匹配情况。串行测试 TypeSafe/Jev 原生 Evaluate、Qwen 等模型的 Chat 模拟，以及 Jina Classify 分类基线。
 
-内置 [360 条案例](cases/general.jsonl)，共 18 个场景，每个 20 条；Boolean、Choice、Score 各 120 条。数据直接嵌入二进制，从任意工作目录执行都可使用。
+内置 [614 条案例](cases/dataset.jsonl)，共 18 个场景。中文和日文各 258 条，另有英文 90 条、西班牙文 4 条、法文 4 条。数据直接嵌入二进制，从任意工作目录执行都可使用。
 
 ## 运行
 
@@ -24,7 +24,7 @@ go run ./cmd/evalbench --preset gpt-5.6-luna --output out/eval-luna-none.json
 go run ./cmd/evalbench --preset jina --output out/eval-jina.json
 ```
 
-两组 OpenAI 预设读取 `OPENAI_API_KEY` / `OPENAI_API_BASE`，Jev 读取 `TYPESAFE_API_KEY` / `TYPESAFE_API_BASE`，Jina 读取 `JINA_API_KEY` / `JINA_API_BASE`。四组都默认运行相同的 360 条案例，串行、repeat=1、warmup=0、timeout=90s；Boolean 阈值 0.5，Score 容差 0.5。报告保存预设名称及实际生效参数。
+两组 OpenAI 预设读取 `OPENAI_API_KEY` / `OPENAI_API_BASE`，Jev 读取 `TYPESAFE_API_KEY` / `TYPESAFE_API_BASE`，Jina 读取 `JINA_API_KEY` / `JINA_API_BASE`。四组都默认运行相同的 614 条案例，串行、repeat=1、warmup=0、timeout=90s；Boolean 阈值 0.5，Score 容差 0.5。报告保存预设名称及实际生效参数。
 
 生成上限 256 针对内置的单题短答案；自定义多题案例可用 `--max-tokens` 调整。GPT-4o mini 不发送 reasoning effort，Luna 显式发送 `none`。达到上限的截断结果仍计为错误。
 
@@ -46,7 +46,7 @@ Jina 预设复用 SDK 的 `Client.Classify`，调用 `/v1/classify`。v5-text-sm
 
 Jina 返回的 score / predictions 保存在 `provider_metadata.jina_classify`，不转成判断概率或题目评分，也不计入 Brier score。usage 只累加 SDK 返回的 total_tokens，不补造输入或输出 token 数；模型名记录请求值，因为 Classify 结果不提供实际模型标识。它不接受 reasoning effort、max tokens 或 Chat 计价提示。
 
-默认 360 条案例均为单题，因此四组各发 360 次请求。自定义多题案例会拆成多个串行分类请求：一次案例的耗时和超时覆盖全部问题，任一问题失败则整条案例失败；此前已成功的问题仍可能产生用量，但失败案例不返回部分答案或完整用量。dry-run 的 requests 显示计划 API 调用数。
+默认 614 条案例均为单题，因此四组各发 614 次请求。自定义多题案例会拆成多个串行分类请求：一次案例的耗时和超时覆盖全部问题，任一问题失败则整条案例失败；此前已成功的问题仍可能产生用量，但失败案例不返回部分答案或完整用量。dry-run 的 requests 显示计划 API 调用数。
 
 可用 `--preset jina --model jina-embeddings-v5-text-nano` 测试 nano。完整成绩之外，所有组还汇总同一份分类子集，见下文统计口径。
 
@@ -161,6 +161,8 @@ unset EVALUATE_REASONING_EFFORT EVALUATE_MAX_TOKENS EVALUATE_INFERENCE_PROVIDER 
 | `--timeout` | `90s`，每次请求独立计时 |
 | `--cases` | 自定义 JSONL 文件，默认使用内置数据 |
 | `--category` | 只选择一个场景 |
+| `--domain` | 只选择一个内容领域：`general`、`crypto`、`finance`、`geopolitics` |
+| `--language` | 只选择一种语言：`zh`、`ja`、`en`、`es`、`fr` |
 | `--limit` | `0` 表示全部；正整数限制案例数 |
 | `--seed` | `0` 保留文件顺序；其他整数固定打乱顺序 |
 | `--repeat` | `1`；按同一顺序重复完整的已选案例集 |
@@ -170,7 +172,7 @@ unset EVALUATE_REASONING_EFFORT EVALUATE_MAX_TOKENS EVALUATE_INFERENCE_PROVIDER 
 | `--output` | 写入新的 JSON 报告文件；拒绝覆盖已有文件 |
 | `--list`、`--dry-run` | 检查数据或调用计划，不发送请求、不要求凭证 |
 
-筛选顺序是 category → shuffle → limit。默认单次完整运行发起 360 次 API 请求；Evaluate 路径的计划调用数为 `已选案例数 × repeat + warmup`，Jina 按每条案例的题数累计。CLI 不增加重试，底层 Chat SDK 的重试仍然适用。正常调用错误会记录并继续，预热失败则停止。Ctrl+C 会取消当前请求、停止后续调用，并尽力保存已有报告；再次中断或强制结束进程不保证保存。
+筛选顺序是 category/domain/language → shuffle → limit。三个筛选条件同时给出时取交集。默认单次完整运行发起 614 次 API 请求；Evaluate 路径的计划调用数为 `已选案例数 × repeat + warmup`，Jina 按每条案例的题数累计。CLI 不增加重试，底层 Chat SDK 的重试仍然适用。正常调用错误会记录并继续，预热失败则停止。Ctrl+C 会取消当前请求、停止后续调用，并尽力保存已有报告；再次中断或强制结束进程不保证保存。
 
 ## 测试集
 
@@ -195,19 +197,21 @@ unset EVALUATE_REASONING_EFFORT EVALUATE_MAX_TOKENS EVALUATE_INFERENCE_PROVIDER 
 | Score | `retrieval_relevance` | 无关、同对象、部分回答、完整回答 |
 | Score | `change_risk` | 变更规模、特权与审批覆盖规则 |
 
-数据为本仓库编写的合成案例，包含人工编写的短文本、成对反例和明确规则下的结构化边界样本，不来自外部评测集。主要使用中文指令，部分正文为英文；语言识别包含五种语言。`language` 标注案例正文的主要语言，不代表整份提示词只有该语言。
+数据为本仓库编写的合成案例，包含人工编写的短文本、成对反例和明确规则下的结构化边界样本，不来自外部评测集。`language` 是独立评测维度，标注 `state` 中自然语言内容的主要语言，不表示整份提示词只含该语言。新增日文对应案例的判断说明也使用日文；字段名、枚举值等结构化标识保持英文。语言识别场景仍使用中文判断说明，以免提前泄露待识别语言。
 
-Boolean 每个场景各有 10 条 true / false。Choice 在各场景内均衡分配标签。Score 中 change_risk 更偏向高风险分支，其他场景按等级均衡分配。默认按场景交错并错开标签排列，前 18 条覆盖全部场景和两种布尔标签。
+中文和日文各 258 条。除语言识别场景已有的 4 条日文外，每条中文案例都有规则、标签和难度对应的日文案例。`domain` 是另一独立维度：`general` 566 条，`crypto`、`finance`、`geopolitics` 各 16 条。三个专题都各含 8 条中文和 8 条日文，并覆盖否定判断、任务分类或支持路由、检索相关性。
 
-这些样本用于检查接口、比较固定任务下的延迟和发现明显判断错误。它们包含共享规则与模板，不能把 360 条看作 360 个完全独立的真实业务样本；情绪和相关性等级也依赖本测试集的标注约定。比较模型时应同时查看场景结果和实际业务数据。
+原有中文、英文及语言识别案例的标签分布不变；新增日文案例沿用对应中文案例的规则与标签。默认文件前 360 条仍按原有场景交错顺序排列，前 18 条覆盖全部场景和两种布尔标签。
+
+这些样本用于检查接口、比较固定任务下的延迟和发现明显判断错误。它们包含共享规则与模板，不能把 614 条看作 614 个完全独立的真实业务样本；情绪和相关性等级也依赖本测试集的标注约定。比较模型时应同时查看场景结果和实际业务数据。
 
 每行是一个案例，可包含多个问题，字段示例：
 
 ```json
-{"id":"refund-example","category":"custom","language":"zh","state":"请退回重复扣款。","questions":{"answer":{"kind":"boolean","instructions":"当前是否请求退款？"}},"expected":{"answer":true},"rationale":"明确请求返还已经支付的钱。"}
+{"id":"refund-example","category":"custom","domain":"finance","language":"zh","state":"请退回重复扣款。","questions":{"answer":{"kind":"boolean","instructions":"当前是否请求退款？"}},"expected":{"answer":true},"rationale":"明确请求返还已经支付的钱。"}
 ```
 
-`expected` 必须完整覆盖 question ID。Boolean 标签为 JSON bool，Choice 为合法选项 ID，Score 为合法整数等级索引。加载时检查格式、重复案例 ID、问题定义和标签。`expected`、`rationale`、案例 ID 和 category 都不会发给模型。
+`domain` 和 `language` 必填；`domain` 必须使用上述四个值，`language` 可使用自定义语言标签。`expected` 必须完整覆盖 question ID。Boolean 标签为 JSON bool，Choice 为合法选项 ID，Score 为合法整数等级索引。加载时检查格式、重复案例 ID、问题定义和标签。`expected`、`rationale`、案例 ID、category、domain 和 language 都不会发给模型。
 
 ## 结果与统计口径
 
@@ -215,7 +219,7 @@ Boolean 每个场景各有 10 条 true / false。Choice 在各场景内均衡分
 
 耗时覆盖整个 `Client.Evaluate` 调用或一条案例的 Jina 分类转换，包括请求构造、网络、上游计算、响应解析及 SDK 内部重试，不包含 benchmark 的预期答案比较和报告写入。它不是服务端推理耗时，也不是首 token 延迟。串行执行，未测并发吞吐。
 
-`classification_summary` 和终端的 `classification_subset` 汇总 8 个固定场景：refund_intent、support_routing、content_topic、language_detection、intent_classification、moderation_category、sentiment_intensity、retrieval_relevance，共 160 条内置案例。它们侧重语义分类，但仍可能涉及否定、条件和上下文。其余日期、计数和规则案例继续计入完整 summary，并可在 by_category 中逐项比较。这个分组对所有模型相同，不根据模型结果筛选；自定义案例按相同 category 名归组，其他 category 仅进入完整成绩。
+`classification_summary` 和终端的 `classification_subset` 汇总 8 个固定场景：refund_intent、support_routing、content_topic、language_detection、intent_classification、moderation_category、sentiment_intensity、retrieval_relevance，共 234 条内置案例。它们侧重语义分类，但仍可能涉及否定、条件和上下文。其余日期、计数和规则案例继续计入完整 summary。报告和终端同时按 category、domain、language 汇总，便于直接比较中文与日文或三个专题。这个分组对所有模型相同，不根据模型结果筛选；自定义案例按相同 category 名归组，其他 category 仅进入完整成绩。
 
 预热不计入正式统计。`wall_time_ms` 包含预热和运行中终端输出，排除最终汇总与报告写入；不要把它当作纯 API 耗时。重复案例可能命中缓存，预热和 repeat 的设置需保持一致，usage 中可用的缓存明细会保留。
 

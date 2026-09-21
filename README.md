@@ -466,7 +466,7 @@ client := uniai.New(uniai.Config{
 
 `off` requires native Evaluate; `fallback` selects Chat only when the chosen provider has no native path; `force` selects Chat directly. Native errors never trigger Chat fallback. Jev returns `ProbabilityTrue`; emulation returns `BooleanValue` without invented probabilities. See [Evaluate usage and generation controls](docs/evaluate.md).
 
-Use [`cmd/evalbench`](cmd/evalbench/README.md) to benchmark latency and judgments with credentials from environment variables. It includes 360 labeled cases across 18 scenarios, per-call answers, latency percentiles, and JSON reports:
+Use [`cmd/evalbench`](cmd/evalbench/README.md) to benchmark latency and judgments with credentials from environment variables. It includes 614 labeled cases across 18 scenarios, balanced Chinese and Japanese subsets, per-call answers, latency percentiles, and JSON reports:
 
 ```bash
 go run ./cmd/evalbench --dry-run

@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -49,13 +50,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	if err != nil {
 		return err
 	}
-	cases, err = selectCases(cases, o.category, o.limit, o.seed)
+	cases, err = selectCases(cases, o.category, o.domain, o.language, o.limit, o.seed)
 	if err != nil {
 		return err
 	}
 	if o.list {
 		for _, c := range cases {
-			if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\tquestions=%d\n", c.ID, c.Category, c.Language, len(c.Questions)); err != nil {
+			if _, err := fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\tquestions=%d\n", c.ID, c.Category, c.Domain, c.Language, len(c.Questions)); err != nil {
 				return err
 			}
 		}
@@ -171,15 +172,25 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout,
 	return nil
 }
 
-func selectCases(all []benchmarkCase, category string, limit int, seed int64) ([]benchmarkCase, error) {
+func selectCases(all []benchmarkCase, category, domain, language string, limit int, seed int64) ([]benchmarkCase, error) {
 	selected := make([]benchmarkCase, 0, len(all))
 	for _, c := range all {
-		if category == "" || c.Category == category {
+		if (category == "" || c.Category == category) && (domain == "" || c.Domain == domain) && (language == "" || c.Language == language) {
 			selected = append(selected, c)
 		}
 	}
 	if len(selected) == 0 {
-		return nil, fmt.Errorf("no cases match category %q", category)
+		filters := make([]string, 0, 3)
+		if category != "" {
+			filters = append(filters, "category "+strconv.Quote(category))
+		}
+		if domain != "" {
+			filters = append(filters, "domain "+strconv.Quote(domain))
+		}
+		if language != "" {
+			filters = append(filters, "language "+strconv.Quote(language))
+		}
+		return nil, fmt.Errorf("no cases match %s", strings.Join(filters, " and "))
 	}
 	if seed != 0 {
 		rand.New(rand.NewSource(seed)).Shuffle(len(selected), func(i, j int) { selected[i], selected[j] = selected[j], selected[i] })
@@ -233,6 +244,22 @@ func printSummary(w io.Writer, r *benchmarkReport) error {
 		v := r.ByCategory[key]
 		if _, err := fmt.Fprintf(w, "category[%s]: ok=%d errors=%d judgments=%d/%d p95=%.2fms\n", key, v.Succeeded, v.Failed, v.MatchedJudgments, v.ExpectedJudgments, v.SuccessLatency.P95MS); err != nil {
 			return err
+		}
+	}
+	for _, group := range []struct {
+		name  string
+		stats map[string]summary
+	}{{"domain", r.ByDomain}, {"language", r.ByLanguage}} {
+		keys = keys[:0]
+		for key := range group.stats {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			v := group.stats[key]
+			if _, err := fmt.Fprintf(w, "%s[%s]: ok=%d errors=%d judgments=%d/%d p95=%.2fms\n", group.name, key, v.Succeeded, v.Failed, v.MatchedJudgments, v.ExpectedJudgments, v.SuccessLatency.P95MS); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

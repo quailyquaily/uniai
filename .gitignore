@@ -18,6 +18,7 @@ coverage*.out
 /dist/
 cmd/imagetest/*.png
 cmd/imagetest/*.jpg
+cmd/imagetest/out/*
 
 # Dependency vendors (optional)
 /vendor/
@@ -37,3 +38,6 @@ env.sh
 
 .env.*
 patches/
+
+# Eval outputs
+out/*

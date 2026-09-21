@@ -12,12 +12,26 @@ import (
 	"github.com/quailyquaily/uniai/evaluate"
 )
 
-//go:embed cases/general.jsonl
+//go:embed cases/dataset.jsonl
 var builtinCases string
+
+// Domain is the content classification dimension of a case, separate from the
+// task category: general business content, or crypto, finance, geopolitics.
+var domainNames = []string{"general", "crypto", "finance", "geopolitics"}
+
+func knownDomain(domain string) bool {
+	for _, name := range domainNames {
+		if domain == name {
+			return true
+		}
+	}
+	return false
+}
 
 type benchmarkCase struct {
 	ID        string                       `json:"id"`
 	Category  string                       `json:"category"`
+	Domain    string                       `json:"domain"`
 	Language  string                       `json:"language"`
 	State     json.RawMessage              `json:"state"`
 	Questions map[string]evaluate.Question `json:"questions"`
@@ -45,8 +59,11 @@ func loadCases(r io.Reader) ([]benchmarkCase, error) {
 		if err := decoder.Decode(new(any)); err != io.EOF {
 			return nil, fmt.Errorf("cases line %d: expected one JSON object", line)
 		}
-		if strings.TrimSpace(c.ID) == "" || strings.TrimSpace(c.Category) == "" || strings.TrimSpace(c.Language) == "" {
-			return nil, fmt.Errorf("cases line %d: id, category and language are required", line)
+		if strings.TrimSpace(c.ID) == "" || strings.TrimSpace(c.Category) == "" || strings.TrimSpace(c.Domain) == "" || strings.TrimSpace(c.Language) == "" {
+			return nil, fmt.Errorf("cases line %d: id, category, domain and language are required", line)
+		}
+		if !knownDomain(c.Domain) {
+			return nil, fmt.Errorf("cases line %d: unknown domain %q", line, c.Domain)
 		}
 		if seen[c.ID] {
 			return nil, fmt.Errorf("cases line %d: duplicate id %q", line, c.ID)

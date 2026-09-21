@@ -11,7 +11,7 @@ import (
 	"github.com/quailyquaily/uniai/evaluate"
 )
 
-const testCaseJSON = `{"id":"mixed","category":"test","language":"en","state":{"text":"refund"},"questions":{"refund":{"kind":"boolean","instructions":"Refund?"},"team":{"kind":"choice","instructions":"Team?","options":{"billing":"Payments","support":"Help"}},"priority":{"kind":"score","instructions":"Priority?","levels":["low","high"]}},"expected":{"refund":false,"team":"billing","priority":0},"rationale":"This explanation must never be sent to the model."}`
+const testCaseJSON = `{"id":"mixed","category":"test","domain":"general","language":"en","state":{"text":"refund"},"questions":{"refund":{"kind":"boolean","instructions":"Refund?"},"team":{"kind":"choice","instructions":"Team?","options":{"billing":"Payments","support":"Help"}},"priority":{"kind":"score","instructions":"Priority?","levels":["low","high"]}},"expected":{"refund":false,"team":"billing","priority":0},"rationale":"This explanation must never be sent to the model."}`
 
 func ptr[T any](v T) *T { return &v }
 
@@ -37,6 +37,9 @@ func TestLoadCasesValidation(t *testing.T) {
 		"", testCaseJSON + "\n" + testCaseJSON, testCaseJSON + " {}",
 		strings.Replace(testCaseJSON, `"id":"mixed"`, `"id":""`, 1),
 		strings.Replace(testCaseJSON, `"category":"test"`, `"category":""`, 1),
+		strings.Replace(testCaseJSON, `"domain":"general"`, `"domain":"unknown"`, 1),
+		strings.Replace(testCaseJSON, `"domain":"general",`, ``, 1),
+		strings.Replace(testCaseJSON, `"language":"en",`, ``, 1),
 		strings.Replace(testCaseJSON, `"state":`, `"typo":`, 1),
 		strings.Replace(testCaseJSON, `"refund":false`, `"refund":null`, 1),
 		strings.Replace(testCaseJSON, `"refund":false`, `"refund":"false"`, 1),
@@ -52,6 +55,11 @@ func TestLoadCasesValidation(t *testing.T) {
 	}
 	if cases, err := loadCases(strings.NewReader("\n" + testCaseJSON + "\n")); err != nil || len(cases) != 1 {
 		t.Fatalf("cases=%v err=%v", cases, err)
+	}
+	valid := strings.Replace(testCaseJSON, `"domain":"general"`, `"domain":"crypto"`, 1)
+	valid = strings.Replace(valid, `"language":"en"`, `"language":"de"`, 1)
+	if _, err := loadCases(strings.NewReader(valid)); err != nil {
+		t.Fatalf("valid dimensions rejected: %v", err)
 	}
 }
 
@@ -121,6 +129,12 @@ func TestRunBenchmarkAccountingAndIsolation(t *testing.T) {
 	}
 	if report.ByCategory["test"].Attempts != 3 {
 		t.Fatal(report.ByCategory)
+	}
+	if report.ByDomain["general"].Attempts != 3 || report.ByLanguage["en"].Attempts != 3 {
+		t.Fatalf("dimension summaries missing: domain=%v language=%v", report.ByDomain, report.ByLanguage)
+	}
+	if report.Attempts[0].Domain != "general" || report.Attempts[0].Language != "en" {
+		t.Fatalf("attempt dimensions missing: %+v", report.Attempts[0])
 	}
 	if report.Attempts[1].Result != nil || report.Attempts[1].Error == "" {
 		t.Fatal("failure recorded as result")

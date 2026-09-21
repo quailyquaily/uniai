@@ -44,7 +44,7 @@ func TestCLIEnvironmentAndOverrides(t *testing.T) {
 }
 
 func TestListAndDryRunNeedNoCredentials(t *testing.T) {
-	for _, args := range [][]string{{"--list", "--limit", "3"}, {"--dry-run", "--limit", "2", "--repeat", "3", "--warmup", "1"}} {
+	for _, args := range [][]string{{"--list", "--limit", "3"}, {"--list", "--domain", "crypto", "--language", "ja", "--limit", "2"}, {"--dry-run", "--limit", "2", "--repeat", "3", "--warmup", "1"}} {
 		var stdout, stderr bytes.Buffer
 		if err := run(context.Background(), args, env(nil), &stdout, &stderr); err != nil {
 			t.Fatal(err)
@@ -57,8 +57,10 @@ func TestListAndDryRunNeedNoCredentials(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--list", "--category", "nonexistent"}, env(nil), &out, &out); err == nil {
-		t.Fatal("empty selection accepted")
+	for _, args := range [][]string{{"--list", "--category", "nonexistent"}, {"--list", "--domain", "unknown-domain"}, {"--list", "--language", "unknown-language"}} {
+		if err := run(context.Background(), args, env(nil), &out, &out); err == nil {
+			t.Fatal("empty selection accepted:", args)
+		}
 	}
 }
 
@@ -66,7 +68,7 @@ func TestCLINativeRunAndReport(t *testing.T) {
 	dir := t.TempDir()
 	casePath := filepath.Join(dir, "input.jsonl")
 	output := filepath.Join(dir, "report.json")
-	data := `{"id":"false-zero","category":"smoke","language":"en","state":"The request was withdrawn.","questions":{"answer":{"kind":"boolean","instructions":"Current refund request?"}},"expected":{"answer":false}}`
+	data := `{"id":"false-zero","category":"smoke","domain":"general","language":"en","state":"The request was withdrawn.","questions":{"answer":{"kind":"boolean","instructions":"Current refund request?"}},"expected":{"answer":false}}`
 	if err := os.WriteFile(casePath, []byte(data), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -119,11 +121,11 @@ func TestCaseSelectionDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	one, err := selectCases(cases, "", 12, 42)
+	one, err := selectCases(cases, "", "", "", 12, 42)
 	if err != nil {
 		t.Fatal(err)
 	}
-	two, _ := selectCases(cases, "", 12, 42)
+	two, _ := selectCases(cases, "", "", "", 12, 42)
 	for i := range one {
 		if one[i].ID != two[i].ID {
 			t.Fatal("seed not reproducible")
@@ -132,9 +134,13 @@ func TestCaseSelectionDeterministic(t *testing.T) {
 	if one[0].ID == cases[0].ID {
 		t.Fatal("shuffle did not take effect")
 	}
-	subset, err := selectCases(cases, "refund_intent", 0, 0)
-	if err != nil || len(subset) != 20 {
+	subset, err := selectCases(cases, "refund_intent", "", "", 0, 0)
+	if err != nil || len(subset) != 30 {
 		t.Fatal(err, len(subset))
+	}
+	japaneseCrypto, err := selectCases(cases, "", "crypto", "ja", 0, 0)
+	if err != nil || len(japaneseCrypto) != 8 {
+		t.Fatal(err, len(japaneseCrypto))
 	}
 }
 

@@ -31,6 +31,8 @@ type answerCheck struct {
 type attemptResult struct {
 	CaseID            string                 `json:"case_id"`
 	Category          string                 `json:"category"`
+	Domain            string                 `json:"domain"`
+	Language          string                 `json:"language"`
 	Iteration         int                    `json:"iteration"`
 	DurationMS        float64                `json:"duration_ms"`
 	ExpectedJudgments int                    `json:"expected_judgments"`
@@ -86,6 +88,8 @@ type benchmarkReport struct {
 	Summary               summary                    `json:"summary"`
 	ClassificationSummary summary                    `json:"classification_summary"`
 	ByCategory            map[string]summary         `json:"by_category"`
+	ByDomain              map[string]summary         `json:"by_domain"`
+	ByLanguage            map[string]summary         `json:"by_language"`
 	Error                 string                     `json:"error,omitempty"`
 }
 
@@ -105,9 +109,13 @@ func runBenchmark(ctx context.Context, cases []benchmarkCase, base evaluate.Requ
 		report.WallTimeMS = float64(time.Since(start)) / float64(time.Millisecond)
 		report.Summary = summarize(report.Attempts)
 		groups := map[string][]attemptResult{}
+		domainGroups := map[string][]attemptResult{}
+		languageGroups := map[string][]attemptResult{}
 		var classification []attemptResult
 		for _, a := range report.Attempts {
 			groups[a.Category] = append(groups[a.Category], a)
+			domainGroups[a.Domain] = append(domainGroups[a.Domain], a)
+			languageGroups[a.Language] = append(languageGroups[a.Language], a)
 			switch a.Category {
 			case "refund_intent", "support_routing", "content_topic", "language_detection", "intent_classification", "moderation_category", "sentiment_intensity", "retrieval_relevance":
 				classification = append(classification, a)
@@ -117,6 +125,14 @@ func runBenchmark(ctx context.Context, cases []benchmarkCase, base evaluate.Requ
 		report.ByCategory = make(map[string]summary, len(groups))
 		for key, attempts := range groups {
 			report.ByCategory[key] = summarize(attempts)
+		}
+		report.ByDomain = make(map[string]summary, len(domainGroups))
+		for key, attempts := range domainGroups {
+			report.ByDomain[key] = summarize(attempts)
+		}
+		report.ByLanguage = make(map[string]summary, len(languageGroups))
+		for key, attempts := range languageGroups {
+			report.ByLanguage[key] = summarize(attempts)
 		}
 		if err != nil {
 			report.Error = err.Error()
@@ -154,7 +170,7 @@ func runAttempt(ctx context.Context, c benchmarkCase, base evaluate.Request, opt
 	r := base
 	r.State = c.State
 	r.Questions = c.Questions
-	a := attemptResult{CaseID: c.ID, Category: c.Category, Iteration: iteration, ExpectedJudgments: len(c.Questions)}
+	a := attemptResult{CaseID: c.ID, Category: c.Category, Domain: c.Domain, Language: c.Language, Iteration: iteration, ExpectedJudgments: len(c.Questions)}
 	callCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	start := time.Now()
 	out, err := call(callCtx, r)

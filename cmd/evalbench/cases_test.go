@@ -13,15 +13,19 @@ func TestBuiltinDatasetCoverage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cases) != 360 {
-		t.Fatalf("got %d cases, want 360", len(cases))
+	if len(cases) != 614 {
+		t.Fatalf("got %d cases, want 614", len(cases))
 	}
 	categories := map[string]int{}
+	domains := map[string]int{}
+	languages := map[string]int{}
 	kinds := map[evaluate.Kind]int{}
 	booleans := map[string]int{}
 	seen := map[string]string{}
 	for _, c := range cases {
 		categories[c.Category]++
+		domains[c.Domain]++
+		languages[c.Language]++
 		if c.Rationale == "" {
 			t.Fatalf("%s lacks label rationale", c.ID)
 		}
@@ -40,21 +44,61 @@ func TestBuiltinDatasetCoverage(t *testing.T) {
 			}
 		}
 	}
-	if len(categories) != 18 {
+	wantCategories := map[string]int{
+		"change_risk": 40, "content_topic": 30, "deadline_rules": 40,
+		"eligibility_rules": 40, "event_order": 40, "evidence_injection": 30,
+		"evidence_strength": 40, "form_completeness": 40, "incident_severity": 40,
+		"intent_classification": 30, "language_detection": 20, "moderation_category": 32,
+		"negation_scope": 30, "refund_intent": 30, "retrieval_relevance": 32,
+		"sentiment_intensity": 30, "support_routing": 30, "workflow_action": 40,
+	}
+	if len(categories) != len(wantCategories) {
 		t.Fatal(categories)
 	}
-	for cat, count := range categories {
-		if count != 20 {
-			t.Fatalf("%s: %d cases", cat, count)
+	for cat, want := range wantCategories {
+		if categories[cat] != want {
+			t.Fatalf("%s: got %d cases, want %d", cat, categories[cat], want)
 		}
 	}
-	for _, kind := range []evaluate.Kind{evaluate.Boolean, evaluate.Choice, evaluate.Score} {
-		if kinds[kind] != 120 {
-			t.Fatal(kinds)
+	wantKinds := map[evaluate.Kind]int{evaluate.Boolean: 210, evaluate.Choice: 182, evaluate.Score: 222}
+	for kind, want := range wantKinds {
+		if kinds[kind] != want {
+			t.Fatalf("kind %s: got %d, want %d", kind, kinds[kind], want)
 		}
 	}
-	if booleans["true"] != 60 || booleans["false"] != 60 {
+	if booleans["true"] != 110 || booleans["false"] != 100 {
 		t.Fatal(booleans)
+	}
+	if languages["zh"] != 258 || languages["ja"] != 258 || languages["en"] != 90 || languages["es"] != 4 || languages["fr"] != 4 {
+		t.Fatal(languages)
+	}
+	if domains["general"] != 566 || domains["crypto"] != 16 || domains["finance"] != 16 || domains["geopolitics"] != 16 {
+		t.Fatal(domains)
+	}
+}
+
+func TestBuiltinJapaneseCasesMatchChineseCases(t *testing.T) {
+	cases, err := loadCases(strings.NewReader(builtinCases))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string]benchmarkCase, len(cases))
+	for _, c := range cases {
+		byID[c.ID] = c
+	}
+	for _, chinese := range cases {
+		if chinese.Language != "zh" || chinese.Category == "language_detection" {
+			continue
+		}
+		japanese, ok := byID[chinese.ID+"-ja"]
+		if !ok {
+			t.Fatalf("%s lacks Japanese counterpart", chinese.ID)
+		}
+		chineseExpected, _ := json.Marshal(chinese.Expected)
+		japaneseExpected, _ := json.Marshal(japanese.Expected)
+		if japanese.Language != "ja" || japanese.Category != chinese.Category || japanese.Domain != chinese.Domain || string(japaneseExpected) != string(chineseExpected) {
+			t.Fatalf("mismatched pair: %s and %s", chinese.ID, japanese.ID)
+		}
 	}
 }
 
@@ -63,7 +107,7 @@ func TestBuiltinSmallSelectionCoversScenesAndBothBooleanLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := selectCases(cases, "", 18, 0)
+	first, err := selectCases(cases, "", "", "", 18, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

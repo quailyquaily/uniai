@@ -16,7 +16,7 @@ import (
 	"github.com/quailyquaily/uniai/evaluate"
 )
 
-const jinaCaseJSON = `{"id":"gold-case-id","category":"content_topic","language":"zh","state":"请把重复扣的钱退回来。","questions":{"refund":{"kind":"boolean","instructions":"是否申请退款？","true_description":"申请退款","false_description":"未申请退款"},"team":{"kind":"choice","instructions":"负责团队？","options":{"billing":"账单问题","shipping":"物流问题"}},"priority":{"kind":"score","instructions":"紧急程度？","levels":["低","中","高"]}},"expected":{"refund":true,"team":"billing","priority":2},"rationale":"gold-rationale"}`
+const jinaCaseJSON = `{"id":"gold-case-id","category":"content_topic","domain":"general","language":"zh","state":"请把重复扣的钱退回来。","questions":{"refund":{"kind":"boolean","instructions":"是否申请退款？","true_description":"申请退款","false_description":"未申请退款"},"team":{"kind":"choice","instructions":"负责团队？","options":{"billing":"账单问题","shipping":"物流问题"}},"priority":{"kind":"score","instructions":"紧急程度？","levels":["低","中","高"]}},"expected":{"refund":true,"team":"billing","priority":2},"rationale":"gold-rationale"}`
 
 func TestJinaPresetAndUnsupportedControls(t *testing.T) {
 	o, err := parseOptions([]string{"--preset", "jina"}, env(map[string]string{"EVALUATE_REASONING_EFFORT": "high", "EVALUATE_MAX_TOKENS": "1024"}), &bytes.Buffer{})
@@ -161,7 +161,7 @@ func TestJinaBuiltinDatasetDryRun(t *testing.T) {
 	if err := run(context.Background(), []string{"--preset", "jina", "--dry-run"}, env(nil), &out, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "requests=360") {
+	if !strings.Contains(out.String(), "requests=614") {
 		t.Fatal(out.String())
 	}
 }
