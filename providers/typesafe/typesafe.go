@@ -125,7 +125,7 @@ func (p *Provider) Evaluate(ctx context.Context, req *evaluate.Request) (*evalua
 	diag.LogText(p.cfg.Debug, nil, "typesafe.evaluate.response", strings.ReplaceAll(string(body), p.cfg.APIKey, "[redacted]"))
 	out, err := decodeResponse(&r, body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: typesafe: %v", evaluate.ErrInvalidResponse, err)
+		return out, fmt.Errorf("%w: typesafe: %v", evaluate.ErrInvalidResponse, err)
 	}
 	return out, nil
 }
@@ -142,8 +142,8 @@ type wireAnswer struct {
 
 func decodeResponse(req *evaluate.Request, body []byte) (*evaluate.Result, error) {
 	var wire struct {
-		Model   string                `json:"model"`
-		Answers map[string]wireAnswer `json:"answers"`
+		Model   string          `json:"model"`
+		Answers json.RawMessage `json:"answers"`
 		Usage   *struct {
 			InputTokens  *int `json:"input_tokens"`
 			OutputTokens *int `json:"output_tokens"`
@@ -153,15 +153,36 @@ func decodeResponse(req *evaluate.Request, body []byte) (*evaluate.Result, error
 	if err := json.Unmarshal(body, &wire); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(wire.Model) == "" || wire.Usage == nil {
-		return nil, fmt.Errorf("model and usage are required")
+	if wire.Usage == nil {
+		return nil, fmt.Errorf("usage is required")
 	}
-	out := &evaluate.Result{Provider: "typesafe", Model: wire.Model, Answers: make(map[string]evaluate.Answer, len(wire.Answers)), Raw: append(json.RawMessage(nil), body...), Usage: &evaluate.Usage{InputTokens: wire.Usage.InputTokens, OutputTokens: wire.Usage.OutputTokens, TotalTokens: wire.Usage.TotalTokens}}
+	usage := &evaluate.Usage{InputTokens: wire.Usage.InputTokens, OutputTokens: wire.Usage.OutputTokens, TotalTokens: wire.Usage.TotalTokens}
+	for name, value := range map[string]*int{"input_tokens": usage.InputTokens, "output_tokens": usage.OutputTokens, "total_tokens": usage.TotalTokens} {
+		if value != nil && *value < 0 {
+			return nil, fmt.Errorf("usage.%s must be nonnegative", name)
+		}
+	}
+	out := &evaluate.Result{Provider: "typesafe", Model: wire.Model, Raw: append(json.RawMessage(nil), body...), Usage: usage}
+	if usage.TotalTokens == nil && usage.InputTokens != nil && usage.OutputTokens != nil {
+		if *usage.InputTokens > int(^uint(0)>>1)-*usage.OutputTokens {
+			return out, fmt.Errorf("usage total_tokens overflows int")
+		}
+		total := *usage.InputTokens + *usage.OutputTokens
+		usage.TotalTokens = &total
+	}
+	if strings.TrimSpace(wire.Model) == "" {
+		return out, fmt.Errorf("model is required")
+	}
+	var wireAnswers map[string]wireAnswer
+	if err := json.Unmarshal(wire.Answers, &wireAnswers); err != nil {
+		return out, err
+	}
+	answers := make(map[string]evaluate.Answer, len(wireAnswers))
 	metadata := map[string]any{}
-	for id, a := range wire.Answers {
+	for id, a := range wireAnswers {
 		q, ok := req.Questions[id]
 		if !ok {
-			return nil, fmt.Errorf("answers[%q]: unknown question", id)
+			return out, fmt.Errorf("answers[%q]: unknown question", id)
 		}
 		answer := evaluate.Answer{ProbabilityTrue: a.Noul, Selected: a.Choice, ScoreValue: a.Score}
 		switch a.Type {
@@ -172,14 +193,14 @@ func decodeResponse(req *evaluate.Request, body []byte) (*evaluate.Result, error
 		case "score":
 			answer.Kind = evaluate.Score
 		default:
-			return nil, fmt.Errorf("answers[%q]: invalid type", id)
+			return out, fmt.Errorf("answers[%q]: invalid type", id)
 		}
 		if a.Probabilities != nil {
 			answer.Probabilities = make(map[string]float64, len(a.Probabilities))
 			sum := 0.0
 			for key, value := range a.Probabilities {
 				if value == nil {
-					return nil, fmt.Errorf("answers[%q].probabilities[%q]: null value", id, key)
+					return out, fmt.Errorf("answers[%q].probabilities[%q]: null value", id, key)
 				}
 				answer.Probabilities[key] = *value
 				sum += *value
@@ -187,29 +208,29 @@ func decodeResponse(req *evaluate.Request, body []byte) (*evaluate.Result, error
 			// TypeSafe rounds probabilities to two decimal places. Preserve the
 			// values, allowing at most half a unit of rounding per candidate.
 			if math.Abs(sum-1) > float64(len(a.Probabilities))*0.005+1e-12 {
-				return nil, fmt.Errorf("answers[%q].probabilities: invalid sum", id)
+				return out, fmt.Errorf("answers[%q].probabilities: invalid sum", id)
 			}
 		}
 		if answer.Kind == evaluate.Choice || answer.Kind == evaluate.Score {
 			if a.Probabilities == nil || a.Confidence == nil {
-				return nil, fmt.Errorf("answers[%q]: probabilities and confidence are required", id)
+				return out, fmt.Errorf("answers[%q]: probabilities and confidence are required", id)
 			}
 		}
 		meta := map[string]any{}
 		if a.Confidence != nil {
 			if math.IsNaN(*a.Confidence) || *a.Confidence < 0 || *a.Confidence > 1 {
-				return nil, fmt.Errorf("answers[%q].confidence is outside [0,1]", id)
+				return out, fmt.Errorf("answers[%q].confidence is outside [0,1]", id)
 			}
 			meta["confidence"] = *a.Confidence
 		}
 		if answer.Kind == evaluate.Score {
 			if len(a.Legend) != len(q.Levels) {
-				return nil, fmt.Errorf("answers[%q].legend: incorrect levels", id)
+				return out, fmt.Errorf("answers[%q].legend: incorrect levels", id)
 			}
 			for i := range q.Levels {
 				value, ok := a.Legend[strconv.Itoa(i)]
 				if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-					return nil, fmt.Errorf("answers[%q].legend: missing level %d", id, i)
+					return out, fmt.Errorf("answers[%q].legend: missing level %d", id, i)
 				}
 			}
 		}
@@ -219,25 +240,19 @@ func decodeResponse(req *evaluate.Request, body []byte) (*evaluate.Result, error
 		if len(meta) > 0 {
 			metadata[id] = meta
 		}
-		out.Answers[id] = answer
-	}
-	if err := evaluate.ValidateResult(req, out); err != nil {
-		return nil, err
-	}
-	usage := out.Usage
-	if usage.TotalTokens == nil && usage.InputTokens != nil && usage.OutputTokens != nil {
-		if *usage.InputTokens > int(^uint(0)>>1)-*usage.OutputTokens {
-			return nil, fmt.Errorf("usage total_tokens overflows int")
-		}
-		total := *usage.InputTokens + *usage.OutputTokens
-		usage.TotalTokens = &total
+		answers[id] = answer
 	}
 	if len(metadata) > 0 {
 		data, err := json.Marshal(map[string]any{"answers": metadata})
 		if err != nil {
-			return nil, err
+			return out, err
 		}
 		out.ProviderMetadata = map[string]json.RawMessage{"typesafe": data}
+	}
+	out.Answers = answers
+	if err := evaluate.ValidateResult(req, out); err != nil {
+		out.Answers = nil
+		return out, err
 	}
 	return out, nil
 }

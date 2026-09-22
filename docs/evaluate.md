@@ -143,7 +143,7 @@ State、Instructions 和各描述支持字符串、对象、数组，嵌套值�
 
 `BooleanValue`、`ProbabilityTrue`、`ScoreValue` 和 token 计数用指针区分缺失与 false/0。模拟不编造概率分布或 confidence。TypeSafe 的 confidence 和 legend 保存在 `ProviderMetadata["typesafe"]` 中。
 
-`Result.Model` 保留底层适配器返回的模型标识，可能仍是别名。`Raw` 保存原生响应或模拟的答案 JSON，默认 JSON 序列化时排除。请求中的 map、slice 和指针值在调用期间不能被并发修改。
+`Result.Model` 保留底层适配器返回的模型标识，可能仍是别名。`Raw` 保存原生响应或模拟的答案 JSON；模拟解析失败时保留原始文本，可能不是合法 JSON。默认 JSON 序列化时排除。请求中的 map、slice 和指针值在调用期间不能被并发修改。
 
 ## 用量与费用
 
@@ -152,6 +152,21 @@ State、Instructions 和各描述支持字符串、对象、数组，嵌套值�
 内置 Jev 价格与显式别名见 [`pricing.example.yaml`](../pricing.example.yaml)。未知模型或缺少 input/output 时，Cost 为 nil；完整的零用量和零价输出有效。
 
 模拟沿用实际 Chat 请求的费用、缓存计费和 `InferenceProvider` 提示。完整 Chat usage 和 warnings 保存在 `ProviderMetadata[provider]` 中。当前 Chat usage 使用 int，因此模拟结果无法恢复上游计数“缺失”与“明确为零”的区别。传入空 `PricingCatalog` 可禁用估算。[费用配置](pricing.md)
+
+即使 `err != nil`，也应检查 `result`：响应解析失败、答案校验失败或生成被截断时，结果会保留已收到的 usage、模型名和可计算的费用，`Answers` 为 nil。请求校验失败或底层未返回结果时，result 仍可能为 nil；未收到用量不代表没有消耗。
+
+```go
+result, err := client.Evaluate(ctx, request)
+if result != nil && result.Usage != nil {
+    recordUsage(result.Usage) // 调用方的用量记录函数
+}
+if err != nil {
+    return err
+}
+// 只有成功时才使用 result.Answers。
+```
+
+`evalbench` 的 JSON 报告也保留失败调用返回的 result 和 usage；该次调用仍计为失败，不参与答案评分。
 
 ## 错误与接入边界
 

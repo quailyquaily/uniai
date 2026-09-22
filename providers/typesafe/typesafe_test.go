@@ -125,7 +125,7 @@ func TestEvaluateRejectsInvalidResponses(t *testing.T) {
 				return &http.Response{StatusCode: 200, Body: body}, nil
 			})}})
 			out, err := p.Evaluate(context.Background(), request())
-			if out != nil || !errors.Is(err, evaluate.ErrInvalidResponse) || calls != 1 || !body.closed {
+			if (out != nil && len(out.Answers) != 0) || !errors.Is(err, evaluate.ErrInvalidResponse) || calls != 1 || !body.closed {
 				t.Fatalf("out=%#v err=%v calls=%d", out, err, calls)
 			}
 		})
@@ -229,5 +229,25 @@ func TestEvaluateBodyLimitAndCancellation(t *testing.T) {
 	p, _ = New(Config{APIKey: "key", HTTPClient: &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) { cancel(); return nil, r.Context().Err() })}})
 	if _, err := p.Evaluate(ctx, request()); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
+	}
+}
+
+func TestEvaluatePreservesUsageOnInvalidAnswers(t *testing.T) {
+	for _, payload := range []string{
+		strings.Replace(validResponse, `"type":"noul"`, `"type":"unknown"`, 1),
+		strings.Replace(validResponse, `"noul":0`, `"noul":2`, 1),
+		strings.Replace(validResponse, `"noul":0`, `"noul":"invalid"`, 1),
+		strings.Replace(validResponse, `"model":"jev-1.13.0"`, `"model":""`, 1),
+	} {
+		p, _ := New(Config{APIKey: "key", HTTPClient: &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload))}, nil
+		})}})
+		out, err := p.Evaluate(context.Background(), request())
+		if !errors.Is(err, evaluate.ErrInvalidResponse) || out == nil || len(out.Answers) != 0 || out.Provider != "typesafe" || string(out.Raw) != payload {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+		if out.Usage == nil || out.Usage.InputTokens == nil || *out.Usage.InputTokens != 10 || out.Usage.OutputTokens == nil || *out.Usage.OutputTokens != 0 || out.Usage.TotalTokens == nil || *out.Usage.TotalTokens != 10 {
+			t.Fatalf("lost usage: %+v", out.Usage)
+		}
 	}
 }

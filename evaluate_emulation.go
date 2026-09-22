@@ -29,14 +29,18 @@ func (c *Client) evaluateWithChat(ctx context.Context, req *evaluate.Request) (*
 		caller.cfg.AwsBedrockModelArn = req.Model
 	}
 	resp, err := caller.chatOnce(ctx, req.Provider, chatReq)
-	if err != nil {
-		return nil, fmt.Errorf("evaluate Chat emulation: %w", err)
-	}
 	if resp != nil {
 		caller.annotateChatResultCost(req.Provider, chatReq, resp)
 		diag.LogText(c.cfg.Debug, nil, "evaluate.emulation.response", resp.Text)
 	}
-	return parseEvaluateChatResponse(req, resp)
+	out, parseErr := parseEvaluateChatResponse(req, resp)
+	if err != nil {
+		if out != nil {
+			out.Answers = nil
+		}
+		return out, fmt.Errorf("evaluate Chat emulation: %w", err)
+	}
+	return out, parseErr
 }
 
 func buildEvaluateChatRequest(req *evaluate.Request) (*chat.Request, error) {
@@ -94,40 +98,47 @@ func parseEvaluateChatResponse(req *evaluate.Request, resp *chat.Result) (*evalu
 	if resp == nil {
 		return nil, fmt.Errorf("%w: empty Chat response", evaluate.ErrInvalidResponse)
 	}
+	usage := resp.Usage
+	out := &evaluate.Result{Provider: req.Provider, Model: resp.Model, Emulated: true, Raw: json.RawMessage(resp.Text), Usage: &evaluate.Usage{InputTokens: &usage.InputTokens, OutputTokens: &usage.OutputTokens, TotalTokens: &usage.TotalTokens, Cost: cloneChatUsageCost(usage.Cost)}}
+	metadata, err := json.Marshal(map[string]any{"chat_usage": usage, "chat_warnings": resp.Warnings})
+	if err != nil {
+		return out, fmt.Errorf("%w: Chat metadata: %v", evaluate.ErrInvalidResponse, err)
+	}
+	out.ProviderMetadata = map[string]json.RawMessage{req.Provider: metadata}
 	if len(resp.ToolCalls) > 0 || (resp.FinishReason != "" && resp.FinishReason != "stop") {
-		return nil, fmt.Errorf("%w: Chat did not finish an answer (finish_reason=%q)", evaluate.ErrInvalidResponse, resp.FinishReason)
+		return out, fmt.Errorf("%w: Chat did not finish an answer (finish_reason=%q)", evaluate.ErrInvalidResponse, resp.FinishReason)
 	}
 	text, ok := jsonoutput.NormalizeSingleJSONContent(resp.Text)
 	if !ok || !strings.HasPrefix(text, "{") {
-		return nil, fmt.Errorf("%w: expected one complete JSON object", evaluate.ErrInvalidResponse)
+		return out, fmt.Errorf("%w: expected one complete JSON object", evaluate.ErrInvalidResponse)
 	}
 	decoder := json.NewDecoder(strings.NewReader(text))
 	if _, err := decoder.Token(); err != nil {
-		return nil, fmt.Errorf("%w: %v", evaluate.ErrInvalidResponse, err)
+		return out, fmt.Errorf("%w: %v", evaluate.ErrInvalidResponse, err)
 	}
 	answers := make(map[string]evaluate.Answer, len(req.Questions))
 	for decoder.More() {
 		token, err := decoder.Token()
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", evaluate.ErrInvalidResponse, err)
+			return out, fmt.Errorf("%w: %v", evaluate.ErrInvalidResponse, err)
 		}
 		id, ok := token.(string)
 		if !ok {
-			return nil, fmt.Errorf("%w: invalid answer key", evaluate.ErrInvalidResponse)
+			return out, fmt.Errorf("%w: invalid answer key", evaluate.ErrInvalidResponse)
 		}
 		q, exists := req.Questions[id]
 		if !exists {
-			return nil, fmt.Errorf("%w: answers[%q]: unknown question", evaluate.ErrInvalidResponse, id)
+			return out, fmt.Errorf("%w: answers[%q]: unknown question", evaluate.ErrInvalidResponse, id)
 		}
 		if _, exists := answers[id]; exists {
-			return nil, fmt.Errorf("%w: answers[%q]: duplicate answer", evaluate.ErrInvalidResponse, id)
+			return out, fmt.Errorf("%w: answers[%q]: duplicate answer", evaluate.ErrInvalidResponse, id)
 		}
 		var value json.RawMessage
 		if err := decoder.Decode(&value); err != nil {
-			return nil, fmt.Errorf("%w: answers[%q]: %v", evaluate.ErrInvalidResponse, id, err)
+			return out, fmt.Errorf("%w: answers[%q]: %v", evaluate.ErrInvalidResponse, id, err)
 		}
 		if string(value) == "null" {
-			return nil, fmt.Errorf("%w: answers[%q]: null answer", evaluate.ErrInvalidResponse, id)
+			return out, fmt.Errorf("%w: answers[%q]: null answer", evaluate.ErrInvalidResponse, id)
 		}
 		a := evaluate.Answer{Kind: q.Kind}
 		switch q.Kind {
@@ -146,20 +157,16 @@ func parseEvaluateChatResponse(req *evaluate.Request, resp *chat.Result) (*evalu
 			a.ScoreValue = &v
 		}
 		if err != nil {
-			return nil, fmt.Errorf("%w: answers[%q]: %v", evaluate.ErrInvalidResponse, id, err)
+			return out, fmt.Errorf("%w: answers[%q]: %v", evaluate.ErrInvalidResponse, id, err)
 		}
 		answers[id] = a
 	}
 	// NormalizeSingleJSONContent already checked the complete JSON syntax.
-	usage := resp.Usage
-	out := &evaluate.Result{Provider: req.Provider, Model: resp.Model, Emulated: true, Answers: answers, Raw: json.RawMessage(text), Usage: &evaluate.Usage{InputTokens: &usage.InputTokens, OutputTokens: &usage.OutputTokens, TotalTokens: &usage.TotalTokens, Cost: cloneChatUsageCost(usage.Cost)}}
+	out.Answers = answers
+	out.Raw = json.RawMessage(text)
 	if err := evaluate.ValidateResult(req, out); err != nil {
-		return nil, err
+		out.Answers = nil
+		return out, err
 	}
-	metadata, err := json.Marshal(map[string]any{"chat_usage": usage, "chat_warnings": resp.Warnings})
-	if err != nil {
-		return nil, fmt.Errorf("%w: Chat metadata: %v", evaluate.ErrInvalidResponse, err)
-	}
-	out.ProviderMetadata = map[string]json.RawMessage{req.Provider: metadata}
 	return out, nil
 }

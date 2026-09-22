@@ -182,11 +182,11 @@ func runAttempt(ctx context.Context, c benchmarkCase, base evaluate.Request, opt
 	if err == nil {
 		err = evaluate.ValidateResult(&r, out)
 	}
+	a.Result = out
 	if err != nil {
 		a.Error = err.Error()
 		return a
 	}
-	a.Result = out
 	a.Checks = grade(c, out, opts.BooleanThreshold, opts.ScoreTolerance)
 	return a
 }

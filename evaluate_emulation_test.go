@@ -86,12 +86,12 @@ func TestParseEvaluateEmulation(t *testing.T) {
 		}
 	}
 	for _, text := range []string{"", "null", "[]", "I cannot answer", `{"refund":false}`, `{"refund":null,"team":"billing","urgency":0}`, `{"refund":"false","team":"billing","urgency":0}`, `{"refund":false,"team":"missing","urgency":0}`, `{"refund":false,"team":"billing","urgency":0.5}`, `{"refund":false,"team":"billing","urgency":3}`, `{"refund":false,"team":"billing","urgency":-1}`, `{"refund":false,"team":"billing","urgency":0,"confidence":1}`, `{"refund":false,"refund":true,"team":"billing","urgency":0}`, `{"refund":false,"re\u0066und":true,"team":"billing","urgency":0}`, emulatedJSON + emulatedJSON, "Here is the answer: " + emulatedJSON, `<think>reasoning</think>` + emulatedJSON, emulatedJSON[:len(emulatedJSON)-1]} {
-		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: text}); out != nil || !errors.Is(err, evaluate.ErrInvalidResponse) {
+		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: text}); out == nil || len(out.Answers) != 0 || !errors.Is(err, evaluate.ErrInvalidResponse) {
 			t.Fatalf("accepted %q: out=%v err=%v", text, out, err)
 		}
 	}
 	for _, reason := range []string{"length", "content_filter", "tool_calls", "refusal"} {
-		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: emulatedJSON, FinishReason: reason}); out != nil || !errors.Is(err, evaluate.ErrInvalidResponse) {
+		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: emulatedJSON, FinishReason: reason}); out == nil || len(out.Answers) != 0 || !errors.Is(err, evaluate.ErrInvalidResponse) {
 			t.Fatalf("reason=%s err=%v", reason, err)
 		}
 	}
@@ -175,7 +175,7 @@ func TestEvaluateEmulationScoreMustBeInteger(t *testing.T) {
 	r := emulationRequest()
 	for _, value := range []string{"0.00000000000000000001", "1.00000000000000000001", "1e-999", "0.5"} {
 		text := strings.Replace(emulatedJSON, `"urgency":0`, `"urgency":`+value, 1)
-		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: text}); out != nil || !errors.Is(err, evaluate.ErrInvalidResponse) {
+		if out, err := parseEvaluateChatResponse(&r, &chat.Result{Text: text}); out == nil || len(out.Answers) != 0 || !errors.Is(err, evaluate.ErrInvalidResponse) {
 			t.Fatalf("fractional score %s accepted: %v %v", value, out, err)
 		}
 	}
@@ -203,7 +203,7 @@ func TestEvaluateEmulationNoCorrectionRequests(t *testing.T) {
 		c := New(Config{OpenAIAPIKey: "key", OpenAIAPIBase: server.URL + "/v1"})
 		out, err := c.Evaluate(context.Background(), emulationRequest())
 		server.Close()
-		if out != nil || !errors.Is(err, evaluate.ErrInvalidResponse) || calls != 1 {
+		if out == nil || len(out.Answers) != 0 || !errors.Is(err, evaluate.ErrInvalidResponse) || calls != 1 {
 			t.Fatalf("out=%v err=%v calls=%d", out, err, calls)
 		}
 	}
@@ -255,5 +255,44 @@ func TestEvaluateAzureUsesRequestedDeployment(t *testing.T) {
 	}
 	if calls != 1 || c.cfg.AzureOpenAIModel != "chat-deployment" {
 		t.Fatal("deployment/default changed")
+	}
+}
+
+func TestEvaluateEmulationPreservesUsageOnError(t *testing.T) {
+	for _, tc := range []struct{ name, content, reason string }{
+		{"invalid JSON", "incomplete", "stop"},
+		{"truncated", emulatedJSON, "length"},
+		{"refused", "", "refusal"},
+		{"invalid answer", strings.Replace(emulatedJSON, "billing", "unknown", 1), "stop"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"model":   "served-model",
+					"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": tc.content}, "finish_reason": tc.reason}},
+					"usage":   map[string]any{"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110, "prompt_tokens_details": map[string]any{"cached_tokens": 20}},
+				})
+			}))
+			defer server.Close()
+			c := New(Config{OpenAIAPIKey: "key", OpenAIAPIBase: server.URL + "/v1", Pricing: &PricingCatalog{Chat: []ChatPricingRule{{InferenceProvider: "openai", Model: "served-model", InputUSDPerMillion: 1, OutputUSDPerMillion: 2, CachedInputUSDPerMillion: evalPtr(0.5)}}}})
+			req := emulationRequest()
+			req.InferenceProvider = "openai"
+			out, err := c.Evaluate(context.Background(), req)
+			if !errors.Is(err, evaluate.ErrInvalidResponse) || out == nil || calls != 1 {
+				t.Fatalf("out=%+v err=%v calls=%d", out, err, calls)
+			}
+			if out.Provider != "openai" || out.Model != "served-model" || !out.Emulated || len(out.Answers) != 0 || string(out.Raw) != tc.content {
+				t.Fatalf("invalid partial result: %+v", out)
+			}
+			if out.Usage == nil || out.Usage.InputTokens == nil || *out.Usage.InputTokens != 100 || out.Usage.OutputTokens == nil || *out.Usage.OutputTokens != 10 || out.Usage.TotalTokens == nil || *out.Usage.TotalTokens != 110 || out.Usage.Cost == nil || out.Usage.Cost.Total != 0.00011 {
+				t.Fatalf("lost usage/cost: %+v", out.Usage)
+			}
+			if !strings.Contains(string(out.ProviderMetadata["openai"]), `"cached_input_tokens":20`) {
+				t.Fatalf("lost cache metadata: %+v", out.ProviderMetadata)
+			}
+		})
 	}
 }

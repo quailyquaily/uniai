@@ -62,6 +62,8 @@ type Answer struct {
 	Probabilities map[string]float64 `json:"probabilities,omitempty"`
 }
 
+// Result contains validated answers on success. On error, Evaluate may return
+// a result with usage and response details, but no answers.
 type Result struct {
 	Provider string `json:"provider"`
 	// Model is the upstream-reported identifier, which may still be an alias.

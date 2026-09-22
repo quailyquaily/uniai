@@ -106,3 +106,29 @@ func TestEvaluateConfigCopiesEmulationOptions(t *testing.T) {
 		t.Fatal("config pointers were aliased")
 	}
 }
+
+func TestEvaluateNativePreservesUsageOnError(t *testing.T) {
+	for _, partial := range []bool{false, true} {
+		payload := strings.Replace(evalNativeResponse, `"noul":0.7`, `"noul":2`, 1)
+		if partial {
+			payload = strings.Replace(payload, `,"output_tokens":1`, "", 1)
+		}
+		c := New(Config{TypeSafeAPIKey: "key", EvaluateModel: "jev-latest", EvaluateHTTPClient: &http.Client{Transport: evalTransport(func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload))}, nil
+		})}})
+		out, err := c.Evaluate(context.Background(), evalRequest())
+		if !errors.Is(err, evaluate.ErrInvalidResponse) || out == nil || len(out.Answers) != 0 || out.Model != "jev-1.13.0" {
+			t.Fatalf("out=%+v err=%v", out, err)
+		}
+		if out.Usage == nil || out.Usage.InputTokens == nil || *out.Usage.InputTokens != 100 {
+			t.Fatalf("lost usage: %+v", out.Usage)
+		}
+		if partial {
+			if out.Usage.OutputTokens != nil || out.Usage.TotalTokens != nil || out.Usage.Cost != nil {
+				t.Fatalf("invented usage/cost: %+v", out.Usage)
+			}
+		} else if out.Usage.TotalTokens == nil || *out.Usage.TotalTokens != 101 || out.Usage.Cost == nil || out.Usage.Cost.Total != 0.0000042 {
+			t.Fatalf("lost total/cost: %+v", out.Usage)
+		}
+	}
+}

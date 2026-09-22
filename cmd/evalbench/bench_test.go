@@ -210,3 +210,17 @@ func TestWarmupFailureAndPerCallTimeout(t *testing.T) {
 		t.Fatal(report, err, calls)
 	}
 }
+
+func TestRunBenchmarkPreservesFailedUsage(t *testing.T) {
+	out := &evaluate.Result{Provider: "typesafe", Model: "served-model", Usage: &evaluate.Usage{InputTokens: ptr(100), OutputTokens: ptr(0)}}
+	report, err := runBenchmark(context.Background(), testCases(t), evaluate.Request{Provider: "typesafe", Model: "jev-test"}, runOptions{Repeat: 1, Timeout: time.Second, BooleanThreshold: 0.5, ScoreTolerance: 0.5}, func(context.Context, evaluate.Request) (*evaluate.Result, error) {
+		return out, evaluate.ErrInvalidResponse
+	}, nil)
+	if err != nil || len(report.Attempts) != 1 {
+		t.Fatalf("report=%+v err=%v", report, err)
+	}
+	a := report.Attempts[0]
+	if a.Error == "" || a.Result != out || len(a.Checks) != 0 || report.Summary.Failed != 1 || report.Summary.Succeeded != 0 || report.Summary.ValidJudgments != 0 {
+		t.Fatalf("lost usage or graded failed result: attempt=%+v summary=%+v", a, report.Summary)
+	}
+}

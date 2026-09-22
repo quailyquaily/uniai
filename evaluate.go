@@ -10,6 +10,8 @@ import (
 
 // Evaluate returns one typed judgment for every question over the shared state.
 // Emulation, when enabled, is selected before sending any request.
+// On error, a non-nil result may preserve reported usage and response details;
+// its Answers is nil. Callers should record usage even when err is non-nil.
 func (c *Client) Evaluate(ctx context.Context, req evaluate.Request) (*evaluate.Result, error) {
 	if req.Provider == "" {
 		req.Provider = c.cfg.EvaluateProvider
@@ -39,15 +41,12 @@ func (c *Client) Evaluate(ctx context.Context, req evaluate.Request) (*evaluate.
 			return nil, err
 		}
 		out, err := p.Evaluate(ctx, &req)
-		if err != nil {
-			return nil, err
-		}
-		if out.Usage != nil {
+		if out != nil && out.Usage != nil {
 			if cost, ok := c.cfg.Pricing.EstimateEvaluateCost(out.Provider, out.Model, *out.Usage); ok {
 				out.Usage.Cost = cost
 			}
 		}
-		return out, nil
+		return out, err
 	}
 	if req.EmulationMode == evaluate.EmulationOff {
 		return nil, fmt.Errorf("%w: provider %q has no native Evaluate path", evaluate.ErrUnsupported, req.Provider)
