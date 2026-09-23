@@ -433,6 +433,9 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		if !modelcompat.AnthropicSupportsReasoningEffort(model) {
 			return fmt.Errorf("anthropic model %q does not support reasoning effort", model)
 		}
+		if !modelcompat.AnthropicReasoningEffortSupported(model, string(*opts.ReasoningEffort)) {
+			return fmt.Errorf("anthropic model %q does not support reasoning effort %q", model, *opts.ReasoningEffort)
+		}
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
 	}
 

@@ -541,13 +541,13 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams, hasPromptCa
 		params.Reasoning.GenerateSummary != "" ||
 		params.Reasoning.Mode != "" ||
 		params.Reasoning.Context != ""
-	if modelcompat.KimiUsesFixedSampling(model) ||
-		modelcompat.OpenAIDropsSampling(model, string(params.Reasoning.Effort), reasoningRequested) {
+	dropSampling := modelcompat.OpenAIDropsSampling(model, string(params.Reasoning.Effort), reasoningRequested)
+	if modelcompat.KimiUsesFixedSampling(model) || dropSampling {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}
 		params.TopLogprobs = param.Opt[int64]{}
 	}
-	if modelcompat.IsGPT6Astra(model) {
+	if modelcompat.IsGPT6(model) && dropSampling {
 		params.Include = slices.DeleteFunc(params.Include, func(item responses.ResponseIncludable) bool {
 			return item == "message.output_text.logprobs"
 		})

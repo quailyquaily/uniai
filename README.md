@@ -169,7 +169,7 @@ Important GPT-5.4 edge case:
 
 There is a runnable repro/demo for this in [`cmd/openairesptest`](cmd/openairesptest).
 
-Current model compatibility (checked 2026-09-21):
+Current model compatibility (checked 2026-09-23):
 
 - `gpt-6-astra`: use `openai_resp` for tools. `openai` rejects requests with
   tools before sending them. Both paths omit unsupported sampling and logprob
@@ -177,6 +177,20 @@ Current model compatibility (checked 2026-09-21):
   `minimal`. Legacy cache retention maps to `prompt_cache_options.ttl="30m"`;
   explicit cache options take precedence. System cache breakpoints are supported.
   See [OpenAI's migration guide](https://developers.openai.com/api/docs/guides/latest-model).
+- `gpt-6-sol` and `gpt-6-luna`: accept `none`, `low`, `medium`, `high`,
+  `xhigh`, and `max` reasoning effort. Both paths drop sampling and logprob
+  fields unless effort is explicitly `none`; omitted effort uses the model's
+  `medium` default. Chat Completions tools require `none`; other effort levels
+  return a local error directing callers to `openai_resp`. Cache retention and
+  system breakpoints use the same mapping as Astra. See
+  [OpenAI's parameter migration guide](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
+- `claude-opus-5-5`: omits `temperature`, `top_p`, and `top_k`; accepts `low`,
+  `medium`, `high`, `xhigh`, and `max` effort. Omitted effort preserves the
+  model's `medium` default with always-on adaptive thinking. `none`, `minimal`,
+  manual thinking budgets, and forced tool choice return local errors.
+  `WithReasoningDetails()` requests summarized thinking, including progress
+  between tool calls. See
+  [Claude Opus 5.5 migration](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide).
 - `claude-fable-5-1` and `claude-mythos-5-1`: tool choice supports `auto` and
   `none`; `required` and a named function return a local error. Function tool
   `Strict` values are forwarded. `WithReasoningDetails()` requests summarized

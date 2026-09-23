@@ -70,13 +70,18 @@ func TestOpenAIUsesPromptCacheOptions(t *testing.T) {
 		"gpt-5.6-sol",
 		"gpt-5.6-terra",
 		"openai/gpt-5.6-luna",
+		"gpt-6-sol",
+		"openai/gpt-6-luna",
+		"models/GPT-6-SOL-2026-09-22",
 	} {
 		if !OpenAIUsesPromptCacheOptions(model) {
 			t.Fatalf("expected %q to use prompt_cache_options", model)
 		}
 	}
-	if OpenAIUsesPromptCacheOptions("gpt-5.5") {
-		t.Fatalf("expected gpt-5.5 to keep using prompt_cache_retention")
+	for _, model := range []string{"gpt-5.5", "gpt-6-solar", "gpt-6-lunar", "gpt-6-unknown"} {
+		if OpenAIUsesPromptCacheOptions(model) {
+			t.Fatalf("unexpected prompt_cache_options mapping for %q", model)
+		}
 	}
 }
 
@@ -109,6 +114,11 @@ func TestOpenAIReasoningEffortModelBoundaries(t *testing.T) {
 		{"models/GPT-6-ASTRA", "none", false},
 		{"openai/gpt-6-astra-preview", "none", false},
 		{"gpt-6-astral", "none", true},
+		{"gpt-6-sol", "none", true},
+		{"gpt-6-luna", "minimal", false},
+		{"models/GPT-6-SOL-2026-09-22", "minimal", false},
+		{"openai/gpt-6-luna", "max", true},
+		{"gpt-6-solar", "minimal", true},
 		{"openai/gpt-5.6-sol", "none", true},
 		{"gpt-5.5", "none", true},
 	} {

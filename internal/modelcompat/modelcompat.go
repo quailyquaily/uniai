@@ -72,7 +72,20 @@ func AnthropicSummarizesThinkingDetails(model string) bool {
 
 func AnthropicRejectsForcedToolChoice(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "claude-fable-5-1") || modelHasPrefix(model, "claude-mythos-5-1")
+	return modelHasPrefix(model, "claude-fable-5-1") || modelHasPrefix(model, "claude-mythos-5-1") ||
+		modelHasPrefix(model, "claude-opus-5-5")
+}
+
+func AnthropicReasoningEffortSupported(model, effort string) bool {
+	if !modelHasPrefix(Normalize(model), "claude-opus-5-5") {
+		return true
+	}
+	switch effort {
+	case "", "low", "medium", "high", "xhigh", "max":
+		return true
+	default:
+		return false
+	}
 }
 
 func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
@@ -93,8 +106,8 @@ func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
 
 func OpenAIDropsSampling(model, reasoningEffort string, reasoningRequested bool) bool {
 	model = Normalize(model)
-	if modelHasPrefix(model, "gpt-6-astra") {
-		return true
+	if IsGPT6(model) {
+		return IsGPT6Astra(model) || strings.TrimSpace(strings.ToLower(reasoningEffort)) != "none"
 	}
 	if !strings.HasPrefix(model, "gpt-5") {
 		return false
@@ -116,7 +129,13 @@ func OpenAIRequires24hPromptCacheRetention(model string) bool {
 
 func OpenAIUsesPromptCacheOptions(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "gpt-5-6") || modelHasPrefix(model, "gpt-6-astra")
+	return modelHasPrefix(model, "gpt-5-6") || IsGPT6(model)
+}
+
+func IsGPT6(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gpt-6-astra") ||
+		modelHasPrefix(model, "gpt-6-sol") || modelHasPrefix(model, "gpt-6-luna")
 }
 
 func IsGPT6Astra(model string) bool {

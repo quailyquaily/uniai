@@ -1,6 +1,8 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-09-21: DeepSeek V4.1 Flash rates and legacy aliases,
+# Refreshed on 2026-09-23: GPT-6 Sol/Luna and Claude Opus 5.5 standard rates,
+# including long-context tiers and cache reads/writes.
+# Previous refresh on 2026-09-21: DeepSeek V4.1 Flash rates and legacy aliases,
 # GLM-5.3-Flash standard rates, GLM-5.3-FlashX, and GPT Image 2.5.
 # Previous refresh on 2026-09-06 from official pricing and model documentation:
 # - OpenAI GPT-6 Astra, GPT-5.6 Sol promotional rates, GPT-5.4/5.5 context
@@ -53,6 +55,8 @@
 # Sources used for this file:
 # - OpenAI: https://developers.openai.com/api/docs/pricing
 # - OpenAI GPT-6 Astra: https://developers.openai.com/api/docs/models/gpt-6-astra
+# - OpenAI GPT-6 Sol: https://developers.openai.com/api/docs/models/gpt-6-sol
+# - OpenAI GPT-6 Luna: https://developers.openai.com/api/docs/models/gpt-6-luna
 # - OpenAI GPT Image 2.5: https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
 # - OpenAI GPT Image 2.5 Flare: https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
 # - OpenAI GPT-5.4: https://developers.openai.com/api/docs/models/gpt-5.4
@@ -62,6 +66,7 @@
 # - Anthropic Claude Fable 5.1: https://platform.claude.com/docs/en/models/overview
 # - Anthropic Claude Mythos 5.1: https://platform.claude.com/docs/en/models/mythos-5-1/overview
 # - Anthropic Claude Opus 5: https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5
+# - Anthropic Claude Opus 5.5: https://platform.claude.com/docs/en/models/opus-5-5/overview
 # - Anthropic Claude Opus 4.8: https://www.anthropic.com/news/claude-opus-4-8
 # - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
 # - Gemini: https://ai.google.dev/gemini-api/docs/pricing
@@ -100,11 +105,12 @@
 # - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
 #   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
 #   Fable 5.1 and Mythos 5.1 instead use 0.025x input for cache reads.
+#   Opus 5.5 uses 0.05x input for cache reads and flat pricing across 1M context.
 # - Claude Opus 4.8 uses standard pricing across its full 1M token context window.
 # - Claude Sonnet 5 keeps $2/$10 per MTok as its standard price; the previously
 #   announced 2026-09-01 increase was cancelled.
 # - Kimi K3 uses flat pricing across its full 1M token context window.
-# - OpenAI GPT-6 Astra and the tiered GPT-5.6 / GPT-5.5 / GPT-5.4 rules below
+# - OpenAI GPT-6 and the tiered GPT-5.6 / GPT-5.5 / GPT-5.4 rules below
 #   use `>272000` input tokens for long-context pricing.
 # - MiniMax M3 uses `>512000` input tokens for higher-context pricing. Rates
 #   include the permanent 50% discount; no cache-write rate is published.
@@ -259,6 +265,30 @@ chat:
         cached_input_usd_per_million: 2.00
         cache_creation_input_usd_per_million: 25.00
         output_usd_per_million: 75.00
+  - inference_provider: openai
+    model: gpt-6-sol
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.20
+        cache_creation_input_usd_per_million: 2.50
+        output_usd_per_million: 10.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 0.40
+        cache_creation_input_usd_per_million: 5.00
+        output_usd_per_million: 15.00
+  - inference_provider: openai
+    model: gpt-6-luna
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 0.10
+        cached_input_usd_per_million: 0.01
+        cache_creation_input_usd_per_million: 0.125
+        output_usd_per_million: 0.50
+      - input_usd_per_million: 0.20
+        cached_input_usd_per_million: 0.02
+        cache_creation_input_usd_per_million: 0.25
+        output_usd_per_million: 0.75
   - inference_provider: openai
     model: gpt-5.6-sol
     aliases:
@@ -422,6 +452,15 @@ chat:
       ephemeral_5m_input_tokens: 12.50
       ephemeral_1h_input_tokens: 20.00
     output_usd_per_million: 50.00
+  - inference_provider: anthropic
+    model: claude-opus-5-5
+    input_usd_per_million: 4.00
+    cached_input_usd_per_million: 0.20
+    cache_creation_input_usd_per_million: 5.00
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 5.00
+      ephemeral_1h_input_tokens: 8.00
+    output_usd_per_million: 20.00
   - inference_provider: anthropic
     model: claude-opus-5
     input_usd_per_million: 5.00

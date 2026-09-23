@@ -6,6 +6,27 @@ import (
 	imagepkg "github.com/quailyquaily/uniai/image"
 )
 
+func TestClaudeOpus55Pricing(t *testing.T) {
+	catalog := DefaultPricingCatalog()
+	for _, model := range []string{"claude-opus-5-5", "claude-opus-5.5"} {
+		for _, input := range []int{1000, 900000} {
+			usage := Usage{InputTokens: input, OutputTokens: 300, Cache: UsageCache{
+				CachedInputTokens: 200, CacheCreationInputTokens: 100,
+				Details: map[string]int{"ephemeral_1h_input_tokens": 40},
+			}}
+			cost, ok := catalog.EstimateChatCost(model, usage)
+			if !ok {
+				t.Fatalf("%s: missing price", model)
+			}
+			assertNearlyEqual(t, cost.Input, float64(input-300)*4/1e6)
+			assertNearlyEqual(t, cost.CachedInput, 200*0.20/1e6)
+			assertNearlyEqual(t, cost.CacheCreationInput, (60*5.0+40*8.0)/1e6)
+			assertNearlyEqual(t, cost.Output, 300*20.0/1e6)
+			assertNearlyEqual(t, cost.Total, (float64(input-300)*4+40+620+6000)/1e6)
+		}
+	}
+}
+
 func TestSeptemberChatPricing(t *testing.T) {
 	catalog := DefaultPricingCatalog()
 	usage := Usage{InputTokens: 1000, OutputTokens: 300, Cache: UsageCache{CachedInputTokens: 200}}

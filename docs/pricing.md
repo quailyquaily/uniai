@@ -42,8 +42,15 @@ Current scope is intentionally narrow:
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-09-21. Model rates and official sources
+The latest catalog refresh is dated 2026-09-23. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
+
+GPT-6 Sol and Luna include standard input, output, cache-read, and cache-write
+rates, with higher rates for requests above 272,000 input tokens. Claude Opus
+5.5 uses $4 input / $20 output per million tokens across its full context
+window, $0.20 cache reads, $5 five-minute cache writes, and $8 one-hour cache
+writes. These entries cover standard processing; service-tier and regional
+pricing modifiers are not included.
 
 Some embedded rates have time limits:
 

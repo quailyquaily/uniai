@@ -1139,6 +1139,16 @@ func TestPricingExampleYAMLEstimateChatCostUsesGPT6AndGPT56LongContextBoundary(t
 			longOutput:  75.00,
 		},
 		{
+			model:      "gpt-6-sol",
+			shortInput: 2, shortCached: 0.20, shortWrite: 2.50, shortOutput: 10,
+			longInput: 4, longCached: 0.40, longWrite: 5, longOutput: 15,
+		},
+		{
+			model:      "gpt-6-luna",
+			shortInput: 0.10, shortCached: 0.01, shortWrite: 0.125, shortOutput: 0.50,
+			longInput: 0.20, longCached: 0.02, longWrite: 0.25, longOutput: 0.75,
+		},
+		{
 			model:       "gpt-5.6",
 			shortInput:  4.00,
 			shortCached: 0.40,

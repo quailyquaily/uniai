@@ -207,6 +207,9 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if !modelcompat.OpenAIReasoningEffortSupported(model, string(params.ReasoningEffort)) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support reasoning effort %q", model, params.ReasoningEffort)
 	}
+	if len(params.Tools) > 0 && modelcompat.IsGPT6(model) && params.ReasoningEffort != "none" {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q requires the Responses API for tool calling with reasoning; use provider openai_resp or reasoning effort none", model)
+	}
 	applyModelParameterOverlay(&params, openAIOptions.HasKey("prompt_cache_options"))
 
 	return params, nil

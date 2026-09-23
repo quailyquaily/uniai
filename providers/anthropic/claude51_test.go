@@ -9,12 +9,12 @@ import (
 	"github.com/quailyquaily/uniai/chat"
 )
 
-func TestClaude51ToolChoice(t *testing.T) {
-	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "anthropic/claude-fable-5.1", "claude-fable-5", "claude-sonnet-5"} {
+func TestClaudeAdaptiveToolChoice(t *testing.T) {
+	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "anthropic/claude-fable-5.1", "claude-opus-5-5", "anthropic/claude-opus-5.5", "claude-fable-5", "claude-sonnet-5", "claude-opus-5"} {
 		for _, choice := range []chat.ToolChoice{chat.ToolChoiceAuto(), chat.ToolChoiceNone(), chat.ToolChoiceRequired(), chat.ToolChoiceFunction("lookup")} {
 			req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Tools: []chat.Tool{chat.FunctionTool("lookup", "", nil)}, ToolChoice: &choice}
 			body, err := buildRequest(req, model)
-			wantError := (strings.Contains(model, "5-1") || strings.Contains(model, "5.1")) && (choice.Mode == "required" || choice.Mode == "function")
+			wantError := (strings.Contains(model, "5-1") || strings.Contains(model, "5.1") || strings.Contains(model, "5-5") || strings.Contains(model, "5.5")) && (choice.Mode == "required" || choice.Mode == "function")
 			if wantError {
 				if err == nil || !strings.Contains(err.Error(), "tool_choice") {
 					t.Errorf("%s %s: expected tool_choice error, got %v", model, choice.Mode, err)
@@ -26,9 +26,9 @@ func TestClaude51ToolChoice(t *testing.T) {
 	}
 }
 
-func TestClaude51ReasoningDetails(t *testing.T) {
+func TestClaudeAdaptiveReasoningDetails(t *testing.T) {
 	temperature, topP := 0.7, 0.9
-	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1"} {
+	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "anthropic/claude-opus-5.5"} {
 		for _, effort := range []chat.ReasoningEffort{"low", "medium", "high", "xhigh", "max"} {
 			req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{ReasoningEffort: &effort, ReasoningDetails: true, Temperature: &temperature, TopP: &topP, Anthropic: structs.JSONMap{"top_k": 10}}}
 			body, err := buildRequest(req, model)
@@ -44,6 +44,30 @@ func TestClaude51ReasoningDetails(t *testing.T) {
 			if body.Temperature != nil || body.TopP != nil || body.TopK != nil {
 				t.Error("sampling parameters were retained")
 			}
+		}
+	}
+}
+
+func TestClaudeOpus55ReasoningValidation(t *testing.T) {
+	for _, model := range []string{"claude-opus-5-5", "anthropic/claude-opus-5.5"} {
+		for _, effort := range []chat.ReasoningEffort{"none", "minimal", "invalid"} {
+			req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{ReasoningEffort: &effort}}
+			if _, err := buildRequest(req, model); err == nil || !strings.Contains(err.Error(), "reasoning effort") {
+				t.Errorf("%s/%s: expected effort error, got %v", model, effort, err)
+			}
+		}
+		budget := 2048
+		req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{ReasoningBudget: &budget}}
+		if _, err := buildRequest(req, model); err == nil {
+			t.Error("expected budget error")
+		}
+		req.Options = chat.Options{}
+		body, err := buildRequest(req, model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if body.Thinking != nil || body.OutputConfig != nil {
+			t.Error("must preserve the model's default adaptive thinking and medium effort")
 		}
 	}
 }
