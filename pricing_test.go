@@ -964,6 +964,7 @@ func TestPricingExampleYAML(t *testing.T) {
 		"deepseek-v4-flash",
 		"deepseek-v4-flash-vision-exp",
 		"deepseek-v4-pro",
+		"grok-4.7",
 		"grok-4.6",
 		"grok-4.6-latest",
 		"grok-4.5",
@@ -1534,7 +1535,7 @@ func TestPricingExampleYAMLEstimateChatCostNormalizesXAIVersionSeparator(t *test
 	assertNearlyEqual(t, cost.Total, 0.00035)
 }
 
-func TestPricingExampleYAMLEstimateChatCostMatchesGrok46PriceBoundary(t *testing.T) {
+func TestPricingExampleYAMLEstimateChatCostMatchesGrok46And47PriceBoundary(t *testing.T) {
 	catalog := loadExamplePricingCatalog(t)
 
 	tests := []struct {
@@ -1545,6 +1546,22 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok46PriceBoundary(t *testing
 		cachedRate  float64
 		outputRate  float64
 	}{
+		{
+			name:        "grok 4.7 short context",
+			model:       "grok-4.7",
+			inputTokens: 199999,
+			inputRate:   2.00,
+			cachedRate:  0.50,
+			outputRate:  6.00,
+		},
+		{
+			name:        "grok 4.7 long context starts at 200k",
+			model:       "grok-4.7",
+			inputTokens: 200000,
+			inputRate:   4.00,
+			cachedRate:  1.00,
+			outputRate:  12.00,
+		},
 		{
 			name:        "short context through latest alias",
 			model:       "grok-4.6-latest",
@@ -1576,7 +1593,7 @@ func TestPricingExampleYAMLEstimateChatCostMatchesGrok46PriceBoundary(t *testing
 
 			cost, ok := catalog.EstimateChatCost(tt.model, usage)
 			if !ok {
-				t.Fatal("expected grok-4.6 cost estimate from pricing.example.yaml")
+				t.Fatalf("expected %s cost estimate from pricing.example.yaml", tt.model)
 			}
 			assertNearlyEqual(t, cost.Input, float64(tt.inputTokens-1000)*tt.inputRate/1_000_000)
 			assertNearlyEqual(t, cost.CachedInput, 1000*tt.cachedRate/1_000_000)

@@ -1,6 +1,7 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-09-23: GPT-6 Sol/Luna and Claude Opus 5.5 standard rates,
+# Refreshed on 2026-09-24: Grok 4.7 standard rates and long-context tier.
+# Previous refresh on 2026-09-23: GPT-6 Sol/Luna and Claude Opus 5.5 standard rates,
 # including long-context tiers and cache reads/writes.
 # Previous refresh on 2026-09-21: DeepSeek V4.1 Flash rates and legacy aliases,
 # GLM-5.3-Flash standard rates, GLM-5.3-FlashX, and GPT Image 2.5.
@@ -84,6 +85,7 @@
 # - DeepSeek change log: https://api-docs.deepseek.com/updates/
 # - xAI: https://docs.x.ai/developers/models
 # - xAI pricing: https://docs.x.ai/developers/pricing
+# - xAI Grok 4.7: https://docs.x.ai/developers/models/grok-4.7
 # - xAI Grok 4.5: https://docs.x.ai/developers/grok-4-5
 # - xAI Grok 4.3 detail: https://docs.x.ai/developers/models/grok-4.3
 # - xAI Grok 4.20 Multi-Agent detail: https://docs.x.ai/developers/models/grok-4.20-multi-agent-0309
@@ -119,7 +121,7 @@
 # - Gemini 3.8 Flash, 3.7 Flash, and 3.6 Flash use introductory prices through
 #   2026-12-31. Standard $1.50 input, $0.15 cached-input, and $7.50 output rates
 #   start on 2027-01-01.
-# - xAI `grok-4.6` and `grok-4.5` higher-context pricing below starts at
+# - xAI `grok-4.7`, `grok-4.6`, and `grok-4.5` higher-context pricing starts at
 #   `>=200000` input tokens.
 # - xAI `grok-4.3` higher-context pricing below uses `>200000` input tokens.
 # - Sakana Fugu Ultra higher-context pricing below uses `>272000`
@@ -879,6 +881,16 @@ chat:
       output_usd_per_million: 3.96
 
   # xAI
+  - inference_provider: xai
+    model: grok-4.7
+    tiers:
+      - max_input_tokens: 199999
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.50
+        output_usd_per_million: 6.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 1.00
+        output_usd_per_million: 12.00
   - inference_provider: xai
     model: grok-4.6
     aliases:
