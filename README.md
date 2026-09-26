@@ -175,14 +175,15 @@ Current model compatibility (checked 2026-09-23):
   tools before sending them. Both paths omit unsupported sampling and logprob
   fields, accept `low` through `max` reasoning effort, and reject `none` and
   `minimal`. Legacy cache retention maps to `prompt_cache_options.ttl="30m"`;
-  explicit cache options take precedence. System cache breakpoints are supported.
+  explicit cache options take precedence. Cache breakpoints are supported on
+  system, user, and assistant text parts.
   See [OpenAI's migration guide](https://developers.openai.com/api/docs/guides/latest-model).
 - `gpt-6-sol` and `gpt-6-luna`: accept `none`, `low`, `medium`, `high`,
   `xhigh`, and `max` reasoning effort. Both paths drop sampling and logprob
   fields unless effort is explicitly `none`; omitted effort uses the model's
   `medium` default. Chat Completions tools require `none`; other effort levels
   return a local error directing callers to `openai_resp`. Cache retention and
-  system breakpoints use the same mapping as Astra. See
+  text breakpoints use the same mapping as Astra. See
   [OpenAI's parameter migration guide](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
 - `claude-opus-5-5`: omits `temperature`, `top_p`, and `top_k`; accepts `low`,
   `medium`, `high`, `xhigh`, and `max` effort. Omitted effort preserves the

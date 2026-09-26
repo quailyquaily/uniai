@@ -44,12 +44,15 @@ func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMess
 	for _, m := range input {
 		switch m.Role {
 		case chat.RoleSystem:
-			content, err := toSystemContent(m)
+			text, parts, err := toTextContent(m)
 			if err != nil {
 				return nil, fmt.Errorf("role %q: %w", m.Role, err)
 			}
 			msg := openai.ChatCompletionSystemMessageParam{
-				Content: content,
+				Content: openai.ChatCompletionSystemMessageParamContentUnion{OfArrayOfContentParts: parts},
+			}
+			if parts == nil {
+				msg.Content.OfString = openai.String(text)
 			}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
@@ -66,13 +69,17 @@ func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMess
 			}
 			out = append(out, openai.ChatCompletionMessageParamUnion{OfUser: &msg})
 		case chat.RoleAssistant:
-			text, err := chat.MessageText(m)
+			text, parts, err := toTextContent(m)
 			if err != nil {
 				return nil, fmt.Errorf("role %q: %w", m.Role, err)
 			}
 			msg := openai.ChatCompletionAssistantMessageParam{}
 			if text != "" {
 				msg.Content = openai.ChatCompletionAssistantMessageParamContentUnion{OfString: openai.String(text)}
+			}
+			for _, part := range parts {
+				msg.Content.OfArrayOfContentParts = append(msg.Content.OfArrayOfContentParts,
+					openai.ChatCompletionAssistantMessageParamContentArrayOfContentPartUnion{OfText: &part})
 			}
 			if m.Name != "" {
 				msg.Name = openai.String(m.Name)
@@ -106,7 +113,7 @@ func ToMessages(input []chat.Message, model string) ([]openai.ChatCompletionMess
 	return out, nil
 }
 
-func toSystemContent(m chat.Message) (openai.ChatCompletionSystemMessageParamContentUnion, error) {
+func toTextContent(m chat.Message) (string, []openai.ChatCompletionContentPartTextParam, error) {
 	parts := chat.NormalizeMessageParts(m)
 	hasCacheControl := false
 	for _, part := range parts {
@@ -117,19 +124,16 @@ func toSystemContent(m chat.Message) (openai.ChatCompletionSystemMessageParamCon
 	}
 	if !hasCacheControl {
 		text, err := chat.MessageText(m)
-		if err != nil {
-			return openai.ChatCompletionSystemMessageParamContentUnion{}, err
-		}
-		return openai.ChatCompletionSystemMessageParamContentUnion{OfString: openai.String(text)}, nil
+		return text, nil, err
 	}
 
 	content := make([]openai.ChatCompletionContentPartTextParam, 0, len(parts))
 	for i, part := range parts {
 		if err := chat.ValidatePart(part); err != nil {
-			return openai.ChatCompletionSystemMessageParamContentUnion{}, fmt.Errorf("part[%d]: %w", i, err)
+			return "", nil, fmt.Errorf("part[%d]: %w", i, err)
 		}
 		if part.Type != chat.PartTypeText {
-			return openai.ChatCompletionSystemMessageParamContentUnion{}, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
+			return "", nil, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
 		}
 		item := openai.ChatCompletionContentPartTextParam{Text: part.Text}
 		if part.CacheControl != nil {
@@ -137,7 +141,7 @@ func toSystemContent(m chat.Message) (openai.ChatCompletionSystemMessageParamCon
 		}
 		content = append(content, item)
 	}
-	return openai.ChatCompletionSystemMessageParamContentUnion{OfArrayOfContentParts: content}, nil
+	return "", content, nil
 }
 
 func toUserContent(m chat.Message) (openai.ChatCompletionUserMessageParamContentUnion, error) {
@@ -145,7 +149,7 @@ func toUserContent(m chat.Message) (openai.ChatCompletionUserMessageParamContent
 	if len(parts) == 0 {
 		return openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String("")}, nil
 	}
-	if len(parts) == 1 && parts[0].Type == chat.PartTypeText {
+	if len(parts) == 1 && parts[0].Type == chat.PartTypeText && parts[0].CacheControl == nil {
 		return openai.ChatCompletionUserMessageParamContentUnion{OfString: openai.String(parts[0].Text)}, nil
 	}
 	out := make([]openai.ChatCompletionContentPartUnionParam, 0, len(parts))
@@ -165,7 +169,11 @@ func toUserPart(part chat.Part) (openai.ChatCompletionContentPartUnionParam, err
 	}
 	switch part.Type {
 	case chat.PartTypeText:
-		return openai.TextContentPart(part.Text), nil
+		item := openai.TextContentPart(part.Text)
+		if part.CacheControl != nil {
+			item.OfText.PromptCacheBreakpoint = openai.NewChatCompletionContentPartTextPromptCacheBreakpointParam()
+		}
+		return item, nil
 	case chat.PartTypeImageURL:
 		return openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
 			URL: strings.TrimSpace(part.URL),

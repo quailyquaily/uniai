@@ -133,7 +133,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	}
 	var cacheControlErr error
 	if modelcompat.OpenAIUsesPromptCacheOptions(model) {
-		cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai")
+		cacheControlErr = chat.ValidatePromptCacheControl(req, "openai")
 	} else {
 		cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai")
 	}

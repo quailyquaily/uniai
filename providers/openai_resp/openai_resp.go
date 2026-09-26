@@ -183,7 +183,7 @@ func buildParams(req *chat.Request, defaultModel string, openAICodex bool) (resp
 	if !openAICodex {
 		var cacheControlErr error
 		if modelcompat.OpenAIUsesPromptCacheOptions(model) {
-			cacheControlErr = chat.ValidateSystemPromptCacheControl(req, "openai_resp")
+			cacheControlErr = chat.ValidatePromptCacheControl(req, "openai_resp")
 		} else {
 			cacheControlErr = chat.ValidateNoScopedCacheControl(req, "openai_resp")
 		}
@@ -978,26 +978,8 @@ func buildInputFromMessages(messages []chat.Message, promptCacheBreakpoints bool
 		}
 
 		switch msg.Role {
-		case chat.RoleSystem:
-			if promptCacheBreakpoints {
-				content, hasCacheControl, err := buildSystemInputContent(msg)
-				if err != nil {
-					return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
-				}
-				if hasCacheControl {
-					items = append(items, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleSystem))
-					continue
-				}
-			}
-			text, err := chat.MessageText(msg)
-			if err != nil {
-				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
-			}
-			if strings.TrimSpace(text) != "" {
-				items = append(items, responses.ResponseInputItemParamOfMessage(text, responses.EasyInputMessageRoleSystem))
-			}
 		case chat.RoleUser:
-			content, ok, err := buildUserInputContent(msg)
+			content, ok, err := buildUserInputContent(msg, promptCacheBreakpoints)
 			if err != nil {
 				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
 			}
@@ -1005,13 +987,26 @@ func buildInputFromMessages(messages []chat.Message, promptCacheBreakpoints bool
 				continue
 			}
 			items = append(items, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleUser))
-		case chat.RoleAssistant:
-			text, err := chat.MessageText(chat.Message{Role: msg.Role, Content: msg.Content, Parts: msg.Parts})
-			if err != nil {
-				return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
+		case chat.RoleSystem, chat.RoleAssistant:
+			var content responses.ResponseInputMessageContentListParam
+			if promptCacheBreakpoints {
+				var err error
+				content, err = buildCachedTextInputContent(msg)
+				if err != nil {
+					return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
 			}
-			if strings.TrimSpace(text) != "" {
-				items = append(items, responses.ResponseInputItemParamOfMessage(text, responses.EasyInputMessageRoleAssistant))
+			role := responses.EasyInputMessageRole(msg.Role)
+			if content != nil {
+				items = append(items, responses.ResponseInputItemParamOfMessage(content, role))
+			} else {
+				text, err := chat.MessageText(msg)
+				if err != nil {
+					return responses.ResponseNewParamsInputUnion{}, fmt.Errorf("role %q: %w", msg.Role, err)
+				}
+				if strings.TrimSpace(text) != "" {
+					items = append(items, responses.ResponseInputItemParamOfMessage(text, role))
+				}
 			}
 			for _, call := range msg.ToolCalls {
 				name := strings.TrimSpace(call.Function.Name)
@@ -1060,7 +1055,7 @@ func buildInputFromMessages(messages []chat.Message, promptCacheBreakpoints bool
 	}, nil
 }
 
-func buildSystemInputContent(msg chat.Message) (responses.ResponseInputMessageContentListParam, bool, error) {
+func buildCachedTextInputContent(msg chat.Message) (responses.ResponseInputMessageContentListParam, error) {
 	parts := chat.NormalizeMessageParts(msg)
 	hasCacheControl := false
 	for _, part := range parts {
@@ -1070,16 +1065,16 @@ func buildSystemInputContent(msg chat.Message) (responses.ResponseInputMessageCo
 		}
 	}
 	if !hasCacheControl {
-		return nil, false, nil
+		return nil, nil
 	}
 
 	out := make(responses.ResponseInputMessageContentListParam, 0, len(parts))
 	for i, part := range parts {
 		if err := chat.ValidatePart(part); err != nil {
-			return nil, false, fmt.Errorf("part[%d]: %w", i, err)
+			return nil, fmt.Errorf("part[%d]: %w", i, err)
 		}
 		if part.Type != chat.PartTypeText {
-			return nil, false, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
+			return nil, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
 		}
 		item := responses.ResponseInputTextParam{Text: part.Text}
 		if part.CacheControl != nil {
@@ -1087,10 +1082,10 @@ func buildSystemInputContent(msg chat.Message) (responses.ResponseInputMessageCo
 		}
 		out = append(out, responses.ResponseInputContentUnionParam{OfInputText: &item})
 	}
-	return out, true, nil
+	return out, nil
 }
 
-func buildUserInputContent(msg chat.Message) (responses.ResponseInputMessageContentListParam, bool, error) {
+func buildUserInputContent(msg chat.Message, promptCacheBreakpoints bool) (responses.ResponseInputMessageContentListParam, bool, error) {
 	parts := chat.NormalizeMessageParts(msg)
 	if len(parts) == 0 {
 		return nil, false, nil
@@ -1103,9 +1098,11 @@ func buildUserInputContent(msg chat.Message) (responses.ResponseInputMessageCont
 		}
 		switch part.Type {
 		case chat.PartTypeText:
-			out = append(out, responses.ResponseInputContentUnionParam{
-				OfInputText: &responses.ResponseInputTextParam{Text: part.Text},
-			})
+			item := responses.ResponseInputTextParam{Text: part.Text}
+			if promptCacheBreakpoints && part.CacheControl != nil {
+				item.PromptCacheBreakpoint = responses.NewResponseInputTextPromptCacheBreakpointParam()
+			}
+			out = append(out, responses.ResponseInputContentUnionParam{OfInputText: &item})
 		case chat.PartTypeImageURL:
 			out = append(out, responses.ResponseInputContentUnionParam{
 				OfInputImage: &responses.ResponseInputImageParam{

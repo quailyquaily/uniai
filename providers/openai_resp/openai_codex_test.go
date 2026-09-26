@@ -33,6 +33,8 @@ func TestBuildParamsOpenAICodexDropsUnsupportedFields(t *testing.T) {
 					chat.WithPartCacheControl(chat.TextPart("stable prefix"), chat.CacheControl{}),
 				},
 			},
+			chat.UserParts(chat.WithPartCacheControl(chat.TextPart("cached user"), chat.CacheControl{})),
+			chat.AssistantParts(chat.WithPartCacheControl(chat.TextPart("cached assistant"), chat.CacheControl{})),
 			chat.User("answer briefly"),
 		},
 		Options: chat.Options{

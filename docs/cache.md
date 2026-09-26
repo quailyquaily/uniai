@@ -53,8 +53,8 @@ boundary. It does not make their cache policies identical.
 | --- | --- | --- | --- |
 | `anthropic` | system, user, and assistant parts; tools | `CacheTTL5m()` or `CacheTTL1h()` | each marked part or tool |
 | Anthropic models through `bedrock` | user and assistant text parts | `CacheTTL5m()` or `CacheTTL1h()` | each marked part |
-| GPT-5.6 through `openai` | system text parts | `CacheControl{}` | request-wide; defaults to `30m` |
-| GPT-5.6 through `openai_resp` | system text parts; additional shapes through raw `input` | `CacheControl{}` for shared system parts | request-wide; defaults to `30m` |
+| GPT-5.6 and supported GPT-6 models through `openai` | system, user, and assistant text parts | `CacheControl{}` | request-wide; defaults to `30m` |
+| GPT-5.6 and supported GPT-6 models through `openai_resp` | system, user, and assistant text parts; additional shapes through raw `input` | `CacheControl{}` | request-wide; defaults to `30m` |
 | `openai_codex` | none; shared cache controls are ignored | n/a | n/a |
 
 Do not pass `CacheTTL5m()` or `CacheTTL1h()` to a GPT-5.6 breakpoint. OpenAI
@@ -184,11 +184,12 @@ root cache options.
 Upstream implicit caching may still apply, and returned cache usage is parsed as
 usual.
 
-### GPT-5.6 Explicit Breakpoints
+### GPT-5.6 and GPT-6 Explicit Breakpoints
 
 For `openai` and `openai_resp`, a shared cache boundary can be placed on a
-GPT-5.6 system text part. Only the marked system message changes from string
-content to structured parts; unmarked messages keep their existing form.
+system, user, or assistant text part for GPT-5.6 and supported GPT-6 models.
+Marked messages preserve their content-block boundaries; unmarked messages keep
+their existing form. Images and tool calls retain their order and content.
 
 ```go
 resp, err := client.Chat(ctx,
@@ -237,8 +238,28 @@ breakpoint on the latest message and also uses the explicit breakpoint above.
 Adding an explicit breakpoint is therefore separate from setting the request
 mode to `"explicit"`.
 
-Shared OpenAI breakpoints are limited to system text parts. User and assistant
-messages and tools cannot use shared `CacheControl` on this path.
+To reuse conversation history, mark its last stable text part, then append
+changing metadata and the current request as separate messages:
+
+```go
+uniai.WithMessages(
+	uniai.System("Stable instructions."),
+	uniai.User("Earlier question."),
+	uniai.AssistantParts(
+		uniai.WithPartCacheControl(
+			uniai.TextPart("Earlier answer."),
+			uniai.CacheControl{},
+		),
+	),
+	uniai.User("Runtime metadata for this request."),
+	uniai.User("Current question."),
+)
+```
+
+Shared OpenAI breakpoints are limited to text parts on these three roles.
+Images, tool messages, and tool definitions cannot carry shared `CacheControl`
+on this path. A user message may still contain unmarked images alongside marked
+text, and an assistant message may contain tool calls alongside marked text.
 
 ### GPT-5.6 Request Policy
 
@@ -381,9 +402,9 @@ Current support is:
 
 - `anthropic`: cache stats + explicit cache control
 - `bedrock`: cache stats + limited explicit cache control
-- `openai`: cache stats + root cache options + GPT-5.6 system text breakpoints
-- `openai_resp`: cache stats + root cache options + GPT-5.6 system text and raw
-  Responses breakpoints
+- `openai`: cache stats + root cache options + system, user, and assistant text
+  breakpoints for GPT-5.6 and supported GPT-6 models
+- `openai_resp`: the same text breakpoint support, plus raw Responses breakpoints
 - `azure`: cache stats + backend-dependent provider options, no shared explicit
   cache control
 - `gemini`: no current shared cache API in `uniai`
@@ -392,16 +413,17 @@ Current support is:
 ## Failure Behavior
 
 If you pass explicit `CacheControl` where a provider does not support it,
-`Chat()` returns an error instead of silently ignoring the request. GPT-5.6 on
-`openai` and `openai_resp` accepts it only on system text parts. Earlier OpenAI
-models reject all shared explicit cache control.
+`Chat()` returns an error instead of silently ignoring the request. GPT-5.6 and
+supported GPT-6 models on `openai` and `openai_resp` accept it on system, user,
+and assistant text parts. Earlier OpenAI models reject all shared explicit cache
+control.
 
 Unsupported shared cache control currently includes:
 
 - `azure`
 - `gemini`
 - `cloudflare`
-- user or assistant parts and tools on `openai` and `openai_resp`
+- non-text parts, tool messages, and tool definitions on `openai` and `openai_resp`
 
 ## Notes
 

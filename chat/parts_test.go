@@ -81,6 +81,17 @@ func TestValidateSystemPromptCacheControlRejectsInlineTTL(t *testing.T) {
 	}
 }
 
+func TestValidateSystemPromptCacheControlRejectsHistory(t *testing.T) {
+	for _, role := range []string{RoleUser, RoleAssistant} {
+		req := &Request{Messages: []Message{{Role: role, Parts: []Part{
+			WithPartCacheControl(TextPart("history"), CacheControl{}),
+		}}}}
+		if err := ValidateSystemPromptCacheControl(req, "openai"); err == nil {
+			t.Fatalf("expected system-only validator to reject role %q", role)
+		}
+	}
+}
+
 func TestNormalizeTextOnlyMessages(t *testing.T) {
 	msgs, err := NormalizeTextOnlyMessages([]Message{
 		UserParts(TextPart("hello")),

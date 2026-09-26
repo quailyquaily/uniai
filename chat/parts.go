@@ -127,6 +127,25 @@ func ValidateNoScopedCacheControl(req *Request, provider string) error {
 }
 
 func ValidateSystemPromptCacheControl(req *Request, provider string) error {
+	if req != nil {
+		for _, msg := range req.Messages {
+			for _, part := range msg.Parts {
+				if part.CacheControl != nil && msg.Role != RoleSystem {
+					name := strings.TrimSpace(provider)
+					if name == "" {
+						name = "provider"
+					}
+					return fmt.Errorf("%s provider only supports explicit cache control on system message parts", name)
+				}
+			}
+		}
+	}
+	return ValidatePromptCacheControl(req, provider)
+}
+
+// ValidatePromptCacheControl validates OpenAI-style breakpoints on system, user,
+// and assistant text parts. Cache lifetime is configured at the request level.
+func ValidatePromptCacheControl(req *Request, provider string) error {
 	if req == nil {
 		return nil
 	}
@@ -139,8 +158,11 @@ func ValidateSystemPromptCacheControl(req *Request, provider string) error {
 			if part.CacheControl == nil {
 				continue
 			}
-			if msg.Role != RoleSystem {
-				return fmt.Errorf("%s provider only supports explicit cache control on system message parts", name)
+			if msg.Role != RoleSystem && msg.Role != RoleUser && msg.Role != RoleAssistant {
+				return fmt.Errorf("%s provider only supports explicit cache control on system, user, and assistant message parts", name)
+			}
+			if part.Type != PartTypeText {
+				return fmt.Errorf("%s provider only supports prompt cache breakpoints on text parts", name)
 			}
 			if strings.TrimSpace(part.CacheControl.TTL) != "" {
 				return fmt.Errorf("%s provider prompt cache breakpoint ttl must be set through prompt_cache_options.ttl", name)
