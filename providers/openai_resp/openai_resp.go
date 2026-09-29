@@ -1076,6 +1076,21 @@ func buildCachedTextInputContent(msg chat.Message) (responses.ResponseInputMessa
 		if part.Type != chat.PartTypeText {
 			return nil, fmt.Errorf("part[%d]: unsupported part type %q", i, part.Type)
 		}
+		if msg.Role == chat.RoleAssistant {
+			item := responses.ResponseOutputTextParam{
+				Text:        part.Text,
+				Annotations: []responses.ResponseOutputTextAnnotationUnionParam{},
+			}
+			if part.CacheControl != nil {
+				item.SetExtraFields(map[string]any{
+					"prompt_cache_breakpoint": responses.NewResponseInputTextPromptCacheBreakpointParam(),
+				})
+			}
+			// The SDK's easy-message content union lacks output_text, which
+			// assistant history requires even when sent in the input array.
+			out = append(out, param.Override[responses.ResponseInputContentUnionParam](item))
+			continue
+		}
 		item := responses.ResponseInputTextParam{Text: part.Text}
 		if part.CacheControl != nil {
 			item.PromptCacheBreakpoint = responses.NewResponseInputTextPromptCacheBreakpointParam()

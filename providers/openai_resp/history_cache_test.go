@@ -19,10 +19,10 @@ func TestHistoryPromptCacheBreakpoint(t *testing.T) {
 			want    string
 		}{
 			{"user_single", chat.UserParts(cached), `{"role":"user","content":[{"type":"input_text","text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}}]}`},
-			{"assistant_single", chat.AssistantParts(cached), `{"role":"assistant","content":[{"type":"input_text","text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}}]}`},
+			{"assistant_single", chat.AssistantParts(cached), `{"role":"assistant","content":[{"type":"output_text","annotations":[],"text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}}]}`},
 			{"user_images", chat.UserParts(chat.TextPart("before"), chat.ImageURLPart("https://example.com/a.png"), cached, chat.TextPart("after")), `{"role":"user","content":[{"type":"input_text","text":"before"},{"type":"input_image","image_url":"https://example.com/a.png","detail":"auto"},{"type":"input_text","text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}},{"type":"input_text","text":"after"}]}`},
-			{"assistant_blocks", chat.Message{Role: chat.RoleAssistant, Content: "ignored legacy content", Parts: []chat.Part{chat.TextPart("before"), cached, chat.TextPart("after")}}, `{"role":"assistant","content":[{"type":"input_text","text":"before"},{"type":"input_text","text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}},{"type":"input_text","text":"after"}]}`},
-			{"assistant_tool_call", chat.Message{Role: chat.RoleAssistant, Parts: []chat.Part{cached}, ToolCalls: []chat.ToolCall{call}}, `{"role":"assistant","content":[{"type":"input_text","text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`},
+			{"assistant_blocks", chat.Message{Role: chat.RoleAssistant, Content: "ignored legacy content", Parts: []chat.Part{chat.TextPart("before"), cached, chat.TextPart("after")}}, `{"role":"assistant","content":[{"type":"output_text","annotations":[],"text":"before"},{"type":"output_text","annotations":[],"text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}},{"type":"output_text","annotations":[],"text":"after"}]}`},
+			{"assistant_tool_call", chat.Message{Role: chat.RoleAssistant, Parts: []chat.Part{cached}, ToolCalls: []chat.ToolCall{call}}, `{"role":"assistant","content":[{"type":"output_text","annotations":[],"text":"stable history","prompt_cache_breakpoint":{"mode":"explicit"}}]},{"type":"function_call","call_id":"call_1","name":"lookup","arguments":"{}"}`},
 		} {
 			t.Run(model+"/"+tc.name, func(t *testing.T) {
 				req := &chat.Request{Model: model, Messages: []chat.Message{
