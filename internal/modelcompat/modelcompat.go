@@ -67,17 +67,27 @@ func AnthropicPrefersReasoningEffort(model string) bool {
 func AnthropicSummarizesThinkingDetails(model string) bool {
 	model = strings.ToLower(model)
 	return strings.Contains(model, "opus-5") || strings.Contains(model, "opus-4-7") ||
-		strings.Contains(model, "fable-5") || strings.Contains(model, "mythos-5")
+		strings.Contains(model, "fable-5") || strings.Contains(model, "mythos-5") ||
+		AnthropicSupportsBetweenTools(model)
+}
+
+func AnthropicSupportsBetweenTools(model string) bool {
+	model = Normalize(model)
+	// Bedrock IDs may include an inference profile and the anthropic namespace.
+	if idx := strings.LastIndex(model, "."); idx >= 0 {
+		model = model[idx+1:]
+	}
+	return modelHasPrefix(model, "claude-sonnet-5-5")
 }
 
 func AnthropicRejectsForcedToolChoice(model string) bool {
 	model = Normalize(model)
 	return modelHasPrefix(model, "claude-fable-5-1") || modelHasPrefix(model, "claude-mythos-5-1") ||
-		modelHasPrefix(model, "claude-opus-5-5")
+		modelHasPrefix(model, "claude-opus-5-5") || AnthropicSupportsBetweenTools(model)
 }
 
 func AnthropicReasoningEffortSupported(model, effort string) bool {
-	if !modelHasPrefix(Normalize(model), "claude-opus-5-5") {
+	if !modelHasPrefix(Normalize(model), "claude-opus-5-5") && !AnthropicSupportsBetweenTools(model) {
 		return true
 	}
 	switch effort {

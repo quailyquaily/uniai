@@ -38,6 +38,10 @@ type Message struct {
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	// AnthropicContent preserves the native assistant content array, including
+	// signed thinking blocks and their order. Treat it as opaque replay state.
+	// The Anthropic provider uses it instead of Content, Parts, and ToolCalls.
+	AnthropicContent json.RawMessage `json:"anthropic_content,omitempty"`
 }
 
 type ToolCall struct {
@@ -572,6 +576,7 @@ func cloneMessage(msg Message) Message {
 	out := msg
 	out.Parts = CloneParts(msg.Parts)
 	out.ToolCalls = CloneToolCalls(msg.ToolCalls)
+	out.AnthropicContent = bytes.Clone(msg.AnthropicContent)
 	return out
 }
 

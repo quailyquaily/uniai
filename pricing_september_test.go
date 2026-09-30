@@ -27,6 +27,27 @@ func TestClaudeOpus55Pricing(t *testing.T) {
 	}
 }
 
+func TestClaudeSonnet55Pricing(t *testing.T) {
+	catalog := DefaultPricingCatalog()
+	for _, model := range []string{"claude-sonnet-5-5", "claude-sonnet-5.5"} {
+		for _, input := range []int{1000, 900000} {
+			usage := Usage{InputTokens: input, OutputTokens: 300, Cache: UsageCache{
+				CachedInputTokens: 200, CacheCreationInputTokens: 100,
+				Details: map[string]int{"ephemeral_1h_input_tokens": 40},
+			}}
+			cost, ok := catalog.EstimateChatCost(model, usage)
+			if !ok {
+				t.Fatalf("%s: missing price", model)
+			}
+			assertNearlyEqual(t, cost.Input, float64(input-300)*2/1e6)
+			assertNearlyEqual(t, cost.CachedInput, 200*0.20/1e6)
+			assertNearlyEqual(t, cost.CacheCreationInput, (60*2.5+40*4.0)/1e6)
+			assertNearlyEqual(t, cost.Output, 300*10.0/1e6)
+			assertNearlyEqual(t, cost.Total, (float64(input-300)*2+40+310+3000)/1e6)
+		}
+	}
+}
+
 func TestSeptemberChatPricing(t *testing.T) {
 	catalog := DefaultPricingCatalog()
 	usage := Usage{InputTokens: 1000, OutputTokens: 300, Cache: UsageCache{CachedInputTokens: 200}}

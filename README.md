@@ -192,6 +192,24 @@ Current model compatibility (checked 2026-09-23):
   `WithReasoningDetails()` requests summarized thinking, including progress
   between tool calls. See
   [Claude Opus 5.5 migration](https://platform.claude.com/docs/en/models/opus-5-5/migration-guide).
+- `claude-sonnet-5-5`: accepts `low`, `medium`, `high`, `xhigh`, and `max`;
+  omitted effort preserves adaptive thinking at the model's `high` default.
+  Sampling parameters are omitted. Manual thinking budgets, `none`, `minimal`,
+  and forced tool choice return local errors. `WithReasoningDetails()` requests
+  summarized thinking. To skip up-front thinking while retaining thinking
+  between tool calls, use
+  `WithAnthropicOptions(structs.JSONMap{"thinking_type": "between_tools"})`.
+  This mode accepts only `low`, `medium`, or `high`; it is not a complete
+  thinking-off switch. `thinking_type: "adaptive"` selects the default mode
+  explicitly. Bedrock accepts the same option via `WithBedrockOptions` with
+  model ID `global.anthropic.claude-sonnet-5-5`; its existing tool limitations
+  still apply. See [Sonnet 5.5 migration](https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide).
+  For native Anthropic tool loops, append `AssistantReplayMessages(result)`
+  before tool results. These messages carry opaque `AnthropicContent` that
+  preserves signed blocks, including empty thinking blocks, in their original
+  order even without `WithReasoningDetails()`. Keep that content and earlier
+  conversation history unchanged; `AnthropicContent` takes precedence over
+  the message's normalized text, parts, and tool calls.
 - `claude-fable-5-1` and `claude-mythos-5-1`: tool choice supports `auto` and
   `none`; `required` and a named function return a local error. Function tool
   `Strict` values are forwarded. `WithReasoningDetails()` requests summarized
@@ -203,6 +221,18 @@ Current model compatibility (checked 2026-09-23):
   [DeepSeek's thinking guide](https://api-docs.deepseek.com/guides/thinking_mode).
 - `gemini-3.8-flash`: supports `low`, `medium`, and `high` effort; `minimal`
   returns a local error. See [model details](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
+
+As of October 1, 2026, Gemini 4 Argon has been announced for invited testers in
+Google's Fairwind program. The public [API model catalog](https://ai.google.dev/gemini-api/docs/models)
+and [pricing table](https://ai.google.dev/gemini-api/docs/pricing) do not yet
+publish its model ID, request contract, or rates. It therefore has no built-in
+compatibility or pricing rule. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
+
+The native Anthropic and Gemini providers use HTTP/JSON directly, without their
+vendor SDKs. Sonnet 5.5 uses the existing Messages API and version header;
+`between_tools` needs no beta header. Bedrock uses the existing `InvokeModel`
+and `InvokeModelWithResponseStream` methods. No Go dependency upgrade is needed
+for this update.
 
 ### Reasoning
 

@@ -381,11 +381,16 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, reasoningDetails
 }
 
 func applyBedrockReasoningOptions(payload map[string]any, model string, opts chat.Options) error {
-	if payload == nil || (opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails) {
+	thinkingType := opts.Bedrock.GetString("thinking_type")
+	if payload == nil || (opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails && thinkingType == "") {
 		return nil
 	}
 
 	model = normalizeBedrockModel(model)
+	if thinkingType != "" && (!modelcompat.AnthropicSupportsBetweenTools(model) ||
+		(thinkingType != "adaptive" && thinkingType != "between_tools")) {
+		return fmt.Errorf("bedrock anthropic model %q does not support thinking_type %q", model, thinkingType)
+	}
 	if opts.ReasoningBudget != nil {
 		if *opts.ReasoningBudget < 1024 {
 			return fmt.Errorf("bedrock anthropic reasoning budget must be at least 1024")
@@ -403,12 +408,20 @@ func applyBedrockReasoningOptions(payload map[string]any, model string, opts cha
 		if !modelcompat.AnthropicSupportsReasoningEffort(model) {
 			return fmt.Errorf("bedrock anthropic model %q does not support reasoning effort", model)
 		}
+		if !modelcompat.AnthropicReasoningEffortSupported(model, string(*opts.ReasoningEffort)) {
+			return fmt.Errorf("bedrock anthropic model %q does not support reasoning effort %q", model, *opts.ReasoningEffort)
+		}
 		payload["output_config"] = map[string]any{"effort": string(*opts.ReasoningEffort)}
 	}
 
-	if opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model) {
+	if thinkingType == "between_tools" {
+		if opts.ReasoningEffort != nil && (*opts.ReasoningEffort == chat.ReasoningEffortXHigh || *opts.ReasoningEffort == chat.ReasoningEffortMax) {
+			return fmt.Errorf("bedrock anthropic between_tools thinking supports only low, medium, or high effort")
+		}
+		payload["thinking"] = map[string]any{"type": "between_tools"}
+	} else if thinkingType == "adaptive" || (opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model)) {
 		thinking := map[string]any{"type": "adaptive"}
-		if modelcompat.AnthropicSummarizesThinkingDetails(model) {
+		if opts.ReasoningDetails && modelcompat.AnthropicSummarizesThinkingDetails(model) {
 			thinking["display"] = "summarized"
 		}
 		payload["thinking"] = thinking

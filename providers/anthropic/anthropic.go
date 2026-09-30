@@ -46,8 +46,20 @@ func New(cfg Config) *Provider {
 }
 
 type anthropicMessage struct {
-	Role    string                 `json:"role"`
-	Content []anthropicContentPart `json:"content,omitempty"`
+	Role       string                 `json:"role"`
+	Content    []anthropicContentPart `json:"content,omitempty"`
+	RawContent json.RawMessage        `json:"-"`
+}
+
+func (m anthropicMessage) MarshalJSON() ([]byte, error) {
+	type wireMessage anthropicMessage
+	if len(m.RawContent) == 0 {
+		return json.Marshal(wireMessage(m))
+	}
+	return json.Marshal(struct {
+		Role    string          `json:"role"`
+		Content json.RawMessage `json:"content"`
+	}{m.Role, m.RawContent})
 }
 
 type anthropicContentPart struct {
@@ -96,6 +108,27 @@ type anthropicResponse struct {
 	Model      string                 `json:"model"`
 	StopReason string                 `json:"stop_reason,omitempty"`
 	Usage      anthropicUsage         `json:"usage"`
+	RawContent json.RawMessage        `json:"-"`
+}
+
+func (r *anthropicResponse) UnmarshalJSON(data []byte) error {
+	type wireResponse anthropicResponse
+	var decoded wireResponse
+	wire := struct {
+		*wireResponse
+		Content json.RawMessage `json:"content"`
+	}{wireResponse: &decoded}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if len(wire.Content) > 0 {
+		if err := json.Unmarshal(wire.Content, &decoded.Content); err != nil {
+			return err
+		}
+	}
+	decoded.RawContent = wire.Content
+	*r = anthropicResponse(decoded)
+	return nil
 }
 
 type anthropicMetadata struct {
@@ -311,6 +344,15 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 			}
 		case chat.RoleAssistant:
 			msg := anthropicMessage{Role: "assistant"}
+			if len(m.AnthropicContent) > 0 {
+				var blocks []json.RawMessage
+				if err := json.Unmarshal(m.AnthropicContent, &blocks); err != nil || len(blocks) == 0 {
+					return nil, fmt.Errorf("anthropic assistant replay content must be a non-empty JSON array")
+				}
+				msg.RawContent = bytes.Clone(m.AnthropicContent)
+				messages = append(messages, msg)
+				continue
+			}
 			for _, part := range chat.NormalizeMessageParts(m) {
 				contentPart, ok, err := toAnthropicContentPart(part)
 				if err != nil {
@@ -411,8 +453,13 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 	if body == nil {
 		return nil
 	}
-	if opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails {
+	thinkingType := opts.Anthropic.GetString("thinking_type")
+	if opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails && thinkingType == "" {
 		return nil
+	}
+	if thinkingType != "" && (!modelcompat.AnthropicSupportsBetweenTools(model) ||
+		(thinkingType != "adaptive" && thinkingType != "between_tools")) {
+		return fmt.Errorf("anthropic model %q does not support thinking_type %q", model, thinkingType)
 	}
 
 	if opts.ReasoningBudget != nil {
@@ -439,9 +486,14 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
 	}
 
-	if opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model) {
+	if thinkingType == "between_tools" {
+		if opts.ReasoningEffort != nil && (*opts.ReasoningEffort == chat.ReasoningEffortXHigh || *opts.ReasoningEffort == chat.ReasoningEffortMax) {
+			return fmt.Errorf("anthropic between_tools thinking supports only low, medium, or high effort")
+		}
+		body.Thinking = &anthropicThinking{Type: "between_tools"}
+	} else if thinkingType == "adaptive" || (opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model)) {
 		body.Thinking = &anthropicThinking{Type: "adaptive"}
-		if modelcompat.AnthropicSummarizesThinkingDetails(model) {
+		if opts.ReasoningDetails && modelcompat.AnthropicSummarizesThinkingDetails(model) {
 			body.Thinking.Display = "summarized"
 		}
 	}
@@ -631,6 +683,10 @@ func toResult(out *anthropicResponse, reasoningDetails bool) (*chat.Result, erro
 	if text != "" {
 		result.Parts = append(result.Parts, chat.TextPart(text))
 	}
+	if len(out.RawContent) > 0 {
+		result.Messages = []chat.Message{{Role: chat.RoleAssistant, Content: text,
+			ToolCalls: chat.CloneToolCalls(toolCalls), AnthropicContent: bytes.Clone(out.RawContent)}}
+	}
 	return result, nil
 }
 
@@ -717,12 +773,14 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 	decoder := ssestream.NewDecoder(&http.Response{Body: io.NopCloser(body)})
 
 	var (
-		id         string
-		model      string
-		usage      chat.Usage
-		textParts  []string
-		toolCalls  []chat.ToolCall
-		stopReason string
+		id            string
+		model         string
+		usage         chat.Usage
+		textParts     []string
+		toolCalls     []chat.ToolCall
+		stopReason    string
+		replayBlocks  []map[string]json.RawMessage
+		replayIndexes = make(map[int]int)
 
 		// per-tool-call accumulator
 		currentToolIndex int = -1
@@ -731,6 +789,15 @@ func (p *Provider) chatStream(body io.Reader, reasoningDetails bool, onStream ch
 		currentToolArgs  strings.Builder
 		reasoningState   anthropicstream.ReasoningState
 	)
+	appendReplayString := func(index int, key, delta string) {
+		position, ok := replayIndexes[index]
+		if !ok {
+			return
+		}
+		var value string
+		_ = json.Unmarshal(replayBlocks[position][key], &value)
+		replayBlocks[position][key], _ = json.Marshal(value + delta)
+	}
 
 	flushToolCall := func() {
 		if currentToolIndex >= 0 && currentToolName != "" {
@@ -796,6 +863,15 @@ streamLoop:
 			}
 
 		case "content_block_start":
+			var replay struct {
+				Index int                        `json:"index"`
+				Block map[string]json.RawMessage `json:"content_block"`
+			}
+			if err := json.Unmarshal(data, &replay); err != nil || replay.Block == nil {
+				return nil, fmt.Errorf("invalid anthropic replay content block")
+			}
+			replayIndexes[replay.Index] = len(replayBlocks)
+			replayBlocks = append(replayBlocks, replay.Block)
 			var ev sseContentBlockStart
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
 				if ev.ContentBlock.Type == "tool_use" {
@@ -823,6 +899,7 @@ streamLoop:
 			if err := json.Unmarshal([]byte(data), &ev); err == nil {
 				switch ev.Delta.Type {
 				case "text_delta":
+					appendReplayString(ev.Index, "text", ev.Delta.Text)
 					textParts = append(textParts, ev.Delta.Text)
 					if err := onStream(chat.StreamEvent{
 						Delta: ev.Delta.Text,
@@ -832,6 +909,9 @@ streamLoop:
 					}
 				case "input_json_delta":
 					currentToolArgs.WriteString(ev.Delta.PartialJSON)
+					if position, ok := replayIndexes[ev.Index]; ok {
+						replayBlocks[position]["input"] = json.RawMessage(currentToolArgs.String())
+					}
 					if err := onStream(chat.StreamEvent{
 						ToolCallDelta: &chat.ToolCallDelta{
 							Index:     currentToolIndex,
@@ -841,6 +921,10 @@ streamLoop:
 					}); err != nil {
 						return nil, err
 					}
+				case "thinking_delta":
+					appendReplayString(ev.Index, "thinking", protocolEvent.Delta.Thinking)
+				case "signature_delta":
+					appendReplayString(ev.Index, "signature", protocolEvent.Delta.Signature)
 				}
 			} else {
 				return nil, fmt.Errorf("invalid anthropic content_block_delta event")
@@ -879,6 +963,16 @@ streamLoop:
 		return nil, err
 	}
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	replayContent, err := json.Marshal(replayBlocks)
+	if err != nil && finishReason != "length" {
+		return nil, fmt.Errorf("invalid anthropic replay content: %w", err)
+	}
+	var replayMessages []chat.Message
+	// A token-limited tool call may contain incomplete JSON and cannot be replayed.
+	if err == nil && len(replayBlocks) > 0 {
+		replayMessages = []chat.Message{{Role: chat.RoleAssistant, Content: strings.Join(textParts, ""),
+			ToolCalls: chat.CloneToolCalls(toolCalls), AnthropicContent: replayContent}}
+	}
 	if err := onStream(chat.StreamEvent{
 		FinishReason: finishReason,
 		Done:         true,
@@ -900,6 +994,7 @@ streamLoop:
 			return []chat.Part{chat.TextPart(text)}
 		}(),
 		ToolCalls: toolCalls,
+		Messages:  replayMessages,
 		Reasoning: reasoningState.Result(),
 		Usage:     usage,
 	}, nil

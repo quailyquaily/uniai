@@ -42,7 +42,7 @@ Current scope is intentionally narrow:
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-09-23. Model rates and official sources
+The latest catalog refresh is dated 2026-10-01. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
 
 GPT-6 Sol and Luna include standard input, output, cache-read, and cache-write
@@ -51,6 +51,15 @@ rates, with higher rates for requests above 272,000 input tokens. Claude Opus
 window, $0.20 cache reads, $5 five-minute cache writes, and $8 one-hour cache
 writes. These entries cover standard processing; service-tier and regional
 pricing modifiers are not included.
+
+Claude Sonnet 5.5 uses $2 input / $10 output per million tokens, $0.20 cache
+reads, $2.50 five-minute cache writes, and $4 one-hour cache writes. These rates
+apply across its context window; thinking tokens count as output.
+See [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+
+Gemini 4 Argon has no price entry: as of October 1, 2026, Google has announced
+access for invited testers but has not published public API rates in its
+[pricing table](https://ai.google.dev/gemini-api/docs/pricing).
 
 Some embedded rates have time limits:
 
