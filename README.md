@@ -7,6 +7,7 @@
 ## Features
 
 - Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq, Meta Model API), OpenAI Responses and Codex, Sakana AI, Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
+- Live model discovery through `ListModels` for OpenAI-compatible APIs, Anthropic, Gemini, and Cloudflare Workers AI.
 - Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
 - Embedding, image, audio, rerank, and classify helpers with provider-specific options.
@@ -40,6 +41,64 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
 ```
 
 See [`cmd/subscriptionproxy/README.md`](cmd/subscriptionproxy/README.md) for native and macOS ARM64 builds, login, explicit token-file configuration, and server usage.
+
+## List models
+
+```go
+models, err := client.ListModels(ctx, "") // Config.Provider; defaults to openai
+if err != nil {
+    return err
+}
+for _, model := range models {
+    fmt.Println(model.ID, model.DisplayName)
+}
+
+// Select another provider using its credentials from the same Config.
+claudeModels, err := client.ListModels(ctx, "anthropic")
+```
+
+`ListModels(ctx, provider)` returns `[]uniai.ModelInfo`. It fetches the live
+catalog and follows Anthropic, Gemini, and Cloudflare pagination automatically.
+An HTTP, decoding, or pagination error returns `nil, err`, including failures
+after earlier pages succeeded. An empty catalog returns an empty slice.
+
+| Provider | Endpoint | Configuration |
+| --- | --- | --- |
+| `openai`, `openai_resp` | `GET {OpenAIAPIBase}/models` | `OpenAIAPIKey`, `OpenAIAPIBase` |
+| `deepseek`, `xai`, `groq`, `meta`, `sakana` | OpenAI-compatible `/models` at the same base used for Chat | `OpenAIAPIKey`; custom bases follow Chat routing |
+| `anthropic` | `GET {AnthropicAPIBase}/models` | `AnthropicAPIKey`, `AnthropicAPIBase` |
+| `gemini` | `GET {GeminiAPIBase}/v1beta/models` | `GeminiAPIKey`, falling back to `OpenAIAPIKey` |
+| `cloudflare` | `GET {CloudflareAPIBase}/accounts/{account}/ai/models/search` | `CloudflareAccountID`, `CloudflareAPIToken` |
+
+Custom OpenAI-compatible services use `openai` and `OpenAIAPIBase`; they must
+implement the OpenAI model-list response with a `data` array. `openai_codex`
+also uses `/models` when configured with an API key, but subscription-backed
+Codex, `claude_oauth`, `xai_oauth`, Azure, and Bedrock are not supported by this
+method. Unsupported providers return an error before any request.
+
+`ModelInfo.ID` is the callable model name: Gemini's `models/` prefix is removed,
+and Cloudflare's `name` is used rather than its internal UUID. The result also
+includes `DisplayName`, `Description`, `OwnedBy`, `InputTokenLimit`, and
+`OutputTokenLimit` when provided. `Raw` preserves the original model JSON,
+including capabilities, supported methods, and other provider-specific fields.
+Missing metadata remains empty or zero.
+
+The catalog can contain chat, embedding, image, and other models. Entries are
+not filtered or supplemented from the price catalog, and do not guarantee
+access or support for a particular task. Listing does not make an inference
+request or change model compatibility and pricing rules.
+
+`Config.ModelsHeaders` supplies custom headers for listing only, and
+`Config.ModelsHTTPClient` can override its HTTP client. `ChatHeaders` and
+subscription credentials are not used. No additional SDK dependency is needed.
+Redirects must preserve the configured URL's scheme and host (including port)
+and must not contain URL credentials. The caller's `CheckRedirect` policy still
+applies to allowed redirects; listing does not modify the supplied HTTP client.
+
+References: [OpenAI Docs](https://developers.openai.com/api/reference/resources/models/methods/list),
+[Anthropic Models API](https://platform.claude.com/docs/en/api/models/list),
+[Gemini Models API](https://ai.google.dev/api/models#method:-models.list),
+[Cloudflare model search](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/).
 
 ## Chat
 
@@ -223,10 +282,11 @@ Current model compatibility (checked 2026-09-23):
   returns a local error. See [model details](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
 
 As of October 1, 2026, Gemini 4 Argon has been announced for invited testers in
-Google's Fairwind program. The public [API model catalog](https://ai.google.dev/gemini-api/docs/models)
-and [pricing table](https://ai.google.dev/gemini-api/docs/pricing) do not yet
-publish its model ID, request contract, or rates. It therefore has no built-in
-compatibility or pricing rule. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
+Google's Fairwind program. Google announced introductory prices of $2 input,
+$10 output, and $0.10 cached input per million tokens. The public
+[API model catalog](https://ai.google.dev/gemini-api/docs/models) does not yet
+publish its model ID or request contract, so it has no built-in compatibility
+or pricing rule. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
 
 The native Anthropic and Gemini providers use HTTP/JSON directly, without their
 vendor SDKs. Sonnet 5.5 uses the existing Messages API and version header;

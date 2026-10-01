@@ -19,6 +19,10 @@ type Config struct {
 	// ChatHeaders are applied to chat provider HTTP requests only.
 	ChatHeaders map[string]string
 
+	// ModelsHeaders and ModelsHTTPClient apply only to ListModels requests.
+	ModelsHeaders    map[string]string
+	ModelsHTTPClient *http.Client
+
 	// Evaluate defaults are independent of the Chat provider and model defaults.
 	EvaluateProvider         string
 	EvaluateModel            string
@@ -95,6 +99,7 @@ const (
 
 func (cfg Config) withDefaults() Config {
 	cfg.ChatHeaders = httputil.CloneHeaders(cfg.ChatHeaders)
+	cfg.ModelsHeaders = httputil.CloneHeaders(cfg.ModelsHeaders)
 	cfg.EvaluateEmulationOptions = cloneEvaluateEmulationOptions(cfg.EvaluateEmulationOptions)
 	if cfg.Pricing == nil {
 		cfg.Pricing = DefaultPricingCatalog()

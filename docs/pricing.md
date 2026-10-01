@@ -58,8 +58,9 @@ apply across its context window; thinking tokens count as output.
 See [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
 
 Gemini 4 Argon has no price entry: as of October 1, 2026, Google has announced
-access for invited testers but has not published public API rates in its
-[pricing table](https://ai.google.dev/gemini-api/docs/pricing).
+introductory rates of $2 input, $10 output, and $0.10 cached input per million
+tokens, but has not published its public API model ID. The catalog does not
+assign rates to a guessed ID. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
 
 Some embedded rates have time limits:
 

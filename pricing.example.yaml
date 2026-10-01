@@ -1,7 +1,8 @@
 # Example pricing catalog for uniai.
 #
 # Refreshed on 2026-10-01: Claude Sonnet 5.5 standard and cache rates.
-# Gemini 4 Argon has no public API pricing yet; no price entry is included.
+# Gemini 4 Argon has announced introductory rates but no public API model ID;
+# no price entry is included until the ID is confirmed.
 # Previous refresh on 2026-09-24: Grok 4.7 standard rates and long-context tier.
 # Previous refresh on 2026-09-23: GPT-6 Sol/Luna and Claude Opus 5.5 standard rates,
 # including long-context tiers and cache reads/writes.
