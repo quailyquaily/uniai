@@ -167,6 +167,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("gemini provider model %q: %w", model, err)
 	}
 
+	if len(payload.Contents) == 0 {
+		return nil, fmt.Errorf("at least one non-system message is required")
+	}
+
 	reqBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -545,9 +549,6 @@ func buildRequest(req *chat.Request, model string) (*geminiRequest, error) {
 
 	if len(systemParts) > 0 {
 		out.SystemInstruction = &geminiContent{Parts: systemParts}
-	}
-	if len(contents) == 0 {
-		return nil, fmt.Errorf("at least one non-system message is required")
 	}
 	out.Contents = contents
 

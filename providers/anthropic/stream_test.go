@@ -114,6 +114,7 @@ func TestChatStreamCacheUsage(t *testing.T) {
 		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
 		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`),
 		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("message_delta", `{"type":"message_delta","usage":{"input_tokens":100,"cache_read_input_tokens":80,"cache_creation_input_tokens":40,"output_tokens":2}}`),
 		sseEvent("message_delta", `{"type":"message_delta","usage":{"output_tokens":5}}`),
 		sseEvent("message_stop", `{"type":"message_stop"}`),
 	}, "")
@@ -131,6 +132,9 @@ func TestChatStreamCacheUsage(t *testing.T) {
 	}
 	if gotUsage == nil {
 		t.Fatal("missing final usage")
+	}
+	if gotUsage.InputTokens != 220 || gotUsage.TotalTokens != 225 || result.Usage.InputTokens != 220 {
+		t.Fatalf("incorrect total usage: %+v / %+v", gotUsage, result.Usage)
 	}
 	if gotUsage.Cache.CachedInputTokens != 80 || gotUsage.Cache.CacheCreationInputTokens != 40 {
 		t.Fatalf("unexpected stream cache usage: %#v", gotUsage.Cache)

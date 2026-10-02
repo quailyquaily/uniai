@@ -107,7 +107,7 @@ func TestParseBedrockUsageReadsCacheMetrics(t *testing.T) {
 			"ephemeral_5m_input_tokens": 40,
 		},
 	})
-	if usage.InputTokens != 100 || usage.OutputTokens != 12 || usage.TotalTokens != 112 {
+	if usage.InputTokens != 220 || usage.OutputTokens != 12 || usage.TotalTokens != 232 {
 		t.Fatalf("unexpected usage: %#v", usage)
 	}
 	if usage.Cache.CachedInputTokens != 80 || usage.Cache.CacheCreationInputTokens != 40 {

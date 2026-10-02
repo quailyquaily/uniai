@@ -37,12 +37,17 @@ type Provider struct {
 }
 
 type bedrockRuntimeClient interface {
+	CountTokens(context.Context, *bedrockruntime.CountTokensInput, ...func(*bedrockruntime.Options)) (*bedrockruntime.CountTokensOutput, error)
 	InvokeModel(context.Context, *bedrockruntime.InvokeModelInput, ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error)
 	InvokeModelWithResponseStream(context.Context, *bedrockruntime.InvokeModelWithResponseStreamInput, ...func(*bedrockruntime.Options)) (bedrockResponseStream, error)
 }
 
 type bedrockRuntimeClientAdapter struct {
 	client *bedrockruntime.Client
+}
+
+func (c bedrockRuntimeClientAdapter) CountTokens(ctx context.Context, input *bedrockruntime.CountTokensInput, opts ...func(*bedrockruntime.Options)) (*bedrockruntime.CountTokensOutput, error) {
+	return c.client.CountTokens(ctx, input, opts...)
 }
 
 func (c bedrockRuntimeClientAdapter) InvokeModel(ctx context.Context, input *bedrockruntime.InvokeModelInput, optFns ...func(*bedrockruntime.Options)) (*bedrockruntime.InvokeModelOutput, error) {
@@ -117,68 +122,11 @@ type bedrockUsage struct {
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	if p.modelArn == "" {
-		return nil, fmt.Errorf("bedrock model arn is required")
-	}
-	if err := validateBedrockCacheControl(req, p.modelArn); err != nil {
-		return nil, err
-	}
-
-	systemParts := make([]string, 0, 1)
-	messages := make([]bedrockMessage, 0, len(req.Messages))
-	for _, m := range req.Messages {
-		switch m.Role {
-		case chat.RoleSystem:
-			text, err := chat.MessageText(m)
-			if err != nil {
-				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
-			}
-			if text != "" {
-				systemParts = append(systemParts, text)
-			}
-		case chat.RoleUser, chat.RoleAssistant:
-			content, err := toBedrockContent(m)
-			if err != nil {
-				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", p.modelArn, m.Role, err)
-			}
-			if len(content) == 0 {
-				continue
-			}
-			messages = append(messages, bedrockMessage{
-				Role:    m.Role,
-				Content: content,
-			})
-		default:
-			return nil, fmt.Errorf("bedrock provider does not support role %q", m.Role)
-		}
-	}
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("at least one user or assistant message is required")
-	}
-
-	maxTokens := 10000
-	if req.Options.MaxTokens != nil {
-		maxTokens = *req.Options.MaxTokens
-	}
-
-	payload := map[string]any{
-		"anthropic_version": "bedrock-2023-05-31",
-		"max_tokens":        maxTokens,
-		"messages":          messages,
-	}
-	if len(systemParts) > 0 {
-		payload["system"] = strings.Join(systemParts, "\n")
-	}
-	if err := applyBedrockReasoningOptions(payload, p.modelArn, req.Options); err != nil {
-		return nil, err
-	}
-	applyBedrockOptions(payload, req.Options.Bedrock)
-	applyBedrockModelOverlay(payload, p.modelArn)
-
-	body, err := json.Marshal(payload)
+	body, err := buildRequest(req, p.modelArn, false)
 	if err != nil {
 		return nil, err
 	}
+
 	diag.LogText(p.debug, debugFn, "bedrock.chat.request", string(body))
 
 	if req.Options.OnStream != nil {
@@ -247,6 +195,73 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		result.Warnings = append(result.Warnings, "tools not supported for bedrock provider yet")
 	}
 	return result, nil
+}
+
+// buildRequest is shared by inference and counting so model overlays and cache
+// markers use the same wire representation. Counting permits empty prefixes.
+func buildRequest(req *chat.Request, modelArn string, allowPartial bool) ([]byte, error) {
+	if req == nil {
+		return nil, fmt.Errorf("bedrock request is nil")
+	}
+	if modelArn == "" {
+		return nil, fmt.Errorf("bedrock model arn is required")
+	}
+	if err := validateBedrockCacheControl(req, modelArn); err != nil {
+		return nil, err
+	}
+
+	systemParts := make([]string, 0, 1)
+	messages := make([]bedrockMessage, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		switch m.Role {
+		case chat.RoleSystem:
+			text, err := chat.MessageText(m)
+			if err != nil {
+				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", modelArn, m.Role, err)
+			}
+			if text != "" {
+				systemParts = append(systemParts, text)
+			}
+		case chat.RoleUser, chat.RoleAssistant:
+			content, err := toBedrockContent(m)
+			if err != nil {
+				return nil, fmt.Errorf("bedrock provider model %q: role %q: %w", modelArn, m.Role, err)
+			}
+			if len(content) == 0 {
+				continue
+			}
+			messages = append(messages, bedrockMessage{
+				Role:    m.Role,
+				Content: content,
+			})
+		default:
+			return nil, fmt.Errorf("bedrock provider does not support role %q", m.Role)
+		}
+	}
+	if len(messages) == 0 && !allowPartial {
+		return nil, fmt.Errorf("at least one user or assistant message is required")
+	}
+
+	maxTokens := 10000
+	if req.Options.MaxTokens != nil {
+		maxTokens = *req.Options.MaxTokens
+	}
+
+	payload := map[string]any{
+		"anthropic_version": "bedrock-2023-05-31",
+		"max_tokens":        maxTokens,
+		"messages":          messages,
+	}
+	if len(systemParts) > 0 {
+		payload["system"] = strings.Join(systemParts, "\n")
+	}
+	if err := applyBedrockReasoningOptions(payload, modelArn, req.Options); err != nil {
+		return nil, err
+	}
+	applyBedrockOptions(payload, req.Options.Bedrock)
+	applyBedrockModelOverlay(payload, modelArn)
+
+	return json.Marshal(payload)
 }
 
 func bedrockReasoningResult(content []bedrockMsgContent, enabled bool) *chat.ReasoningResult {
@@ -353,6 +368,7 @@ func (p *Provider) chatStream(ctx context.Context, body []byte, reasoningDetails
 		return nil, err
 	}
 
+	usage.InputTokens += usage.Cache.CachedInputTokens + usage.Cache.CacheCreationInputTokens
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	if err := onStream(chat.StreamEvent{
 		Done:  true,
@@ -553,16 +569,15 @@ func toBedrockCacheControl(ctrl *chat.CacheControl) *bedrockCacheControl {
 }
 
 func parseBedrockUsage(typed bedrockUsage) chat.Usage {
-	usage := chat.Usage{
-		InputTokens:  typed.InputTokens,
-		OutputTokens: typed.OutputTokens,
-		TotalTokens:  typed.InputTokens + typed.OutputTokens,
-	}
+	var usage chat.Usage
 	applyBedrockUsage(&usage, typed)
+	usage.InputTokens += usage.Cache.CachedInputTokens + usage.Cache.CacheCreationInputTokens
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	return usage
 }
 
+// applyBedrockUsage merges cumulative upstream counters. InputTokens remains
+// uncached until finalization adds cache reads and writes once.
 func applyBedrockUsage(dst *chat.Usage, src bedrockUsage) {
 	if dst == nil {
 		return

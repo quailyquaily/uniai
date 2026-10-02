@@ -40,6 +40,13 @@ Current scope is intentionally narrow:
 
 `Usage.Cost` is a local derived value. It is not an upstream billing record.
 
+Chat input usage includes cached reads and writes. Cost calculation subtracts
+those breakdowns once to price uncached input, then applies the cache rates.
+Anthropic and Bedrock usage is normalized to this convention before calculating
+cost or selecting an input-length tier. `CountTokens` estimates do not populate
+`Usage.Cost` and are not added to inference usage.
+
+
 ## Current Catalog Rates
 
 The latest catalog refresh is dated 2026-10-01. Model rates and official sources

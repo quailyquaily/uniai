@@ -140,15 +140,16 @@ type Request struct {
 
 // Usage reports token usage for a Chat operation.
 //
-// For a single upstream request, these values mirror the provider-reported token
-// counts. When uniai internally performs multiple chat requests to satisfy one
-// Chat() call, such as tool emulation, the values are aggregated across those
-// internal requests.
+// For a single upstream request, these values normalize the provider-reported
+// counts: input includes uncached tokens, cache reads and cache writes. When uniai
+// internally performs multiple chat requests to satisfy one Chat() call, such as
+// tool emulation, the values are aggregated across those internal requests.
 //
 // Cache is an additional breakdown. It does not replace or redefine the top-level
 // input/output/total token counts.
 type Usage struct {
-	// InputTokens is the total input token count for the Chat() call.
+	// InputTokens is the total input token count, including cache reads and writes,
+	// for the Chat() call.
 	InputTokens int `json:"input_tokens"`
 
 	// OutputTokens is the total output token count for the Chat() call.
@@ -301,14 +302,24 @@ type ToolCallDelta struct {
 type Option func(*Request)
 
 func BuildRequest(opts ...Option) (*Request, error) {
+	req, err := BuildTokenCountRequest(opts...)
+	if err != nil {
+		return nil, err
+	}
+	if len(req.Messages) == 0 && !req.Options.OpenAI.HasKey("input") {
+		return nil, fmt.Errorf("messages are required")
+	}
+	return req, nil
+}
+
+// BuildTokenCountRequest applies Chat options and validates their content while
+// allowing empty messages for token counting of tools, system prompts or prefixes.
+func BuildTokenCountRequest(opts ...Option) (*Request, error) {
 	req := &Request{}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(req)
 		}
-	}
-	if len(req.Messages) == 0 && !req.Options.OpenAI.HasKey("input") {
-		return nil, fmt.Errorf("messages are required")
 	}
 	for i := range req.Messages {
 		msg := req.Messages[i]

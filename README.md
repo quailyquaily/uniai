@@ -7,6 +7,7 @@
 ## Features
 
 - Chat routing with OpenAI-compatible providers (OpenAI, DeepSeek, xAI, Groq, Meta Model API), OpenAI Responses and Codex, Sakana AI, Azure OpenAI, Anthropic, AWS Bedrock, and Cloudflare Workers AI.
+- Input token counting through `CountTokens` for Anthropic, Gemini, OpenAI Responses, and supported Bedrock models.
 - Live model discovery through `ListModels` for OpenAI-compatible APIs, Anthropic, Gemini, and Cloudflare Workers AI.
 - Multimodal chat input via `Message.Parts` (`text`, `image_url`, `image_base64`) with provider-aware validation.
 - Streaming support via callback — same `Chat()` signature, opt-in with `WithOnStream`.
@@ -41,6 +42,34 @@ CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 \
 ```
 
 See [`cmd/subscriptionproxy/README.md`](cmd/subscriptionproxy/README.md) for native and macOS ARM64 builds, login, explicit token-file configuration, and server usage.
+
+## Count input tokens
+
+```go
+count, err := client.CountTokens(ctx,
+    uniai.WithProvider("anthropic"),
+    uniai.WithModel("claude-sonnet-5-5"),
+    uniai.WithMessages(uniai.System("Be concise."), uniai.User("Explain a mutex.")),
+)
+if errors.Is(err, uniai.ErrTokenCountUnsupported) {
+    // Fall back to your application's estimate.
+} else if err != nil {
+    return err
+} else {
+    fmt.Println(count.InputTokens)
+}
+```
+
+`CountTokens` reuses Chat input mapping and accepts partial inputs such as tools
+or a history prefix. It does not generate output, invoke stream callbacks, or
+add to `Usage` or `Cost`. Counts are upstream estimates, not billing records.
+`SupportsCountTokens(provider)` checks local adapter support without a request.
+
+Supported adapters are `anthropic`, `gemini`, `openai_resp`, API-key-backed
+`openai_codex`, and `bedrock`. Chat Completions and subscription credentials are
+unsupported; model, region and input restrictions still apply. See
+[Counting input tokens](docs/token-counting.md) for configuration, errors and
+partial-request behavior.
 
 ## List models
 

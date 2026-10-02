@@ -199,6 +199,10 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return nil, fmt.Errorf("anthropic provider model %q: %w", model, err)
 	}
 
+	if len(body.Messages) == 0 {
+		return nil, fmt.Errorf("at least one non-system message is required")
+	}
+
 	if req.Options.OnStream != nil {
 		body.Stream = true
 	}
@@ -395,9 +399,6 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 		default:
 			return nil, fmt.Errorf("anthropic provider does not support role %q", m.Role)
 		}
-	}
-	if len(messages) == 0 {
-		return nil, fmt.Errorf("at least one non-system message is required")
 	}
 
 	maxTokens := 8192
@@ -962,6 +963,7 @@ streamLoop:
 	if err != nil {
 		return nil, err
 	}
+	usage.InputTokens += usage.Cache.CachedInputTokens + usage.Cache.CacheCreationInputTokens
 	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	replayContent, err := json.Marshal(replayBlocks)
 	if err != nil && finishReason != "length" {
@@ -1071,18 +1073,15 @@ func toAnthropicCacheControl(ctrl *chat.CacheControl) *anthropicCacheControl {
 }
 
 func usageFromAnthropicUsage(src anthropicUsage) chat.Usage {
-	usage := chat.Usage{
-		InputTokens:  src.InputTokens,
-		OutputTokens: src.OutputTokens,
-		TotalTokens:  src.InputTokens + src.OutputTokens,
-	}
+	var usage chat.Usage
 	applyAnthropicUsage(&usage, src)
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
-	}
+	usage.InputTokens += usage.Cache.CachedInputTokens + usage.Cache.CacheCreationInputTokens
+	usage.TotalTokens = usage.InputTokens + usage.OutputTokens
 	return usage
 }
 
+// applyAnthropicUsage merges cumulative upstream counters. InputTokens remains
+// uncached until finalization adds cache reads and writes once.
 func applyAnthropicUsage(dst *chat.Usage, src anthropicUsage) {
 	if dst == nil {
 		return

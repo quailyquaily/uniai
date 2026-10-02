@@ -21,6 +21,25 @@ These fields are additional breakdown data. They do not replace `InputTokens` or
 Blocking `Chat()` responses and the final streaming event use the same cache
 fields.
 
+`InputTokens` includes uncached input, cache reads and cache writes. Anthropic
+and native Claude on Bedrock report these as separate counters; uniai adds them:
+
+```text
+InputTokens = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+TotalTokens = InputTokens + OutputTokens
+```
+
+Bedrock's `cache_write_input_tokens` is accepted as an alternative write counter,
+not added a second time. TTL bucket details are breakdowns of cache writes.
+Streaming merges cumulative counters and computes these totals once at the end.
+For example, 50 uncached, 10,000 cache-read and 200 cache-write tokens produce
+`InputTokens = 10,250`.
+
+Earlier versions copied Claude's uncached `input_tokens` into `InputTokens`,
+which understated both token totals and cost. Callers that compensated by adding
+cache counts themselves must remove that compensation.
+
+
 ## Main API
 
 Shared cache-control helpers:
