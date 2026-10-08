@@ -37,12 +37,20 @@ func TestChatRefreshesOnceAfterUnauthorized(t *testing.T) {
 		if got := r.Header.Get("ChatGPT-Account-ID"); got != wantAccount {
 			t.Fatalf("ChatGPT-Account-ID = %q, want %q", got, wantAccount)
 		}
+		for _, header := range []string{"session-id", "x-client-request-id"} {
+			if got := r.Header.Get(header); got != "session-retry" {
+				t.Fatalf("%s = %q, want session-retry", header, got)
+			}
+		}
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatal(err)
 		}
 		if payload["instructions"] != "Follow the project rules." || payload["store"] != false {
 			t.Fatalf("payload instructions/store = %#v", payload)
+		}
+		if payload["prompt_cache_key"] != "session-retry" {
+			t.Fatalf("prompt_cache_key = %#v, want session-retry", payload["prompt_cache_key"])
 		}
 		if payload["stream"] != true {
 			t.Fatalf("codex subscription request must stream: %#v", payload["stream"])
@@ -71,10 +79,13 @@ func TestChatRefreshesOnceAfterUnauthorized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := provider.Chat(context.Background(), &chat.Request{Messages: []chat.Message{
-		chat.System("Follow the project rules."),
-		chat.User("hello"),
-	}})
+	result, err := provider.Chat(context.Background(), &chat.Request{
+		Messages: []chat.Message{
+			chat.System("Follow the project rules."),
+			chat.User("hello"),
+		},
+		Options: chat.Options{OpenAI: structs.JSONMap{"prompt_cache_key": "session-retry"}},
+	})
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}

@@ -223,6 +223,7 @@ Codex subscription provider 复用 `openai_resp` 的 Responses 请求、流式�
 - 将 system/developer 内容放入顶层 `instructions`。
 - 设置 `store: false`。
 - 保留现有 `openai_codex` 字段过滤规则。
+- 请求级 `prompt_cache_key` 同时作为缓存键和会话标识，映射到 `session-id`、`x-client-request-id`，覆盖同名默认 headers。去除首尾空白后最多接受 64 个 Unicode 字符，超长返回错误；未传或空白时不生成标识。仍过滤 `prompt_cache_retention` 和 `prompt_cache_options`。
 - 从凭证生成 `ChatGPT-Account-ID`。
 - 调用方 headers 不能覆盖 `Authorization` 或 `ChatGPT-Account-ID`。
 - 上游请求始终使用 streaming，以兼容 Codex subscription endpoint；调用方未设置 `OnStream` 时，provider 在内部聚合 `response.completed`，仍返回普通 `chat.Result`。

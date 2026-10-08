@@ -36,7 +36,7 @@ resp, err := client.Chat(ctx,
 | `WithMaxTokens(...)` | 不发送 `max_output_tokens` |
 | `openai_options.max_tokens` | 删除 |
 | `openai_options.max_output_tokens` | 删除 |
-| `prompt_cache_key` | 删除 |
+| `prompt_cache_key` | 保留，并映射到 `session-id` 和 `x-client-request-id` 请求头 |
 | `prompt_cache_retention` | 删除 |
 | `prompt_cache_options` | 删除 |
 | input 中任意深度的 `prompt_cache_breakpoint` | 删除该字段，保留同一 content block 的其他字段 |
@@ -50,7 +50,9 @@ resp, err := client.Chat(ctx,
 
 这里必须同时处理公共 options 和 `WithOpenAIOptions(...)`。例如，`WithMaxTokens(...)` 来自 `chat.Options.MaxTokens`，而 `max_output_tokens` 也可能直接出现在原始 OpenAI options 中。
 
-关闭的是显式缓存控制。上游仍可自行执行隐式 prompt caching；返回的 cache usage 继续按现有逻辑解析。
+缓存键通过请求级 `WithOpenAIOptions(...)` 传入，同时作为会话标识，不增加第二个会话参数。去除首尾空白后，最多接受 64 个 Unicode 字符，超长返回错误，不截断。非空缓存键覆盖同名客户端默认请求头；未传或空白时不生成缓存键或请求头，保留已有默认 headers。调用方负责生成、跨轮复用和隔离会话标识。
+
+TTL 和 breakpoint 控制仍被过滤，包括模型兼容逻辑自动补出的 TTL。上游仍可自行执行隐式 prompt caching；返回的 cache usage 继续按现有逻辑解析。
 
 ## JSON 模式
 

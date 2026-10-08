@@ -235,7 +235,7 @@ Use `openai` when you want Chat Completions behavior or compatibility with OpenA
 
 Use `openai_resp` when you want native OpenAI Responses API behavior.
 
-Use `openai_codex` for a Responses-compatible Codex endpoint that rejects sampling, token-limit, and explicit prompt-cache fields.
+Use `openai_codex` for a Responses-compatible Codex endpoint that rejects sampling, token-limit, and cache TTL fields.
 
 Practical differences:
 
@@ -245,7 +245,7 @@ Practical differences:
 - `openai` is the safer choice for Chat Completions-compatible endpoints such as DeepSeek, xAI, Groq, Meta, or custom compatible bases
 - `openai_resp` is the right choice for Responses-only features such as `previous_response_id` and requesting reasoning summaries
 - `openai_resp` is stricter about unsupported Chat Completions-only options such as `stop`, `presence_penalty`, and `frequency_penalty`
-- `openai_codex` omits `temperature`, token limits, reasoning budget, and explicit prompt-cache settings; it preserves reasoning effort
+- `openai_codex` omits `temperature`, token limits, reasoning budget, `prompt_cache_retention`, and `prompt_cache_options`; it preserves reasoning effort and `prompt_cache_key`
 - In JSON object mode, `openai_codex` sends `text.format.type=json_object` and adds a user input instruction containing `JSON` when the input messages do not contain it
 - `sakana` uses Sakana's Responses-compatible endpoint through the same request path as `openai_resp`
 
@@ -256,6 +256,27 @@ Important GPT-5.4 edge case:
 - `openai_resp` exists specifically to handle that native Responses path.
 
 There is a runnable repro/demo for this in [`cmd/openairesptest`](cmd/openairesptest).
+
+For Codex session cache routing, pass a stable session ID on each request:
+
+```go
+uniai.WithOpenAIOptions(structs.JSONMap{
+    "prompt_cache_key": sessionID,
+})
+```
+
+In `openai_codex`, including subscription requests, this single option sets the
+body's `prompt_cache_key` and both `session-id` and `x-client-request-id` headers.
+The request value overrides matching `ChatHeaders` defaults without modifying
+the caller's options, headers, or shared client. Leading and trailing whitespace
+is trimmed. Keys longer than 64 Unicode characters return an error; they are not
+truncated. An omitted or blank key adds no cache key or session headers and leaves
+configured headers unchanged. No random session ID is generated.
+
+The caller owns session ID generation, reuse across turns, and separation between
+sessions and independent subtasks. Subscription requests still use `store: false`,
+and both TTL options remain filtered. Ordinary `openai_resp` requests retain their
+existing cache behavior and do not derive session headers from the cache key.
 
 Current model compatibility (checked 2026-09-23):
 

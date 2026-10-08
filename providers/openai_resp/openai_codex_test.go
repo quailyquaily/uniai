@@ -67,11 +67,13 @@ func TestBuildParamsOpenAICodexDropsUnsupportedFields(t *testing.T) {
 	}
 
 	payload := marshalResponseParams(t, params)
+	if payload["prompt_cache_key"] != "session-1" {
+		t.Fatalf("prompt_cache_key = %#v, want session-1", payload["prompt_cache_key"])
+	}
 	for _, key := range []string{
 		"temperature",
 		"max_tokens",
 		"max_output_tokens",
-		"prompt_cache_key",
 		"prompt_cache_retention",
 		"prompt_cache_options",
 		"reasoning_budget_tokens",

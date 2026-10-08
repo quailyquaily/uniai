@@ -75,8 +75,18 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	}
 	diag.LogJSON(p.debug, debugFn, "openai.responses.request", params)
 
+	var requestOpts []option.RequestOption
+	if p.openAICodex && params.PromptCacheKey.Valid() {
+		// Use the normalized request key for both routing headers. Per-request
+		// options override client defaults without changing the shared client.
+		requestOpts = append(requestOpts,
+			option.WithHeader("session-id", params.PromptCacheKey.Value),
+			option.WithHeader("x-client-request-id", params.PromptCacheKey.Value),
+		)
+	}
+
 	if req.Options.OnStream != nil {
-		result, err := streamChat(ctx, &p.client, params, req.Options.ReasoningDetails, req.Options.OnStream)
+		result, err := streamChat(ctx, &p.client, params, req.Options.ReasoningDetails, req.Options.OnStream, requestOpts...)
 		if err != nil {
 			diag.LogError(p.debug, debugFn, "openai.responses.response", err)
 			return nil, err
@@ -84,7 +94,7 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 		return result, nil
 	}
 
-	result, raw, err := p.response(ctx, params, req.Options.ReasoningDetails)
+	result, raw, err := p.response(ctx, params, req.Options.ReasoningDetails, requestOpts...)
 	if err != nil {
 		diag.LogError(p.debug, debugFn, "openai.responses.response", err)
 		return nil, err
@@ -98,9 +108,9 @@ func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, e
 	return result, nil
 }
 
-func (p *Provider) response(ctx context.Context, params responses.ResponseNewParams, reasoningDetails bool) (*chat.Result, string, error) {
+func (p *Provider) response(ctx context.Context, params responses.ResponseNewParams, reasoningDetails bool, requestOpts ...option.RequestOption) (*chat.Result, string, error) {
 	var rawResp *http.Response
-	if err := p.client.Execute(ctx, http.MethodPost, "responses", params, &rawResp); err != nil {
+	if err := p.client.Execute(ctx, http.MethodPost, "responses", params, &rawResp, requestOpts...); err != nil {
 		return nil, "", err
 	}
 	if rawResp == nil || rawResp.Body == nil {
@@ -111,7 +121,7 @@ func (p *Provider) response(ctx context.Context, params responses.ResponseNewPar
 	if oaicompat.IsEventStreamContentType(rawResp.Header.Get("Content-Type")) {
 		result, err := streamChatFromResponse(rawResp, reasoningDetails)
 		if isEmptyMissingCompletedStream(err) {
-			result, err = streamChat(ctx, &p.client, params, reasoningDetails, nil)
+			result, err = streamChat(ctx, &p.client, params, reasoningDetails, nil, requestOpts...)
 			return result, "", err
 		}
 		return result, "", err
@@ -333,6 +343,12 @@ func buildParams(req *chat.Request, defaultModel string, openAICodex bool) (resp
 	}
 
 	applyModelParameterOverlay(&params, opts.HasKey("prompt_cache_options"))
+	if openAICodex {
+		// Model defaults may add cache retention when a cache key is present,
+		// but Codex does not accept either TTL option.
+		params.PromptCacheRetention = ""
+		params.PromptCacheOptions = responses.ResponseNewParamsPromptCacheOptions{}
+	}
 	return params, nil
 }
 
@@ -340,7 +356,6 @@ var openAICodexIgnoredOptionKeys = map[string]struct{}{
 	"temperature":             {},
 	"max_tokens":              {},
 	"max_output_tokens":       {},
-	"prompt_cache_key":        {},
 	"prompt_cache_retention":  {},
 	"prompt_cache_options":    {},
 	"reasoning_budget_tokens": {},
@@ -1376,8 +1391,9 @@ func streamChat(
 	params responses.ResponseNewParams,
 	reasoningDetails bool,
 	onStream chat.OnStreamFunc,
+	requestOpts ...option.RequestOption,
 ) (*chat.Result, error) {
-	stream := client.Responses.NewStreaming(ctx, params)
+	stream := client.Responses.NewStreaming(ctx, params, requestOpts...)
 	return consumeResponseStream(stream, reasoningDetails, onStream)
 }
 
