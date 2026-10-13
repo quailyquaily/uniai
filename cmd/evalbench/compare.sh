@@ -8,9 +8,8 @@
 #   bash cmd/evalbench/compare.sh --help
 #
 # 凭证（按预设需要的环境变量，缺少对应 key 的预设会被跳过）：
-#   gpt-4o-mini / gpt-5.6-luna  -> OPENAI_API_KEY（共用 OPENAI_API_BASE）
+#   gpt-4o-mini / gpt-6-luna / gpt-6-luna-decisions -> OPENAI_API_KEY（共用 OPENAI_API_BASE）
 #   jev                          -> TYPESAFE_API_KEY
-#   jina                         -> JINA_API_KEY
 # 参考 cmd/evalbench/env.example.sh。
 #
 # 报告写到 $EVALBENCH_OUT（默认 out/）：eval-<preset>.json，
@@ -28,8 +27,8 @@ ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
 OUT_DIR="${EVALBENCH_OUT:-out}"
-PRESETS=(gpt-4o-mini jev gpt-5.6-luna jina)
-KEY_ENV=(OPENAI_API_KEY TYPESAFE_API_KEY OPENAI_API_KEY JINA_API_KEY)
+PRESETS=(gpt-4o-mini jev gpt-6-luna gpt-6-luna-decisions)
+KEY_ENV=(OPENAI_API_KEY TYPESAFE_API_KEY OPENAI_API_KEY OPENAI_API_KEY)
 
 if [[ $# -gt 0 ]]; then
   EXTRA=("$@")

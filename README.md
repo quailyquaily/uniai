@@ -607,6 +607,18 @@ result, err := client.Evaluate(ctx, evaluate.Request{
 })
 ```
 
+To use OpenAI Decisions with the same request:
+
+```go
+client := uniai.New(uniai.Config{
+    OpenAIAPIKey: "...",
+    EvaluateProvider: "openai",
+    EvaluateModel: "gpt-6-luna",
+})
+```
+
+The native adapter sends text or JSON-encoded state to `/v1/decisions`. It supports all three question kinds; a refusal returns an error with usage and raw response preserved. Image inputs are not yet mapped.
+
 To run the same questions through a self-hosted OpenAI-compatible Chat service:
 
 ```go
@@ -619,7 +631,7 @@ client := uniai.New(uniai.Config{
 })
 ```
 
-`off` requires native Evaluate; `fallback` selects Chat only when the chosen provider has no native path; `force` selects Chat directly. Native errors never trigger Chat fallback. Jev returns `ProbabilityTrue`; emulation returns `BooleanValue` without invented probabilities. See [Evaluate usage and generation controls](docs/evaluate.md).
+`off` requires native Evaluate (`typesafe` or `openai`); `fallback` selects Chat only when the chosen provider has no native path; `force` selects Chat directly. OpenAI-compatible Chat services must use `force` now that `openai` has a native Decisions path. Native errors never trigger Chat fallback. Jev and Decisions return `ProbabilityTrue`; emulation returns `BooleanValue` without invented probabilities. See [Evaluate usage and generation controls](docs/evaluate.md).
 
 Use [`cmd/evalbench`](cmd/evalbench/README.md) to benchmark latency and judgments with credentials from environment variables. It includes 614 labeled cases across 18 scenarios, balanced Chinese and Japanese subsets, per-call answers, latency percentiles, and JSON reports:
 

@@ -22,7 +22,7 @@ export EVALUATE_REASONING_EFFORT=""
 export EVALUATE_MAX_TOKENS=""
 export EVALUATE_INFERENCE_PROVIDER=""
 
-# GPT-4o mini 与 GPT-5.6 Luna 共用这组凭证。
+# GPT-4o mini、GPT-6 Luna 和 Decisions 共用这组凭证。
 export OPENAI_API_KEY=""
 export OPENAI_API_BASE=https://api.openai.com/v1
 
@@ -37,16 +37,16 @@ export JINA_API_BASE=https://api.jina.ai
 # 预设参数：
 # gpt-4o-mini   -> openai / force / max_tokens=256 / 不发送 reasoning_effort
 # jev          -> typesafe / jev-1.13.0 / off / 不发送生成参数
-# gpt-5.6-luna  -> openai / force / max_tokens=256 / reasoning_effort=none
-# jina         -> jina / jina-embeddings-v5-text-small / Classify / 不发送生成参数
+# gpt-6-luna  -> openai / force / max_tokens=256 / reasoning_effort=none
+# gpt-6-luna-decisions -> openai / gpt-6-luna / off / 不发送生成参数
 # 示例（各模型使用同一份完整测试集）：
 #   go run ./cmd/evalbench --preset gpt-4o-mini --output out/eval-gpt-4o-mini.json
 #   go run ./cmd/evalbench --preset jev --output out/eval-jev.json
-#   go run ./cmd/evalbench --preset gpt-5.6-luna --output out/eval-luna-none.json
-#   go run ./cmd/evalbench --preset jina --output out/eval-jina.json
+#   go run ./cmd/evalbench --preset gpt-6-luna --output out/eval-gpt-6-luna.json
+#   go run ./cmd/evalbench --preset gpt-6-luna-decisions --output out/eval-gpt-6-luna-decisions.json
 # 256 是当前单题案例的生成上限；自定义多题案例可用 --max-tokens 覆盖。
 
-# Jina 可用 --model jina-embeddings-v5-text-nano 切换模型。
+# 自定义 Jina 使用 --preset "" --provider jina；可用 --model jina-embeddings-v5-text-nano 切换模型。
 # 分类适配只在 benchmark 内使用，不表示 Client.Evaluate 支持 Jina。
 
 # 自定义 Qwen：清除预设后启用下面的配置。

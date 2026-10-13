@@ -1,6 +1,6 @@
 # Evaluate：结构化判断
 
-`Client.Evaluate` 接收共享状态和具名问题，返回真假判断、选项或等级评分。原生路径支持 TypeSafe AI 的 Jev；Chat 模拟路径复用现有 Chat provider，包括使用兼容接口的自部署 Qwen。
+`Client.Evaluate` 接收共享状态和具名问题，返回真假判断、选项或等级评分。原生路径支持 TypeSafe AI 的 Jev 和 OpenAI Decisions；Chat 模拟路径复用现有 Chat provider，包括使用兼容接口的自部署 Qwen。
 
 批量检查延迟和判断结果可使用 [evalbench](../cmd/evalbench/README.md)：从环境变量读取连接配置，内置 18 个场景、360 条带预期答案的案例，支持 JSON 报告。
 
@@ -65,6 +65,38 @@ func main() {
 
 TypeSafe 使用 `POST /v1/systemone` 和 Bearer API key。`TypeSafeAPIBase` 默认是 `https://api.typesafe.ai/v1`；客户端在 base 后追加 `/systemone`。可通过 `EvaluateHTTPClient` 指定原生请求的 HTTP client。[上游接口](https://docs.typesafe.ai/api)
 
+## 原生 OpenAI Decisions
+
+同一份请求可通过 OpenAI 的 `POST /v1/decisions` 执行：
+
+```go
+client := uniai.New(uniai.Config{
+    OpenAIAPIKey: os.Getenv("OPENAI_API_KEY"),
+    EvaluateProvider: "openai",
+    EvaluateModel: "gpt-6-luna",
+})
+result, err := client.Evaluate(ctx, evaluate.Request{
+    State: "我重复付了两次款，请退回多付的一笔。",
+    Questions: map[string]evaluate.Question{
+        "refund": {Kind: evaluate.Boolean, Instructions: "用户是否请求退款？"},
+    },
+})
+```
+
+复用 `OpenAIAPIKey`、`OpenAIAPIBase`、`EvaluateHTTPClient` 和 `Debug`。Base 默认是 `https://api.openai.com/v1`，适配器追加 `/decisions`。不继承 Chat 的模型、生成参数或 `ChatHeaders`。
+
+截至 2026-10-13，官方接口处于 public beta，仅支持 `gpt-6-luna`。适配器不硬编码模型白名单；模型可用性由上游校验。[官方指南](https://developers.openai.com/api/docs/guides/decisions)
+
+转换规则如下：
+
+- `State` 字符串直接作为 `input`；对象和数组编码为 JSON 文本。本适配器暂不支持图片输入，包含图片 URL 的状态仍是文本，不会自动转换成图片消息。
+- `Instructions` 和描述字段中的字符串保持原文，对象和数组编码为 JSON 文本。
+- `Boolean` 转为 `predicate`；非 null 的 `TrueDescription`、`FalseDescription` 分别以 `True criteria:`、`False criteria:` 追加到指令。
+- `Choice` 的选项 ID 转为字符串 `value`，描述转为 `description`，null 描述省略。问题和选项按 ID 排序，问题 ID 写入 `name`。
+- `Score` 保留 Levels 顺序，等级 label 使用从 0 开始的索引字符串，description 使用等级描述。结果按 `name` 关联，评分和概率保留上游数值。
+
+`choice`、`score` 的 confidence 保存在 `ProviderMetadata["openai"].answers[问题ID].confidence` 中。所有类型都可能返回 `refusal`；任一问题拒答会返回 `ErrInvalidResponse`，`Answers` 为 nil，`Raw` 和可解析的用量仍保留。不返回部分成功答案，也不自动改用 Chat。[接口参考](https://developers.openai.com/api/reference/resources/decisions/methods/create)
+
 ## 用自部署 Qwen 模拟
 
 同一份 `evaluate.Request` 可以交给 Chat 模拟。以下 `qwenAPIBase`、`qwenAPIKey`、`qwenModel` 和 `request` 均由调用方提供；需要导入 `chat` 包。
@@ -119,23 +151,25 @@ Evaluate 不继承 `Config.Provider` 或 Chat 模型默认值。
 
 | 模式 | 行为 |
 | --- | --- |
-| `off` | 只调用原生 Evaluate；当前只有 `typesafe` |
+| `off` | 只调用原生 Evaluate；支持 `typesafe`、`openai` |
 | `fallback` | 发送前判断：有原生路径则用原生，否则使用同一 provider/model 的 Chat 路径 |
 | `force` | 只使用选定 provider/model 的 Chat 路径 |
 
 `fallback` 不接受第二套备用 provider/model，也不会在原生 HTTP、超时或解析失败后再尝试 Chat。`typesafe` 没有 Chat 路径，因此不能使用 `force`。模拟每次调用一次 `chatOnce`；底层 Chat SDK 自带的重试行为仍然适用。
 
+`openai` 现在具有原生路径，因此 `off` 和 `fallback` 都调用 Decisions；自部署 OpenAI 兼容 Chat 服务或不支持 Decisions 的模型应显式使用 `force`。`openai_resp` 仍只有 Chat 模拟路径。
+
 原生路径忽略配置中的模拟参数，但拒绝请求中显式提供的 `EmulationOptions` 和仅用于 Chat 计价的 `InferenceProvider`。
 
 ## 问题与答案
 
-| Kind | 问题字段 | 原生 Jev 答案 | Chat 模拟答案 |
+| Kind | 问题字段 | 原生 Jev / Decisions 答案 | Chat 模拟答案 |
 | --- | --- | --- | --- |
 | `Boolean` | Instructions；可选 TrueDescription / FalseDescription | ProbabilityTrue | BooleanValue |
 | `Choice` | Instructions、非空 Options | Selected、Probabilities | Selected |
 | `Score` | Instructions、至少两个有序 Levels | ScoreValue、小数评分、Probabilities | ScoreValue、整数等级索引 |
 
-Score 使用从 0 开始的等级尺度。模拟要求整数形式的 JSON 数字，不接受小数或指数表示。公共 `ScoreValue` 为 `*float64`，可同时表达原生小数评分与模拟整数评分。Jev 的概率不会自动按 0.5 转成 bool；业务阈值由调用方决定。
+Score 使用从 0 开始的等级尺度。模拟要求整数形式的 JSON 数字，不接受小数或指数表示。公共 `ScoreValue` 为 `*float64`，可同时表达原生小数评分与模拟整数评分。原生概率不会自动按 0.5 转成 bool；业务阈值由调用方决定。
 
 State、Instructions 和各描述支持字符串、对象、数组，嵌套值支持 JSON 原始类型。State 不允许 null，但可为空字符串、对象或数组。Instructions 必须存在，字符串不能只有空白。Choice 描述允许 null，Score 等级描述不允许 null。不同 Kind 的字段不能混用。TypeSafe 限制 Choice 最多 255 项、Score 最多 10 级；这些上限不应用于 Chat 模拟。[上游问题类型](https://docs.typesafe.ai/primitives)
 
@@ -150,6 +184,8 @@ State、Instructions 和各描述支持字符串、对象、数组，嵌套值�
 原生 usage 保留缺失计数；仅在 input 和 output 都存在时补算缺失的 total。原生费用使用 `PricingCatalog.Evaluate`，按 provider 和响应模型名严格匹配，不使用 Chat 价格，也不跨 provider 或按任意 `/` 后缀猜测价格。
 
 内置 Jev 价格与显式别名见 [`pricing.example.yaml`](../pricing.example.yaml)。未知模型或缺少 input/output 时，Cost 为 nil；完整的零用量和零价输出有效。
+
+Decisions 的 `gpt-6-luna` 标准输入价格为每百万 token $0.10，输出价格为 0，独立于同名 Chat 模型计价。内置估算不包含地区处理和长上下文倍率；需要这些价格时可配置 `PricingCatalog.Evaluate`。完整上游 token 明细保存在 `Raw` 中。[价格说明](https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability)
 
 模拟沿用实际 Chat 请求的费用、缓存计费和 `InferenceProvider` 提示。完整 Chat usage 和 warnings 保存在 `ProviderMetadata[provider]` 中。当前 Chat usage 使用 int，因此模拟结果无法恢复上游计数“缺失”与“明确为零”的区别。传入空 `PricingCatalog` 可禁用估算。[费用配置](pricing.md)
 

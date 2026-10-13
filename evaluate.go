@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/quailyquaily/uniai/evaluate"
+	openaidecisions "github.com/quailyquaily/uniai/providers/openai_decisions"
 	"github.com/quailyquaily/uniai/providers/typesafe"
 )
 
@@ -34,13 +35,24 @@ func (c *Client) Evaluate(ctx context.Context, req evaluate.Request) (*evaluate.
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if req.Provider == "typesafe" && req.EmulationMode != evaluate.EmulationForce {
+	if (req.Provider == "typesafe" || req.Provider == "openai") && req.EmulationMode != evaluate.EmulationForce {
 		req.EmulationMode = evaluate.EmulationOff
-		p, err := typesafe.New(typesafe.Config{APIKey: c.cfg.TypeSafeAPIKey, BaseURL: c.cfg.TypeSafeAPIBase, HTTPClient: c.cfg.EvaluateHTTPClient, Debug: c.cfg.Debug})
-		if err != nil {
-			return nil, err
+		var out *evaluate.Result
+		var err error
+		switch req.Provider {
+		case "typesafe":
+			p, initErr := typesafe.New(typesafe.Config{APIKey: c.cfg.TypeSafeAPIKey, BaseURL: c.cfg.TypeSafeAPIBase, HTTPClient: c.cfg.EvaluateHTTPClient, Debug: c.cfg.Debug})
+			if initErr != nil {
+				return nil, initErr
+			}
+			out, err = p.Evaluate(ctx, &req)
+		case "openai":
+			p, initErr := openaidecisions.New(openaidecisions.Config{APIKey: c.cfg.OpenAIAPIKey, BaseURL: c.cfg.OpenAIAPIBase, HTTPClient: c.cfg.EvaluateHTTPClient, Debug: c.cfg.Debug})
+			if initErr != nil {
+				return nil, initErr
+			}
+			out, err = p.Evaluate(ctx, &req)
 		}
-		out, err := p.Evaluate(ctx, &req)
 		if out != nil && out.Usage != nil {
 			if cost, ok := c.cfg.Pricing.EstimateEvaluateCost(out.Provider, out.Model, *out.Usage); ok {
 				out.Usage.Cost = cost

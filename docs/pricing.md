@@ -148,6 +148,10 @@ model and alias conflicts within the same provider are rejected across rules.
 
 ```yaml
 evaluate:
+  - inference_provider: openai
+    model: gpt-6-luna
+    input_usd_per_million: 0.10
+    output_usd_per_million: 0
   - inference_provider: typesafe
     model: jev-1.13.0
     aliases: [jev-latest, jev-preview]
@@ -158,6 +162,12 @@ evaluate:
 These TypeSafe rates and aliases were checked on 2026-09-21 against the
 [official model list](https://docs.typesafe.ai/models). An empty catalog disables
 estimation. Existing YAML with only `chat` and `image` remains valid.
+
+The OpenAI Decisions standard rates were checked on 2026-10-13 against the
+[official guide](https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability).
+This estimate excludes regional processing and long-context multipliers. Set a
+custom Evaluate rule when those rates apply; the Chat rate for the same model
+does not affect Decisions pricing.
 
 Chat-emulated Evaluate uses the `chat` group and the existing Chat cache rates.
 Its `Request.InferenceProvider` is a Chat pricing hint; it does not change the

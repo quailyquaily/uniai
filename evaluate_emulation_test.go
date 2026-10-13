@@ -145,7 +145,7 @@ func TestEvaluateEmulationRoutesAndOptions(t *testing.T) {
 			r.EmulationOptions = &evaluate.EmulationOptions{ReasoningEffort: evalPtr(chat.ReasoningEffortNone)}
 			before, _ := json.Marshal(r)
 			out, err := c.Evaluate(context.Background(), r)
-			if mode == evaluate.EmulationOff {
+			if mode != evaluate.EmulationForce {
 				if !errors.Is(err, evaluate.ErrUnsupported) || calls != 0 {
 					t.Fatalf("err=%v calls=%d", err, calls)
 				}

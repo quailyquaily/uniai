@@ -36,7 +36,7 @@ func TestCLIEnvironmentAndOverrides(t *testing.T) {
 	if _, err := clientConfig(o, env(nil)); err == nil || !strings.Contains(err.Error(), "OPENAI_API_KEY") {
 		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"--repeat", "0"}, {"--warmup", "-1"}, {"--limit", "-1"}, {"--timeout", "0s"}, {"--max-tokens", "0"}, {"--max-tokens", "bad"}, {"--boolean-threshold", "NaN"}, {"--score-tolerance", "-1"}, {"--mode", "unknown"}, {"--reasoning-effort", "bogus"}, {"--provider", "typesafe", "--max-tokens", "64"}, {"--provider", "typesafe", "--mode", "force"}, {"--provider", "openai", "--mode", "off", "--model", "test"}, {"unexpected"}} {
+	for _, args := range [][]string{{"--repeat", "0"}, {"--warmup", "-1"}, {"--limit", "-1"}, {"--timeout", "0s"}, {"--max-tokens", "0"}, {"--max-tokens", "bad"}, {"--boolean-threshold", "NaN"}, {"--score-tolerance", "-1"}, {"--mode", "unknown"}, {"--reasoning-effort", "bogus"}, {"--provider", "typesafe", "--max-tokens", "64"}, {"--provider", "typesafe", "--mode", "force"}, {"--provider", "openai_resp", "--mode", "off", "--model", "test"}, {"unexpected"}} {
 		if _, err := parseOptions(args, env(nil), &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted %v", args)
 		}

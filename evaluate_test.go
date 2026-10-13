@@ -85,7 +85,7 @@ func TestEvaluatePreflight(t *testing.T) {
 	c = New(Config{TypeSafeAPIKey: "key", EvaluateModel: "jev-latest"})
 	for _, mutate := range []func(*evaluate.Request){
 		func(r *evaluate.Request) { r.Provider = "unknown" },
-		func(r *evaluate.Request) { r.Provider = "openai"; r.EmulationMode = evaluate.EmulationOff },
+		func(r *evaluate.Request) { r.Provider = "openai_resp"; r.EmulationMode = evaluate.EmulationOff },
 		func(r *evaluate.Request) { r.EmulationMode = evaluate.EmulationForce },
 		func(r *evaluate.Request) { r.EmulationOptions = &evaluate.EmulationOptions{} },
 	} {
@@ -129,6 +129,69 @@ func TestEvaluateNativePreservesUsageOnError(t *testing.T) {
 			}
 		} else if out.Usage.TotalTokens == nil || *out.Usage.TotalTokens != 101 || out.Usage.Cost == nil || out.Usage.Cost.Total != 0.0000042 {
 			t.Fatalf("lost total/cost: %+v", out.Usage)
+		}
+	}
+}
+
+func TestEvaluateOpenAIDecisionsRoutingAndCost(t *testing.T) {
+	for _, mode := range []evaluate.EmulationMode{"", evaluate.EmulationOff, evaluate.EmulationFallback} {
+		for _, refusal := range []bool{false, true} {
+			calls := 0
+			answer := `{"name":"refund","type":"predicate","probability":0}`
+			if refusal {
+				answer = `{"name":"refund","type":"refusal"}`
+			}
+			payload := `{"model":"gpt-6-luna","answers":[` + answer + `],"usage":{"input_tokens":100,"output_tokens":0}}`
+			c := New(Config{Provider: "typesafe", OpenAIModel: "wrong-chat-model", OpenAIAPIKey: "key", OpenAIAPIBase: "https://example.test/v1/", EvaluateProvider: "openai", EvaluateModel: "gpt-6-luna", EvaluateEmulationMode: evaluate.EmulationForce, EvaluateEmulationOptions: &evaluate.EmulationOptions{MaxTokens: evalPtr(64)}, EvaluateHTTPClient: &http.Client{Transport: evalTransport(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.URL.Path != "/v1/decisions" || r.Header.Get("Authorization") != "Bearer key" {
+					t.Fatalf("wrong target: %s", r.URL)
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				if body["model"] != "request-model" || body["input"] != `{"text":"refund"}` {
+					t.Fatal(body)
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(payload))}, nil
+			})}})
+			req := evalRequest()
+			req.Model = "request-model"
+			req.EmulationMode = mode
+			if mode == "" {
+				c.cfg.EvaluateEmulationMode = ""
+			}
+			before, _ := json.Marshal(req)
+			out, err := c.Evaluate(context.Background(), req)
+			if refusal {
+				if !errors.Is(err, evaluate.ErrInvalidResponse) || out == nil || out.Answers != nil {
+					t.Fatalf("out=%+v err=%v", out, err)
+				}
+			} else if err != nil || out == nil || *out.Answers["refund"].ProbabilityTrue != 0 {
+				t.Fatalf("out=%+v err=%v", out, err)
+			}
+			if calls != 1 || out.Emulated || out.Provider != "openai" || out.Model != "gpt-6-luna" || out.Usage.Cost == nil || out.Usage.Cost.Total != 0.00001 || out.Usage.Cost.Output != 0 {
+				t.Fatalf("out=%+v usage=%+v calls=%d", out, out.Usage, calls)
+			}
+			after, _ := json.Marshal(req)
+			if string(before) != string(after) {
+				t.Fatal("request mutated")
+			}
+		}
+	}
+}
+
+func TestEvaluateOpenAIFailuresDoNotFallback(t *testing.T) {
+	for _, status := range []int{401, 429, 500, 200} {
+		calls := 0
+		c := New(Config{OpenAIAPIKey: "key", EvaluateProvider: "openai", EvaluateModel: "gpt-6-luna", EvaluateEmulationMode: evaluate.EmulationFallback, EvaluateHTTPClient: &http.Client{Transport: evalTransport(func(*http.Request) (*http.Response, error) {
+			calls++
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+		})}})
+		out, err := c.Evaluate(context.Background(), evalRequest())
+		if out != nil || err == nil || calls != 1 {
+			t.Fatalf("out=%v err=%v calls=%d", out, err, calls)
 		}
 	}
 }

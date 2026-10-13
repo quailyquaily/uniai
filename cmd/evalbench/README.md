@@ -1,6 +1,6 @@
 # Evaluate benchmark
 
-`evalbench` 从环境变量读取模型连接配置，输出每次调用的耗时、实际答案和匹配情况。串行测试 TypeSafe/Jev 原生 Evaluate、Qwen 等模型的 Chat 模拟，以及 Jina Classify 分类基线。
+`evalbench` 从环境变量读取模型连接配置，输出每次调用的耗时、实际答案和匹配情况。串行测试 TypeSafe/Jev、OpenAI Decisions 原生 Evaluate、Qwen 等模型的 Chat 模拟，以及 Jina Classify 分类基线。
 
 内置 [614 条案例](cases/dataset.jsonl)，共 18 个场景。中文和日文各 258 条，另有英文 90 条、西班牙文 4 条、法文 4 条。数据直接嵌入二进制，从任意工作目录执行都可使用。
 
@@ -14,25 +14,29 @@
 | --- | --- | --- | --- | --- |
 | `gpt-4o-mini` | `openai` / `gpt-4o-mini` | force | 256 | 不发送该参数 |
 | `jev` | `typesafe` / `jev-1.13.0` | off | 不发送 | 不发送 |
-| `gpt-5.6-luna` | `openai` / `gpt-5.6-luna` | force | 256 | `none` |
-| `jina` | `jina` / `jina-embeddings-v5-text-small` | off（使用 Classify） | 不发送 | 不发送 |
+| `gpt-6-luna` | `openai` / `gpt-6-luna` | force | 256 | `none` |
+| `gpt-6-luna-decisions` | `openai` / `gpt-6-luna` | off | 不发送 | 不发送 |
 
 ```bash
 go run ./cmd/evalbench --preset gpt-4o-mini --output out/eval-gpt-4o-mini.json
 go run ./cmd/evalbench --preset jev --output out/eval-jev.json
-go run ./cmd/evalbench --preset gpt-5.6-luna --output out/eval-luna-none.json
-go run ./cmd/evalbench --preset jina --output out/eval-jina.json
+go run ./cmd/evalbench --preset gpt-6-luna --output out/eval-gpt-6-luna.json
+go run ./cmd/evalbench --preset gpt-6-luna-decisions --output out/eval-gpt-6-luna-decisions.json
 ```
 
-两组 OpenAI 预设读取 `OPENAI_API_KEY` / `OPENAI_API_BASE`，Jev 读取 `TYPESAFE_API_KEY` / `TYPESAFE_API_BASE`，Jina 读取 `JINA_API_KEY` / `JINA_API_BASE`。四组都默认运行相同的 614 条案例，串行、repeat=1、warmup=0、timeout=90s；Boolean 阈值 0.5，Score 容差 0.5。报告保存预设名称及实际生效参数。
+OpenAI 预设读取 `OPENAI_API_KEY` / `OPENAI_API_BASE`，Jev 读取 `TYPESAFE_API_KEY` / `TYPESAFE_API_BASE`，Jina 读取 `JINA_API_KEY` / `JINA_API_BASE`。各组都默认运行相同的 614 条案例，串行、repeat=1、warmup=0、timeout=90s；Boolean 阈值 0.5，Score 容差 0.5。报告保存预设名称及实际生效参数。
+
+`gpt-6-luna-decisions` 调用 `/v1/decisions`，拒绝 Chat 的生成参数和计价提示。自定义配置也可使用 `--provider openai --model gpt-6-luna --mode off`；CLI 对未指定模式的 OpenAI 自定义配置仍默认 `force`，保留原有 Chat 行为。显式 `fallback` 现在选择 Decisions，失败后不转入 Chat。
 
 生成上限 256 针对内置的单题短答案；自定义多题案例可用 `--max-tokens` 调整。GPT-4o mini 不发送 reasoning effort，Luna 显式发送 `none`。达到上限的截断结果仍计为错误。
 
 预设覆盖旧的 `EVALUATE_PROVIDER`、`EVALUATE_MODEL`、模式、effort、token 上限和计价提示环境值，防止切换模型时残留错误参数；显式命令行参数优先级更高。`--preset ""` 清除预设后，恢复原有环境变量配置方式。
 
-### Jina 分类基线
+### 自定义 Jina 分类基线
 
-Jina 预设复用 SDK 的 `Client.Classify`，调用 `/v1/classify`。v5-text-small、v5-text-nano 和 v3 使用字符串数组作为 input；v4 和 clip-v2 使用 text/image 对象数组。[Jina 接口说明](https://github.com/jina-ai/meta-prompt/blob/main/v12.txt)
+Jina 已移出预设列表，可用 `--preset "" --provider jina` 运行现有分类基线。
+
+自定义 Jina 配置复用 SDK 的 `Client.Classify`，调用 `/v1/classify`。v5-text-small、v5-text-nano 和 v3 使用字符串数组作为 input；v4 和 clip-v2 使用 text/image 对象数组。[Jina 接口说明](https://github.com/jina-ai/meta-prompt/blob/main/v12.txt)
 
 分类转换只放在 benchmark 中，SDK 的 `Client.Evaluate` 不增加 Jina provider。报告的 `api_pattern=jina_classify` 表示这条路径，其他组为 `evaluate`。CLI 的 mode=off 只表示关闭 Chat 模拟；转换后的 Jina 结果仍标为 `emulated=true`。
 
@@ -42,13 +46,13 @@ Jina 预设复用 SDK 的 `Client.Classify`，调用 `/v1/classify`。v5-text-sm
 - Choice：使用选项描述，将预测标签映射回选项 ID。
 - Score：使用等级描述，将预测标签映射回从 0 开始的等级索引。
 
-标签必须有非空、互不重复的描述，每题 2–256 类。自定义 Boolean 案例必须提供正反描述；内置 120 条 Boolean 案例已补齐。缺少描述会在发请求前报错，不从 expected 或 rationale 推导标签。数据集指纹随描述更新，比较时四组需要使用相同指纹。
+标签必须有非空、互不重复的描述，每题 2–256 类。自定义 Boolean 案例必须提供正反描述；内置 120 条 Boolean 案例已补齐。缺少描述会在发请求前报错，不从 expected 或 rationale 推导标签。数据集指纹随描述更新，比较时各组需要使用相同指纹。
 
 Jina 返回的 score / predictions 保存在 `provider_metadata.jina_classify`，不转成判断概率或题目评分，也不计入 Brier score。usage 只累加 SDK 返回的 total_tokens，不补造输入或输出 token 数；模型名记录请求值，因为 Classify 结果不提供实际模型标识。它不接受 reasoning effort、max tokens 或 Chat 计价提示。
 
-默认 614 条案例均为单题，因此四组各发 614 次请求。自定义多题案例会拆成多个串行分类请求：一次案例的耗时和超时覆盖全部问题，任一问题失败则整条案例失败；此前已成功的问题仍可能产生用量，但失败案例不返回部分答案或完整用量。dry-run 的 requests 显示计划 API 调用数。
+默认 614 条案例均为单题，因此各组各发 614 次请求。自定义多题案例会拆成多个串行分类请求：一次案例的耗时和超时覆盖全部问题，任一问题失败则整条案例失败；此前已成功的问题仍可能产生用量，但失败案例不返回部分答案或完整用量。dry-run 的 requests 显示计划 API 调用数。
 
-可用 `--preset jina --model jina-embeddings-v5-text-nano` 测试 nano。完整成绩之外，所有组还汇总同一份分类子集，见下文统计口径。
+可用 `--preset "" --provider jina --model jina-embeddings-v5-text-nano` 测试 nano。完整成绩之外，所有组还汇总同一份分类子集，见下文统计口径。
 
 ### 自定义配置
 
@@ -135,7 +139,6 @@ go run ./cmd/evalbench --limit 18
 | Provider | 凭证环境变量 | Base 环境变量 | 模型回退变量 |
 | --- | --- | --- | --- |
 | `typesafe` | `TYPESAFE_API_KEY` | `TYPESAFE_API_BASE` | `TYPESAFE_MODEL`，再默认 `jev-1.13.0` |
-| `jina` | `JINA_API_KEY` | `JINA_API_BASE`，默认 `https://api.jina.ai`，不包含 `/v1` | `JINA_MODEL`，再默认 `jina-embeddings-v5-text-small` |
 | `openai`、`openai_resp` | `OPENAI_API_KEY` | `OPENAI_API_BASE` | `OPENAI_MODEL` |
 | `gemini` | `GEMINI_API_KEY` | `GEMINI_API_BASE` | `GEMINI_MODEL` |
 | `anthropic` | `ANTHROPIC_API_KEY` | `ANTHROPIC_API_BASE` | `ANTHROPIC_MODEL` |
@@ -155,7 +158,7 @@ unset EVALUATE_REASONING_EFFORT EVALUATE_MAX_TOKENS EVALUATE_INFERENCE_PROVIDER 
 
 | 参数 | 默认值及行为 |
 | --- | --- |
-| `--preset` | `gpt-4o-mini` / `jev` / `gpt-5.6-luna` / `jina`；空字符串恢复自定义配置 |
+| `--preset` | `gpt-4o-mini` / `jev` / `gpt-6-luna` / `gpt-6-luna-decisions`；空字符串恢复自定义配置 |
 | `--provider`、`--model`、`--api-base`、`--mode` | 覆盖模型连接和执行方式 |
 | `--reasoning-effort`、`--max-tokens`、`--inference-provider` | 模拟参数；空字符串可清除对应环境值 |
 | `--timeout` | `90s`，每次请求独立计时 |

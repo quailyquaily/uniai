@@ -22,7 +22,8 @@ func TestComparisonPresets(t *testing.T) {
 	}{
 		{"gpt-4o-mini", "openai", "gpt-4o-mini", "", 256},
 		{"jev", "typesafe", "jev-1.13.0", "", 0},
-		{"gpt-5.6-luna", "openai", "gpt-5.6-luna", "none", 256},
+		{"gpt-6-luna-decisions", "openai", "gpt-6-luna", "", 0},
+		{"gpt-6-luna", "openai", "gpt-6-luna", "none", 256},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			o, err := parseOptions([]string{"--preset", tc.name}, getenv, &bytes.Buffer{})
@@ -51,7 +52,7 @@ func TestComparisonPresets(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"--preset", "missing"}, {"--preset", "gpt-5.6-luna", "--max-tokens", "0"}} {
+	for _, args := range [][]string{{"--preset", "missing"}, {"--preset", "decisions"}, {"--preset", "gpt-5.6-luna"}, {"--preset", "jina"}, {"--preset", "gpt-6-luna", "--max-tokens", "0"}} {
 		if _, err := parseOptions(args, env(nil), &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
@@ -59,7 +60,7 @@ func TestComparisonPresets(t *testing.T) {
 }
 
 func TestPresetEnvironmentAndFlagOverrides(t *testing.T) {
-	o, err := parseOptions([]string{"--model", "custom-luna", "--max-tokens", "1024", "--reasoning-effort", "low"}, env(map[string]string{"EVALUATE_PRESET": "gpt-5.6-luna"}), &bytes.Buffer{})
+	o, err := parseOptions([]string{"--model", "custom-luna", "--max-tokens", "1024", "--reasoning-effort", "low"}, env(map[string]string{"EVALUATE_PRESET": "gpt-6-luna"}), &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +74,7 @@ func TestPresetEnvironmentAndFlagOverrides(t *testing.T) {
 }
 
 func TestOpenAIPresetHTTPParameters(t *testing.T) {
-	for _, name := range []string{"gpt-4o-mini", "gpt-5.6-luna"} {
+	for _, name := range []string{"gpt-4o-mini", "gpt-6-luna"} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				var body map[string]any

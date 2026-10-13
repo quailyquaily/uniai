@@ -28,7 +28,7 @@ func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (
 	o := cliOptions{}
 	fs := flag.NewFlagSet("evalbench", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	fs.StringVar(&o.preset, "preset", getenv("EVALUATE_PRESET"), "comparison preset: gpt-4o-mini|jev|gpt-5.6-luna|jina; empty uses custom configuration")
+	fs.StringVar(&o.preset, "preset", getenv("EVALUATE_PRESET"), "comparison preset: gpt-4o-mini|jev|gpt-6-luna|gpt-6-luna-decisions; empty uses custom configuration")
 	provider := fs.String("provider", getenv("EVALUATE_PROVIDER"), "Evaluate provider (default typesafe)")
 	model := fs.String("model", getenv("EVALUATE_MODEL"), "model; required for Chat emulation")
 	mode := fs.String("mode", getenv("EVALUATE_EMULATION_MODE"), "off|fallback|force (default off for typesafe, force for Chat)")
@@ -69,12 +69,11 @@ func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (
 			values["model"] = "jev-1.13.0"
 			values["mode"] = "off"
 			values["max-tokens"] = ""
-		case "gpt-5.6-luna":
-			values["model"] = "gpt-5.6-luna"
+		case "gpt-6-luna":
+			values["model"] = "gpt-6-luna"
 			values["reasoning-effort"] = "none"
-		case "jina":
-			values["provider"] = "jina"
-			values["model"] = "jina-embeddings-v5-text-small"
+		case "gpt-6-luna-decisions":
+			values["model"] = "gpt-6-luna"
 			values["mode"] = "off"
 			values["max-tokens"] = ""
 		default:
@@ -145,7 +144,7 @@ func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (
 	if o.request.Provider == "jina" && o.request.EmulationMode != evaluate.EmulationOff {
 		return o, fmt.Errorf("jina uses Classify; Chat emulation mode must be off")
 	}
-	if o.request.Provider != "typesafe" && o.request.Provider != "jina" && o.request.EmulationMode == evaluate.EmulationOff {
+	if o.request.Provider != "typesafe" && o.request.Provider != "jina" && o.request.Provider != "openai" && o.request.EmulationMode == evaluate.EmulationOff {
 		return o, fmt.Errorf("%s has no native Evaluate path; use force or fallback", o.request.Provider)
 	}
 	if *effort != "" || *tokens != "" {
@@ -170,7 +169,8 @@ func parseOptions(args []string, getenv func(string) string, stderr io.Writer) (
 			o.request.EmulationOptions.MaxTokens = &v
 		}
 	}
-	if (o.request.Provider == "typesafe" || o.request.Provider == "jina") && (o.request.EmulationOptions != nil || o.request.InferenceProvider != "") {
+	native := o.request.Provider == "typesafe" || o.request.Provider == "jina" || (o.request.Provider == "openai" && o.request.EmulationMode != evaluate.EmulationForce)
+	if native && (o.request.EmulationOptions != nil || o.request.InferenceProvider != "") {
 		return o, fmt.Errorf("%s does not accept Chat emulation options or inference-provider", o.request.Provider)
 	}
 	if *timeout == "" {

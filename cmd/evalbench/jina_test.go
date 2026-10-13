@@ -18,8 +18,8 @@ import (
 
 const jinaCaseJSON = `{"id":"gold-case-id","category":"content_topic","domain":"general","language":"zh","state":"请把重复扣的钱退回来。","questions":{"refund":{"kind":"boolean","instructions":"是否申请退款？","true_description":"申请退款","false_description":"未申请退款"},"team":{"kind":"choice","instructions":"负责团队？","options":{"billing":"账单问题","shipping":"物流问题"}},"priority":{"kind":"score","instructions":"紧急程度？","levels":["低","中","高"]}},"expected":{"refund":true,"team":"billing","priority":2},"rationale":"gold-rationale"}`
 
-func TestJinaPresetAndUnsupportedControls(t *testing.T) {
-	o, err := parseOptions([]string{"--preset", "jina"}, env(map[string]string{"EVALUATE_REASONING_EFFORT": "high", "EVALUATE_MAX_TOKENS": "1024"}), &bytes.Buffer{})
+func TestJinaProviderAndUnsupportedControls(t *testing.T) {
+	o, err := parseOptions([]string{"--preset", "", "--provider", "jina"}, env(nil), &bytes.Buffer{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestJinaPresetAndUnsupportedControls(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, flags := range [][]string{{"--max-tokens", "100"}, {"--reasoning-effort", "none"}, {"--mode", "force"}, {"--mode", "fallback"}, {"--inference-provider", "other"}} {
-		if _, err := parseOptions(append([]string{"--preset", "jina"}, flags...), env(nil), &bytes.Buffer{}); err == nil {
+		if _, err := parseOptions(append([]string{"--preset", "", "--provider", "jina"}, flags...), env(nil), &bytes.Buffer{}); err == nil {
 			t.Fatalf("accepted unsupported controls %v", flags)
 		}
 	}
@@ -92,13 +92,13 @@ func TestJinaCLIMappingAndReport(t *testing.T) {
 	defer server.Close()
 	getenv := env(map[string]string{"JINA_API_KEY": "secret", "JINA_API_BASE": server.URL})
 	var stdout, stderr bytes.Buffer
-	if err := run(context.Background(), []string{"--preset", "jina", "--cases", casePath, "--dry-run"}, env(nil), &stdout, &stderr); err != nil {
+	if err := run(context.Background(), []string{"--preset", "", "--provider", "jina", "--cases", casePath, "--dry-run"}, env(nil), &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(stdout.String(), "requests=3") || !strings.Contains(stdout.String(), "api_pattern=jina_classify") || calls != 0 {
 		t.Fatal(stdout.String(), calls)
 	}
-	if err := run(context.Background(), []string{"--preset", "jina", "--cases", casePath, "--output", output}, getenv, &stdout, &stderr); err != nil {
+	if err := run(context.Background(), []string{"--preset", "", "--provider", "jina", "--cases", casePath, "--output", output}, getenv, &stdout, &stderr); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(output)
@@ -131,7 +131,7 @@ func TestJinaRejectsInvalidLabelsBeforeNetwork(t *testing.T) {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		err := run(context.Background(), []string{"--preset", "jina", "--cases", casePath, "--dry-run"}, env(nil), &out, &out)
+		err := run(context.Background(), []string{"--preset", "", "--provider", "jina", "--cases", casePath, "--dry-run"}, env(nil), &out, &out)
 		if err == nil || !strings.Contains(err.Error(), "label") {
 			t.Fatalf("invalid labels accepted: %v", err)
 		}
@@ -148,7 +148,7 @@ func TestJinaRejectsInvalidResponses(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			err := run(context.Background(), []string{"--preset", "jina", "--cases", casePath}, env(map[string]string{"JINA_API_KEY": "key", "JINA_API_BASE": server.URL}), &out, &out)
+			err := run(context.Background(), []string{"--preset", "", "--provider", "jina", "--cases", casePath}, env(map[string]string{"JINA_API_KEY": "key", "JINA_API_BASE": server.URL}), &out, &out)
 			if err == nil || !strings.Contains(out.String(), "ERROR") {
 				t.Fatalf("accepted response: %v %s", err, out.String())
 			}
@@ -158,7 +158,7 @@ func TestJinaRejectsInvalidResponses(t *testing.T) {
 
 func TestJinaBuiltinDatasetDryRun(t *testing.T) {
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--preset", "jina", "--dry-run"}, env(nil), &out, &out); err != nil {
+	if err := run(context.Background(), []string{"--preset", "", "--provider", "jina", "--dry-run"}, env(nil), &out, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "requests=614") {
