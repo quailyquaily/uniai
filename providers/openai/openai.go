@@ -196,6 +196,9 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	}
 
 	openAIOptions := req.Options.OpenAI
+	if openAIOptions.HasKey("prompt_cache_options") && modelcompat.OpenAIRejectsPromptCacheOptions(model) {
+		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_options; use prompt_cache_retention", model)
+	}
 	if err := oaicompat.ApplyOptions(&params, openAIOptions); err != nil {
 		return openai.ChatCompletionNewParams{}, err
 	}

@@ -155,3 +155,36 @@ func TestOpenAIReasoningContextSupported(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAIPromptCachePolicy(t *testing.T) {
+	for _, tc := range []struct {
+		model   string
+		options bool
+		rejects bool
+	}{
+		{"gpt-5.6", true, false},
+		{"gpt-5.6-sol", true, false},
+		{"gpt-6-astra", true, false},
+		{"gpt-6-luna", true, false},
+		{"gpt-6.1-sol", true, false},
+		{"openai/gpt-6.1-sol", true, false},
+		{"GPT-6.1-Sol-2026-09-30", true, false},
+		{"gpt-5.5", false, true},
+		{"gpt-5.5-pro", false, true},
+		{"openai/gpt-5.4", false, true},
+		{"gpt-4.1", false, false},
+		{"gpt-6.1-solar", false, false},
+		{"my-gateway-alias", false, false},
+	} {
+		if got := OpenAIUsesPromptCacheOptions(tc.model); got != tc.options {
+			t.Errorf("OpenAIUsesPromptCacheOptions(%q) = %v", tc.model, got)
+		}
+		if got := OpenAIRejectsPromptCacheOptions(tc.model); got != tc.rejects {
+			t.Errorf("OpenAIRejectsPromptCacheOptions(%q) = %v", tc.model, got)
+		}
+	}
+	// GPT-6.1 Sol shares the cache policy but not, yet, the GPT-6 reasoning checks.
+	if IsGPT6("gpt-6.1-sol") || !OpenAIReasoningEffortSupported("gpt-6.1-sol", "minimal") {
+		t.Fatalf("gpt-6.1-sol should not inherit GPT-6 reasoning validation")
+	}
+}

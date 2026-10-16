@@ -212,6 +212,9 @@ func buildParams(req *chat.Request, defaultModel string, openAICodex bool) (resp
 	if err := validateOpenAIResponsesConflicts(req, opts); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
+	if opts.HasKey("prompt_cache_options") && modelcompat.OpenAIRejectsPromptCacheOptions(model) {
+		return responses.ResponseNewParams{}, fmt.Errorf("openai model %q does not support prompt_cache_options; use prompt_cache_retention", model)
+	}
 
 	params := responses.ResponseNewParams{
 		Model: shared.ResponsesModel(model),

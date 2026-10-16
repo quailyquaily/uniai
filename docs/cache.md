@@ -203,6 +203,53 @@ root cache options.
 Upstream implicit caching may still apply, and returned cache usage is parsed as
 usual.
 
+### Model Compatibility Rules
+
+This table is the source of truth for the request overrides that `openai` and
+`openai_resp` apply. The implementation is in `internal/modelcompat`
+(`OpenAIUsesPromptCacheOptions`, `OpenAIRejectsPromptCacheOptions`,
+`OpenAIRequires24hPromptCacheRetention`) and the regression tests are in
+`providers/openai/cache_policy_test.go` and
+`providers/openai_resp/cache_policy_test.go`. Update all three together when
+model support changes.
+
+| Models | Lifetime field | Supported values | When omitted | Explicit breakpoints | Legacy field handling | Fails locally |
+| --- | --- | --- | --- | --- | --- | --- |
+| GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
+| GPT-5.5, GPT-5.5 Pro | `prompt_cache_retention` | `"24h"` only | Neither field is sent | No | When `prompt_cache_key` or any retention value is set, `prompt_cache_retention` is forced to `"24h"` | `prompt_cache_options`; any shared `CacheControl` |
+| GPT-5.4 variants | `prompt_cache_retention` | `"in_memory"`; `"24h"` where supported | Neither field is sent | No | Sent unchanged | `prompt_cache_options`; any shared `CacheControl` |
+| Other and unknown models (earlier OpenAI models, gateway aliases, custom names) | Whatever the caller sends | Not validated by `uniai` | Neither field is sent | No | Both fields are sent unchanged | Any shared `CacheControl` |
+
+How model names are matched:
+
+- Matching ignores case and surrounding whitespace. A `models/` prefix and any
+  namespace before the last `/` are removed (`openai/gpt-6.1-sol` matches as
+  `gpt-6.1-sol`). Dots between digits count as `-`, so `gpt-6.1-sol` and
+  `gpt-6-1-sol` are equivalent.
+- A family matches its exact name or the name followed by `-` and a suffix, so
+  dated and variant names such as `gpt-6.1-sol-2026-09-30` and `gpt-5.5-pro`
+  match, while `gpt-6.1-solar` does not.
+- Unrecognized names, including gateway aliases that hide the real model, get
+  no conversion and no local validation of the cache fields. Callers must send
+  the field the underlying model accepts.
+
+Provider exceptions:
+
+- `openai_codex` (the `openai_resp` Codex mode) removes `prompt_cache_key`,
+  `prompt_cache_retention`, `prompt_cache_options`, and raw
+  `prompt_cache_breakpoint` markers for every model, and ignores shared cache
+  controls. None of the validation above applies.
+- `azure` sends its options unchanged and applies none of these rules, because
+  deployment names do not identify the underlying model. See [Azure](#azure).
+
+GPT-6.1 Sol shares the GPT-6 cache policy only. It does not yet inherit the
+GPT-6 sampling or reasoning parameter checks.
+
+Official sources, checked 2026-10-16:
+
+- [Prompt caching: cache lifetime and model differences](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)
+- [GPT-6 migration: API and model parameters](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters)
+
 ### GPT-5.6 and GPT-6 Explicit Breakpoints
 
 For `openai` and `openai_resp`, a shared cache boundary can be placed on a
@@ -346,8 +393,9 @@ policy remains optional and can be added as described above.
 
 ### GPT-5.6 Legacy Option Compatibility
 
-For `gpt-5.6` and its model variants, the `openai` and `openai_resp`
-providers convert a non-empty legacy `prompt_cache_retention` value to:
+For the models in the first row of the
+[compatibility table](#model-compatibility-rules) (GPT-5.6, GPT-6, and
+GPT-6.1 Sol), the `openai` and `openai_resp` providers convert a non-empty legacy `prompt_cache_retention` value to:
 
 ```json
 {
@@ -366,8 +414,9 @@ cache lifetime. The new API currently provides no direct one-to-one mapping and
 accepts only `30m` for `ttl`.
 
 GPT-5.5 keeps the legacy behavior: when a cache key or retention option is
-present, `uniai` sends `prompt_cache_retention: "24h"`. Older models keep their
-existing option mapping.
+present, `uniai` sends `prompt_cache_retention: "24h"`. GPT-5.5 and GPT-5.4
+reject `prompt_cache_options` before the request is sent. Other models keep
+their existing option mapping.
 
 The optional OpenAI-compatible adapter in `chat/openai` also preserves
 `PromptCacheRetention` and `PromptCacheOptions` from the official OpenAI Go SDK

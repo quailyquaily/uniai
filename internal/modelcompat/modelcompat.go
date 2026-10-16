@@ -137,9 +137,19 @@ func OpenAIRequires24hPromptCacheRetention(model string) bool {
 	return modelHasPrefix(model, "gpt-5-5")
 }
 
+// OpenAIUsesPromptCacheOptions reports whether model uses
+// prompt_cache_options.ttl and explicit prompt_cache_breakpoint markers instead
+// of the legacy prompt_cache_retention field. Keep in sync with docs/cache.md.
 func OpenAIUsesPromptCacheOptions(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "gpt-5-6") || IsGPT6(model)
+	return openAIUsesGPT6Parameters(model) || modelHasPrefix(model, "gpt-6-1-sol")
+}
+
+// OpenAIRejectsPromptCacheOptions reports whether model is known to use only the
+// legacy prompt_cache_retention field. Unknown models are not rejected.
+func OpenAIRejectsPromptCacheOptions(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gpt-5-4") || modelHasPrefix(model, "gpt-5-5")
 }
 
 func IsGPT6(model string) bool {
@@ -153,7 +163,7 @@ func IsGPT6Astra(model string) bool {
 }
 
 func OpenAIReasoningEffortSupported(model, effort string) bool {
-	if !OpenAIUsesPromptCacheOptions(model) {
+	if !openAIUsesGPT6Parameters(Normalize(model)) {
 		return true
 	}
 	switch effort {
@@ -167,7 +177,7 @@ func OpenAIReasoningEffortSupported(model, effort string) bool {
 }
 
 func OpenAIReasoningModeSupported(model, mode string) bool {
-	if !OpenAIUsesPromptCacheOptions(model) {
+	if !openAIUsesGPT6Parameters(Normalize(model)) {
 		return true
 	}
 	switch mode {
@@ -179,7 +189,7 @@ func OpenAIReasoningModeSupported(model, mode string) bool {
 }
 
 func OpenAIReasoningContextSupported(model, context string) bool {
-	if !OpenAIUsesPromptCacheOptions(model) {
+	if !openAIUsesGPT6Parameters(Normalize(model)) {
 		return true
 	}
 	switch context {
@@ -188,6 +198,13 @@ func OpenAIReasoningContextSupported(model, context string) bool {
 	default:
 		return false
 	}
+}
+
+// openAIUsesGPT6Parameters reports whether model uses the GPT-5.6/GPT-6
+// reasoning parameter set. GPT-6.1 Sol is not included until its rules are
+// confirmed separately from its cache policy.
+func openAIUsesGPT6Parameters(model string) bool {
+	return modelHasPrefix(model, "gpt-5-6") || IsGPT6(model)
 }
 
 func openAIGPT5AllowsSamplingWithNoReasoning(model string) bool {
