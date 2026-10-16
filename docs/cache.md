@@ -197,9 +197,10 @@ options. GPT-5.6 through `openai` and `openai_resp` also supports explicit
 breakpoints through the shared message API. Adding a breakpoint does not require
 root cache options.
 
-`openai_codex` deliberately disables explicit cache configuration. It omits
-`prompt_cache_key`, `prompt_cache_retention`, and `prompt_cache_options`, removes
-`prompt_cache_breakpoint` from raw input, and ignores shared cache controls.
+`openai_codex` deliberately disables explicit cache configuration. It keeps
+`prompt_cache_key` for cache routing, but omits `prompt_cache_retention` and
+`prompt_cache_options`, removes `prompt_cache_breakpoint` from raw input, and
+ignores shared cache controls.
 Upstream implicit caching may still apply, and returned cache usage is parsed as
 usual.
 
@@ -218,7 +219,7 @@ model support changes.
 | GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
 | GPT-5.5, GPT-5.5 Pro | `prompt_cache_retention` | `"24h"` only | Neither field is sent | No | When `prompt_cache_key` or any retention value is set, `prompt_cache_retention` is forced to `"24h"` | `prompt_cache_options`; any shared `CacheControl` |
 | GPT-5.4 variants | `prompt_cache_retention` | `"in_memory"`; `"24h"` where supported | Neither field is sent | No | Sent unchanged | `prompt_cache_options`; any shared `CacheControl` |
-| Other and unknown models (earlier OpenAI models, gateway aliases, custom names) | Whatever the caller sends | Not validated by `uniai` | Neither field is sent | No | Both fields are sent unchanged | Any shared `CacheControl` |
+| Other and unknown models (earlier OpenAI models, gateway aliases, custom names) | Whatever the caller sends | No model-specific rules; generic validation still applies | Neither field is sent | No | No conversion; both fields are sent as supplied (after generic validation) | Generic `prompt_cache_options` errors (`mode` other than `implicit`/`explicit`, `ttl` other than `30m`); any shared `CacheControl` |
 
 How model names are matched:
 
@@ -229,16 +230,22 @@ How model names are matched:
 - A family matches its exact name or the name followed by `-` and a suffix, so
   dated and variant names such as `gpt-6.1-sol-2026-09-30` and `gpt-5.5-pro`
   match, while `gpt-6.1-solar` does not.
-- Unrecognized names, including gateway aliases that hide the real model, get
-  no conversion and no local validation of the cache fields. Callers must send
-  the field the underlying model accepts.
+- Unrecognized names, including gateway aliases that hide the real model, skip
+  the model-specific conversion and rejection. Generic option validation still
+  applies on every model: `prompt_cache_options` must be an object whose `mode`
+  is `implicit` or `explicit` and whose `ttl` is `30m` (values are trimmed and
+  lowercased), and `prompt_cache_key` must not exceed 64 characters. For
+  example, `my-gateway-alias` with `prompt_cache_options: {"ttl": "24h"}` fails
+  locally. Otherwise callers must send the field the underlying model accepts.
 
 Provider exceptions:
 
-- `openai_codex` (the `openai_resp` Codex mode) removes `prompt_cache_key`,
-  `prompt_cache_retention`, `prompt_cache_options`, and raw
-  `prompt_cache_breakpoint` markers for every model, and ignores shared cache
-  controls. None of the validation above applies.
+- `openai_codex` (the `openai_resp` Codex mode) keeps `prompt_cache_key`
+  (including its 64-character limit) for cache routing. For every model it
+  removes `prompt_cache_retention`, `prompt_cache_options`, and raw
+  `prompt_cache_breakpoint` markers, and ignores shared cache controls, so the
+  conversion, rejection, and `prompt_cache_options` validation above do not
+  apply.
 - `azure` sends its options unchanged and applies none of these rules, because
   deployment names do not identify the underlying model. See [Azure](#azure).
 

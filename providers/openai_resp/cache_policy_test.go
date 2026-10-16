@@ -74,6 +74,13 @@ func TestPromptCachePolicyUnknownModelPassesThrough(t *testing.T) {
 	assertPayloadField(t, payload, "prompt_cache_options", map[string]any{"ttl": "30m"})
 }
 
+func TestPromptCachePolicyUnknownModelKeepsGenericValidation(t *testing.T) {
+	req := &chat.Request{Model: "my-gateway-alias", Messages: []chat.Message{chat.User("hi")}, Options: chat.Options{OpenAI: structs.JSONMap{"prompt_cache_options": map[string]any{"ttl": "24h"}}}}
+	if _, err := buildParams(req, "", false); err == nil || !strings.Contains(err.Error(), `prompt_cache_options.ttl must be 30m, got "24h"`) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 func buildCachePayload(t *testing.T, model string, opts structs.JSONMap) map[string]any {
 	t.Helper()
 	req := &chat.Request{Model: model, Messages: []chat.Message{chat.User("hi")}, Options: chat.Options{OpenAI: opts}}
