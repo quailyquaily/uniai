@@ -1,6 +1,7 @@
 package openairesp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1404,8 +1405,25 @@ func streamChatFromResponse(resp *http.Response, reasoningDetails bool) (*chat.R
 	if resp == nil || resp.Body == nil {
 		return nil, fmt.Errorf("openai responses stream response is empty")
 	}
-	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](ssestream.NewDecoder(resp), nil)
+	decoder := &responseEventDecoder{Decoder: ssestream.NewDecoder(resp)}
+	stream := ssestream.NewStream[responses.ResponseStreamEventUnion](decoder, nil)
 	return consumeResponseStream(stream, reasoningDetails, nil)
+}
+
+// responseEventDecoder skips SSE events without data, such as keep-alive
+// comments and data-less event lines. Older SDK decoders dispatch them, and the
+// stream then fails to unmarshal the empty payload.
+type responseEventDecoder struct {
+	ssestream.Decoder
+}
+
+func (d *responseEventDecoder) Next() bool {
+	for d.Decoder.Next() {
+		if len(bytes.TrimSpace(d.Event().Data)) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func consumeResponseStream(stream *ssestream.Stream[responses.ResponseStreamEventUnion], reasoningDetails bool, onStream chat.OnStreamFunc) (*chat.Result, error) {
