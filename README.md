@@ -720,14 +720,56 @@ Image generation, editing, supported models, and provider-specific options are i
 
 ## Audio (ASR)
 
-The audio API supports Cloudflare transcription. GPT-Live and Gemini Live
+The audio API supports OpenAI (and OpenAI-compatible) and Cloudflare
+transcription. Models prefixed with `@cf/` route to Cloudflare; any other model
+routes to OpenAI unless `WithAudioProvider` is set. GPT-Live and Gemini Live
 realtime sessions are not implemented.
 
 ```go
+// OpenAI: gpt-4o-transcribe, gpt-4o-mini-transcribe, whisper-1.
+// Uses OpenAIAPIKey / OpenAIAPIBase, so OpenAI-compatible servers work too,
+// e.g. Groq with OpenAIAPIBase "https://api.groq.com/openai/v1" and
+// model "whisper-large-v3-turbo".
 resp, err := client.Audio(ctx,
+    uniai.WithAudioModel("gpt-4o-mini-transcribe"),
+    uniai.WithAudioFile(voiceBytes, "voice.ogg", "audio/ogg"),
+    uniai.WithAudioOptions(uniai.AudioOptions{
+        OpenAI: map[string]any{"language": "en", "prompt": "uniai, Cloudflare"},
+    }),
+)
+fmt.Println(resp.Text, resp.Usage)
+
+// Cloudflare Workers AI
+resp, err = client.Audio(ctx,
     uniai.Audio("@cf/openai/whisper-large-v3-turbo", base64Audio),
 )
 ```
+
+To transcribe without loading the file into memory, pass an `io.Reader`
+(e.g. an HTTP response body or an open file). With OpenAI the upload is piped
+straight to the request using chunked transfer encoding; only the first 512
+bytes are buffered to detect the format. Cloudflare takes base64 JSON, so it
+reads the stream fully first.
+
+```go
+resp, err := client.Audio(ctx,
+    uniai.WithAudioModel("whisper-1"),
+    uniai.WithAudioReader(httpResp.Body, "voice.ogg", httpResp.Header.Get("Content-Type")),
+)
+```
+
+OpenAI needs to know the input format. Pass a filename with an extension
+(`flac`, `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `ogg`, `wav`, `webm`) or a MIME
+type. Without either, uniai sniffs the content, and returns
+`uniai.ErrUnsupportedAudioFormat` if it cannot detect the format. Base64 input
+from `uniai.Audio(...)` also works with OpenAI: it is decoded before upload.
+Uploads to `api.openai.com` are capped at 25 MB.
+
+`OpenAI` options are sent as form fields: `language`, `prompt`, `temperature`,
+`response_format` (`json`, `text`, `srt`, `vtt`, `verbose_json`), and arrays
+such as `timestamp_granularities` (sent as `timestamp_granularities[]`).
+`verbose_json` (whisper-1, Groq) fills `Language`, `Duration`, and `Segments`.
+`Usage` reports tokens for gpt-4o-transcribe models and seconds for whisper-1.
 
 ## Rerank
 
@@ -859,6 +901,7 @@ GOCACHE=/tmp/go-build go test ./... -run TestOtherFeatures
 Integration tests are enabled by env vars. Common ones:
 
 - Chat: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_MODEL`, `TEST_OPENAI_API_BASE`, `TEST_GROQ_API_KEY`, `TEST_GROQ_MODEL`, `TEST_META_API_KEY`, `TEST_META_MODEL`, `TEST_META_API_BASE`, `TEST_SAKANA_API_KEY`, `TEST_SAKANA_MODEL`
+- OpenAI audio: `TEST_OPENAI_API_KEY`, `TEST_OPENAI_API_BASE`, `TEST_OPENAI_AUDIO_MODEL`, `TEST_OPENAI_AUDIO_FILEPATH`
 - Cloudflare chat/audio: `TEST_CLOUDFLARE_ACCOUNT_ID`, `TEST_CLOUDFLARE_API_TOKEN`, `TEST_CLOUDFLARE_TEXT_MODEL`, `TEST_CLOUDFLARE_AUDIO_MODEL`, `TEST_CLOUDFLARE_AUDIO_FILEPATH`, `TEST_CLOUDFLARE_API_BASE`
 - Embedding/image/rerank/classify: see `env.example.sh`
 

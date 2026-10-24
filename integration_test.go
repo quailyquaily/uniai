@@ -2,10 +2,10 @@ package uniai
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -188,7 +188,7 @@ func TestOtherFeatures(t *testing.T) {
 	})
 
 	t.Run("audio", func(t *testing.T) {
-		cfg, provider, model, audioData, ok, err := pickAudioConfig()
+		cfg, provider, model, audioPath, audioData, ok, err := pickAudioConfig()
 		if err != nil {
 			t.Fatalf("audio config failed: %v", err)
 		}
@@ -201,7 +201,8 @@ func TestOtherFeatures(t *testing.T) {
 		defer cancel()
 
 		resp, err := client.Audio(ctx,
-			Audio(model, audioData),
+			WithAudioModel(model),
+			WithAudioFile(audioData, filepath.Base(audioPath), ""),
 			WithAudioProvider(provider),
 		)
 		if err != nil {
@@ -476,24 +477,34 @@ func pickImageConfig() (Config, string, string, bool) {
 	return Config{}, "", "", false
 }
 
-func pickAudioConfig() (Config, string, string, string, bool, error) {
+func pickAudioConfig() (Config, string, string, string, []byte, bool, error) {
+	if key, model, audioPath := env("TEST_OPENAI_API_KEY"), env("TEST_OPENAI_AUDIO_MODEL"), env("TEST_OPENAI_AUDIO_FILEPATH"); key != "" && model != "" && audioPath != "" {
+		data, err := os.ReadFile(audioPath)
+		if err != nil {
+			return Config{}, "", "", "", nil, false, fmt.Errorf("read audio file: %w", err)
+		}
+		return Config{
+			OpenAIAPIKey:  key,
+			OpenAIAPIBase: env("TEST_OPENAI_API_BASE"),
+		}, "openai", model, audioPath, data, true, nil
+	}
+
 	accountID := env("TEST_CLOUDFLARE_ACCOUNT_ID")
 	token := env("TEST_CLOUDFLARE_API_TOKEN")
 	model := env("TEST_CLOUDFLARE_AUDIO_MODEL")
 	audioPath := env("TEST_CLOUDFLARE_AUDIO_FILEPATH")
 	if accountID == "" || token == "" || model == "" || audioPath == "" {
-		return Config{}, "", "", "", false, nil
+		return Config{}, "", "", "", nil, false, nil
 	}
 	data, err := os.ReadFile(audioPath)
 	if err != nil {
-		return Config{}, "", "", "", false, fmt.Errorf("read audio file: %w", err)
+		return Config{}, "", "", "", nil, false, fmt.Errorf("read audio file: %w", err)
 	}
-	audioData := base64.StdEncoding.EncodeToString(data)
 	return Config{
 		CloudflareAccountID: accountID,
 		CloudflareAPIToken:  token,
 		CloudflareAPIBase:   env("TEST_CLOUDFLARE_API_BASE"),
-	}, "cloudflare", model, audioData, true, nil
+	}, "cloudflare", model, audioPath, data, true, nil
 }
 
 func pickJinaConfig() (Config, bool) {

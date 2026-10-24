@@ -5,6 +5,8 @@ export TEST_OPENAI_API_KEY=""
 export TEST_OPENAI_MODEL="gpt-5.2"
 export TEST_OPENAI_IMAGE_MODEL="gpt-image-2"
 export TEST_OPENAI_API_BASE=""
+export TEST_OPENAI_AUDIO_MODEL="gpt-4o-mini-transcribe"
+export TEST_OPENAI_AUDIO_FILEPATH=""
 
 # OpenAI-compatible custom endpoint
 export TEST_OPENAI_CUSTOM_API_KEY=""

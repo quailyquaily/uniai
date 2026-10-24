@@ -63,6 +63,8 @@ func New(cfg Config) *Client {
 			JinaAPIBase: cfg.JinaAPIBase,
 		}),
 		audioClient: audio.New(audio.Config{
+			OpenAIAPIKey:        cfg.OpenAIAPIKey,
+			OpenAIAPIBase:       cfg.OpenAIAPIBase,
 			CloudflareAccountID: cfg.CloudflareAccountID,
 			CloudflareAPIToken:  cfg.CloudflareAPIToken,
 			CloudflareAPIBase:   cfg.CloudflareAPIBase,

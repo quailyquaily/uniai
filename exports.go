@@ -1,6 +1,8 @@
 package uniai
 
 import (
+	"io"
+
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/uniai/audio"
 	"github.com/quailyquaily/uniai/chat"
@@ -219,12 +221,23 @@ type (
 	AudioRequest = audio.Request
 	AudioResult  = audio.Result
 	AudioSegment = audio.Segment
+	AudioUsage   = audio.Usage
+	AudioOptions = audio.Options
 )
+
+var ErrUnsupportedAudioFormat = audio.ErrUnsupportedAudioFormat
 
 func Audio(model, audioBase64 string) AudioOption     { return audio.Audio(model, audioBase64) }
 func WithAudioProvider(provider string) AudioOption   { return audio.WithProvider(provider) }
 func WithAudio(audioBase64 string) AudioOption        { return audio.WithAudio(audioBase64) }
 func WithAudioOptions(opts audio.Options) AudioOption { return audio.WithOptions(opts) }
+func WithAudioModel(model string) AudioOption         { return audio.WithModel(model) }
+func WithAudioFile(data []byte, filename, mimeType string) AudioOption {
+	return audio.WithAudioFile(data, filename, mimeType)
+}
+func WithAudioReader(r io.Reader, filename, mimeType string) AudioOption {
+	return audio.WithAudioReader(r, filename, mimeType)
+}
 
 // Rerank re-exports
 type (

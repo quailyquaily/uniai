@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -19,9 +20,15 @@ func doRequest(ctx context.Context, token, base, method, path string, data []byt
 }
 
 func doRequestWithContentType(ctx context.Context, token, base, method, path, contentType string, data []byte) ([]byte, error) {
+	return doRequestWithBody(ctx, token, base, method, path, contentType, bytes.NewBuffer(data))
+}
+
+// doRequestWithBody sends body as is. A body without a known length (such as
+// an io.Pipe) is sent with chunked transfer encoding.
+func doRequestWithBody(ctx context.Context, token, base, method, path, contentType string, body io.Reader) ([]byte, error) {
 	base = normalizeBase(base)
 	url := fmt.Sprintf("%s%s", base, path)
-	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return nil, err
 	}
