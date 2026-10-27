@@ -403,8 +403,7 @@ func applyBedrockReasoningOptions(payload map[string]any, model string, opts cha
 	}
 
 	model = normalizeBedrockModel(model)
-	if thinkingType != "" && (!modelcompat.AnthropicSupportsBetweenTools(model) ||
-		(thinkingType != "adaptive" && thinkingType != "between_tools")) {
+	if thinkingType != "" && !modelcompat.AnthropicThinkingTypeSupported(model, thinkingType) {
 		return fmt.Errorf("bedrock anthropic model %q does not support thinking_type %q", model, thinkingType)
 	}
 	if opts.ReasoningBudget != nil {
@@ -430,11 +429,11 @@ func applyBedrockReasoningOptions(payload map[string]any, model string, opts cha
 		payload["output_config"] = map[string]any{"effort": string(*opts.ReasoningEffort)}
 	}
 
-	if thinkingType == "between_tools" {
+	if thinkingType == "between_tools" || thinkingType == "disabled" {
 		if opts.ReasoningEffort != nil && (*opts.ReasoningEffort == chat.ReasoningEffortXHigh || *opts.ReasoningEffort == chat.ReasoningEffortMax) {
-			return fmt.Errorf("bedrock anthropic between_tools thinking supports only low, medium, or high effort")
+			return fmt.Errorf("bedrock anthropic %s thinking supports only low, medium, or high effort", thinkingType)
 		}
-		payload["thinking"] = map[string]any{"type": "between_tools"}
+		payload["thinking"] = map[string]any{"type": thinkingType}
 	} else if thinkingType == "adaptive" || (opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model)) {
 		thinking := map[string]any{"type": "adaptive"}
 		if opts.ReasoningDetails && modelcompat.AnthropicSummarizesThinkingDetails(model) {

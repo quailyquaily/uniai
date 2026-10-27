@@ -11,7 +11,7 @@ import (
 )
 
 func TestGPT6ChatParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra"} {
 		temperature, topP, maxTokens := 0.7, 0.9, 1024
 		for _, explicit := range []bool{false, true} {
 			opts := structs.JSONMap{"prompt_cache_retention": "24h", "logprobs": true, "top_logprobs": 3}
@@ -81,7 +81,7 @@ func TestGPT6ChatRejectsTools(t *testing.T) {
 }
 
 func TestGPT6SolLunaChatParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra"} {
 		for _, effort := range []string{"", "none", "low", "medium", "high", "xhigh", "max", "minimal", "invalid"} {
 			for _, raw := range []bool{false, true} {
 				t.Run(model+"/"+effort+fmt.Sprint("/raw=", raw), func(t *testing.T) {
@@ -130,7 +130,7 @@ func TestGPT6SolLunaChatParameters(t *testing.T) {
 					}
 					req.Tools = []chat.Tool{chat.FunctionTool("lookup", "", nil)}
 					_, err = buildParams(req, "")
-					if effort == "none" {
+					if effort == "none" && model != "gpt-6.1-terra" {
 						if err != nil {
 							t.Fatal(err)
 						}

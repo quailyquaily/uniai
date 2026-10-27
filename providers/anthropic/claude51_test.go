@@ -28,7 +28,7 @@ func TestClaudeAdaptiveToolChoice(t *testing.T) {
 
 func TestClaudeAdaptiveReasoningDetails(t *testing.T) {
 	temperature, topP := 0.7, 0.9
-	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "anthropic/claude-opus-5.5", "claude-sonnet-5-5", "anthropic/claude-sonnet-5.5"} {
+	for _, model := range []string{"claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "anthropic/claude-opus-5.5", "claude-sonnet-5-5", "anthropic/claude-sonnet-5.5", "claude-haiku-5-5", "anthropic/claude-haiku-5.5"} {
 		for _, effort := range []chat.ReasoningEffort{"low", "medium", "high", "xhigh", "max"} {
 			req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{ReasoningEffort: &effort, ReasoningDetails: true, Temperature: &temperature, TopP: &topP, Anthropic: structs.JSONMap{"top_k": 10}}}
 			body, err := buildRequest(req, model)
@@ -49,7 +49,7 @@ func TestClaudeAdaptiveReasoningDetails(t *testing.T) {
 }
 
 func TestClaude55ReasoningValidation(t *testing.T) {
-	for _, model := range []string{"claude-opus-5-5", "anthropic/claude-opus-5.5", "claude-sonnet-5-5", "anthropic/claude-sonnet-5.5"} {
+	for _, model := range []string{"claude-opus-5-5", "anthropic/claude-opus-5.5", "claude-sonnet-5-5", "anthropic/claude-sonnet-5.5", "claude-haiku-5-5", "anthropic/claude-haiku-5.5"} {
 		for _, effort := range []chat.ReasoningEffort{"none", "minimal", "invalid"} {
 			req := &chat.Request{Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{ReasoningEffort: &effort}}
 			if _, err := buildRequest(req, model); err == nil || !strings.Contains(err.Error(), "reasoning effort") {

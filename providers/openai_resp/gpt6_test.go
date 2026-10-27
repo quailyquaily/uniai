@@ -13,7 +13,7 @@ import (
 )
 
 func TestGPT6ResponsesParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra"} {
 		temperature, topP := 0.7, 0.9
 		for _, explicit := range []bool{false, true} {
 			opts := structs.JSONMap{
@@ -65,7 +65,7 @@ func TestGPT6ResponsesParameters(t *testing.T) {
 }
 
 func TestGPT6SolLunaResponsesParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-sol", "gpt-6-luna"} {
+	for _, model := range []string{"gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra"} {
 		for _, effort := range []string{"", "none", "low", "medium", "high", "xhigh", "max", "minimal", "invalid"} {
 			for _, raw := range []bool{false, true} {
 				t.Run(model+"/"+effort+fmt.Sprint("/raw=", raw), func(t *testing.T) {

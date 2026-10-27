@@ -13,6 +13,7 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/shared"
 	"github.com/quailyquaily/uniai/chat"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 	"github.com/quailyquaily/uniai/internal/toolschema"
 )
 
@@ -316,7 +317,7 @@ func resolveGeminiThoughtSignature(call chat.ToolCall) string {
 
 // ParsePromptCacheOptions parses and validates the prompt caching options shared
 // by the Chat Completions and Responses APIs.
-func ParsePromptCacheOptions(value any) (PromptCacheOptions, error) {
+func ParsePromptCacheOptions(value any, model string) (PromptCacheOptions, error) {
 	var options PromptCacheOptions
 	if value == nil {
 		return options, fmt.Errorf("prompt_cache_options must be an object")
@@ -330,6 +331,16 @@ func ParsePromptCacheOptions(value any) (PromptCacheOptions, error) {
 	}
 
 	options.Mode = strings.ToLower(strings.TrimSpace(options.Mode))
+	options.TTL = strings.ToLower(strings.TrimSpace(options.TTL))
+	if modelcompat.IsKimiK3(model) {
+		if options.Mode != "" && options.Mode != "implicit" {
+			return PromptCacheOptions{}, fmt.Errorf("Kimi prompt_cache_options.mode must be implicit, got %q", options.Mode)
+		}
+		if options.TTL != "" && options.TTL != "5m" && options.TTL != "1h" {
+			return PromptCacheOptions{}, fmt.Errorf("Kimi prompt_cache_options.ttl must be 5m or 1h, got %q", options.TTL)
+		}
+		return options, nil
+	}
 	switch options.Mode {
 	case "", "implicit", "explicit":
 	default:
@@ -388,7 +399,7 @@ func ApplyOptions(params *openai.ChatCompletionNewParams, opts structs.JSONMap) 
 		}
 	}
 	if opt.HasKey("prompt_cache_options") {
-		options, err := ParsePromptCacheOptions((*opt)["prompt_cache_options"])
+		options, err := ParsePromptCacheOptions((*opt)["prompt_cache_options"], string(params.Model))
 		if err != nil {
 			return err
 		}

@@ -458,8 +458,7 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 	if opts.ReasoningEffort == nil && opts.ReasoningBudget == nil && !opts.ReasoningDetails && thinkingType == "" {
 		return nil
 	}
-	if thinkingType != "" && (!modelcompat.AnthropicSupportsBetweenTools(model) ||
-		(thinkingType != "adaptive" && thinkingType != "between_tools")) {
+	if thinkingType != "" && !modelcompat.AnthropicThinkingTypeSupported(model, thinkingType) {
 		return fmt.Errorf("anthropic model %q does not support thinking_type %q", model, thinkingType)
 	}
 
@@ -487,11 +486,11 @@ func applyAnthropicReasoningOptions(body *anthropicRequest, model string, opts c
 		body.OutputConfig = &anthropicOutputConfig{Effort: string(*opts.ReasoningEffort)}
 	}
 
-	if thinkingType == "between_tools" {
+	if thinkingType == "between_tools" || thinkingType == "disabled" {
 		if opts.ReasoningEffort != nil && (*opts.ReasoningEffort == chat.ReasoningEffortXHigh || *opts.ReasoningEffort == chat.ReasoningEffortMax) {
-			return fmt.Errorf("anthropic between_tools thinking supports only low, medium, or high effort")
+			return fmt.Errorf("anthropic %s thinking supports only low, medium, or high effort", thinkingType)
 		}
-		body.Thinking = &anthropicThinking{Type: "between_tools"}
+		body.Thinking = &anthropicThinking{Type: thinkingType}
 	} else if thinkingType == "adaptive" || (opts.ReasoningDetails && modelcompat.AnthropicPrefersReasoningEffort(model)) {
 		body.Thinking = &anthropicThinking{Type: "adaptive"}
 		if opts.ReasoningDetails && modelcompat.AnthropicSummarizesThinkingDetails(model) {

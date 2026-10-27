@@ -40,10 +40,10 @@ func TestClaudeSonnet55Pricing(t *testing.T) {
 				t.Fatalf("%s: missing price", model)
 			}
 			assertNearlyEqual(t, cost.Input, float64(input-300)*2/1e6)
-			assertNearlyEqual(t, cost.CachedInput, 200*0.20/1e6)
+			assertNearlyEqual(t, cost.CachedInput, 200*0.10/1e6)
 			assertNearlyEqual(t, cost.CacheCreationInput, (60*2.5+40*4.0)/1e6)
 			assertNearlyEqual(t, cost.Output, 300*10.0/1e6)
-			assertNearlyEqual(t, cost.Total, (float64(input-300)*2+40+310+3000)/1e6)
+			assertNearlyEqual(t, cost.Total, (float64(input-300)*2+20+310+3000)/1e6)
 		}
 	}
 }

@@ -278,8 +278,14 @@ sessions and independent subtasks. Subscription requests still use `store: false
 and both TTL options remain filtered. Ordinary `openai_resp` requests retain their
 existing cache behavior and do not derive session headers from the cache key.
 
-Current model compatibility (checked 2026-09-23):
+Current model compatibility (OpenAI Terra, Claude 5.5, DeepSeek, and Kimi checked 2026-10-27):
 
+- `gpt-6.1-terra`: the published Terra API ID. Supports `none`, `low`,
+  `medium` (default), `high`, `xhigh`, and `max`; rejects `minimal`.
+  Sampling and logprob fields are omitted unless effort is `none`.
+  Tool calling always requires `openai_resp`, including at `none`.
+  Uses the existing GPT-6 cache options and text breakpoints.
+  See [GPT-6.1 Terra](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
 - `gpt-6-astra`: use `openai_resp` for tools. `openai` rejects requests with
   tools before sending them. Both paths omit unsupported sampling and logprob
   fields, accept `low` through `max` reasoning effort, and reject `none` and
@@ -323,11 +329,29 @@ Current model compatibility (checked 2026-09-23):
   `none`; `required` and a named function return a local error. Function tool
   `Strict` values are forwarded. `WithReasoningDetails()` requests summarized
   thinking. See [Claude 5.1 API changes](https://platform.claude.com/docs/en/models/fable-5-1/whats-new-fable-5-1).
-- `deepseek-flash`: selects V4.1 Flash on the `deepseek` provider, including
+- `claude-haiku-5-5`: supports `low`, `medium` (default), `high`, `xhigh`,
+  and `max` effort with adaptive thinking. Sampling parameters are omitted;
+  manual thinking budgets, `none`, and `minimal` return local errors.
+  `WithReasoningDetails()` requests summarized thinking. To disable thinking,
+  set `thinking_type: "disabled"` in `WithAnthropicOptions` or
+  `WithBedrockOptions`, at `high` effort or below. Explicit `adaptive` is also
+  accepted; `between_tools` is not. Native Anthropic forced tool choice remains
+  supported. Use `AssistantReplayMessages(result)` to preserve signed blocks.
+  See [Haiku 5.5 migration](https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide).
+- `kimi-k3.1-pro` and `kimi-k3.1-pro-highspeed`: use the `openai` provider
+  with Moonshot's API base. Like K3, they accept `low`, `high`, and `max`
+  (default) effort; the library maps `xhigh` to `max`. Fixed sampling fields
+  are omitted and output limits use `max_completion_tokens`. Preserve
+  assistant reasoning when replaying tool conversations. Cache options accept
+  `mode: "implicit"` with `ttl: "5m"` or `"1h"`.
+  See [Kimi K3.1 Pro](https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart).
+- `deepseek-flash`: selects V4.1 Flash-1017 on the `deepseek` provider, including
   image inputs and tools. `WithReasoningEffort(ReasoningEffortNone)` sends
   `thinking.type="disabled"` for this model and V4 models. Preserve assistant
   `ReasoningContent` when replaying tool conversations. See
   [DeepSeek's thinking guide](https://api-docs.deepseek.com/guides/thinking_mode).
+  The October 17 update keeps the same API ID, prices, and legacy Flash aliases.
+  See [DeepSeek's change log](https://api-docs.deepseek.com/updates/).
 - `gemini-3.8-flash`: supports `low`, `medium`, and `high` effort; `minimal`
   returns a local error. See [model details](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
 

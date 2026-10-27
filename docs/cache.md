@@ -216,7 +216,7 @@ model support changes.
 
 | Models | Lifetime field | Supported values | When omitted | Explicit breakpoints | Legacy field handling | Fails locally |
 | --- | --- | --- | --- | --- | --- | --- |
-| GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
+| GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol/Terra | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
 | GPT-5.5, GPT-5.5 Pro | `prompt_cache_retention` | `"24h"` only | Neither field is sent | No | When `prompt_cache_key` or any retention value is set, `prompt_cache_retention` is forced to `"24h"` | `prompt_cache_options`; any shared `CacheControl` |
 | GPT-5.4 variants | `prompt_cache_retention` | `"in_memory"`; `"24h"` where supported | Neither field is sent | No | Sent unchanged | `prompt_cache_options`; any shared `CacheControl` |
 | Other and unknown models (earlier OpenAI models, gateway aliases, custom names) | Whatever the caller sends | No model-specific rules; generic validation still applies | Neither field is sent | No | No conversion; both fields are sent as supplied (after generic validation) | Generic `prompt_cache_options` errors (`mode` other than `implicit`/`explicit`, `ttl` other than `30m`); any shared `CacheControl` |
@@ -248,6 +248,17 @@ Provider exceptions:
   apply.
 - `azure` sends its options unchanged and applies none of these rules, because
   deployment names do not identify the underlying model. See [Azure](#azure).
+
+GPT-6.1 Terra uses the GPT-6 cache policy and supports text breakpoints on
+`openai` and `openai_resp`.
+
+Kimi K3 and K3.1 accept `prompt_cache_options` through `WithOpenAIOptions`,
+with `mode: "implicit"` and `ttl: "5m"` (the API default) or `"1h"`.
+They do not support explicit breakpoints. Cache-write usage is normalized
+from `prompt_tokens_details.cache_write_tokens`; the default price catalog
+uses five-minute writes. One-hour caching requires a price override because
+the usage payload does not distinguish TTLs. See
+[Kimi context caching](https://platform.kimi.ai/docs/guide/context-caching).
 
 GPT-6.1 Sol shares the GPT-6 cache policy only. It does not yet inherit the
 GPT-6 sampling or reasoning parameter checks.

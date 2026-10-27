@@ -690,7 +690,7 @@ func applyRawRootOptions(params *responses.ResponseNewParams, opts structs.JSONM
 		}
 	}
 	if opts.HasKey("prompt_cache_options") {
-		options, err := oaicompat.ParsePromptCacheOptions(opts["prompt_cache_options"])
+		options, err := oaicompat.ParsePromptCacheOptions(opts["prompt_cache_options"], string(params.Model))
 		if err != nil {
 			return err
 		}

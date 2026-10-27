@@ -24,9 +24,13 @@ func Normalize(model string) string {
 	return b.String()
 }
 
+func IsKimiK3(model string) bool {
+	return modelHasPrefix(Normalize(model), "kimi-k3")
+}
+
 func KimiUsesFixedSampling(model string) bool {
 	model = Normalize(model)
-	return modelHasPrefix(model, "kimi-k3") ||
+	return IsKimiK3(model) ||
 		modelHasPrefix(model, "kimi-k2-6") ||
 		modelHasPrefix(model, "kimi-k2-5")
 }
@@ -38,8 +42,9 @@ func DeepSeekUsesThinkingMode(model string) bool {
 }
 
 func AnthropicDropsSamplingParameters(model string) bool {
-	model = strings.ToLower(model)
+	model = Normalize(model)
 	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "haiku-5-5") ||
 		strings.Contains(model, "mythos-5") ||
 		strings.Contains(model, "opus-5") ||
 		strings.Contains(model, "sonnet-5") ||
@@ -53,8 +58,9 @@ func AnthropicSupportsReasoningEffort(model string) bool {
 }
 
 func AnthropicPrefersReasoningEffort(model string) bool {
-	model = strings.ToLower(model)
+	model = Normalize(model)
 	return strings.Contains(model, "fable-5") ||
+		strings.Contains(model, "haiku-5-5") ||
 		strings.Contains(model, "mythos-5") ||
 		strings.Contains(model, "opus-5") ||
 		strings.Contains(model, "sonnet-5") ||
@@ -65,8 +71,9 @@ func AnthropicPrefersReasoningEffort(model string) bool {
 }
 
 func AnthropicSummarizesThinkingDetails(model string) bool {
-	model = strings.ToLower(model)
+	model = Normalize(model)
 	return strings.Contains(model, "opus-5") || strings.Contains(model, "opus-4-7") ||
+		strings.Contains(model, "haiku-5-5") ||
 		strings.Contains(model, "fable-5") || strings.Contains(model, "mythos-5") ||
 		AnthropicSupportsBetweenTools(model)
 }
@@ -87,7 +94,7 @@ func AnthropicRejectsForcedToolChoice(model string) bool {
 }
 
 func AnthropicReasoningEffortSupported(model, effort string) bool {
-	if !modelHasPrefix(Normalize(model), "claude-opus-5-5") && !AnthropicSupportsBetweenTools(model) {
+	if !strings.Contains(Normalize(model), "claude-haiku-5-5") && !modelHasPrefix(Normalize(model), "claude-opus-5-5") && !AnthropicSupportsBetweenTools(model) {
 		return true
 	}
 	switch effort {
@@ -98,8 +105,17 @@ func AnthropicReasoningEffortSupported(model, effort string) bool {
 	}
 }
 
+// AnthropicThinkingTypeSupported validates explicit thinking modes across
+// the native API and Bedrock inference profile IDs.
+func AnthropicThinkingTypeSupported(model, mode string) bool {
+	if strings.Contains(Normalize(model), "claude-haiku-5-5") {
+		return mode == "adaptive" || mode == "disabled"
+	}
+	return AnthropicSupportsBetweenTools(model) && (mode == "adaptive" || mode == "between_tools")
+}
+
 func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
-	if !modelHasPrefix(Normalize(model), "kimi-k3") {
+	if !IsKimiK3(model) {
 		return effort, true
 	}
 
@@ -155,7 +171,12 @@ func OpenAIRejectsPromptCacheOptions(model string) bool {
 func IsGPT6(model string) bool {
 	model = Normalize(model)
 	return modelHasPrefix(model, "gpt-6-astra") ||
+		modelHasPrefix(model, "gpt-6-1-terra") ||
 		modelHasPrefix(model, "gpt-6-sol") || modelHasPrefix(model, "gpt-6-luna")
+}
+
+func OpenAIRequiresResponsesForTools(model string) bool {
+	return IsGPT6Astra(model) || modelHasPrefix(Normalize(model), "gpt-6-1-terra")
 }
 
 func IsGPT6Astra(model string) bool {

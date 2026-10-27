@@ -125,7 +125,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if model == "" {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("model is required")
 	}
-	if len(req.Tools) > 0 && modelcompat.IsGPT6Astra(model) {
+	if len(req.Tools) > 0 && modelcompat.OpenAIRequiresResponsesForTools(model) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q requires the Responses API for tool calling; use provider openai_resp", model)
 	}
 	if req.Options.ReasoningBudget != nil {
@@ -258,8 +258,9 @@ func toResult(resp *openai.ChatCompletion) *chat.Result {
 }
 
 func useMaxCompletionTokens(model string) bool {
-	model = strings.ToLower(model)
+	model = modelcompat.Normalize(model)
 	return strings.HasPrefix(model, "gpt") ||
+		modelcompat.IsKimiK3(model) ||
 		strings.HasPrefix(model, "o1") ||
 		strings.HasPrefix(model, "o3") ||
 		strings.HasPrefix(model, "o4")

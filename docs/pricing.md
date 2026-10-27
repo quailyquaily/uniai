@@ -49,7 +49,7 @@ cost or selecting an input-length tier. `CountTokens` estimates do not populate
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-10-01. Model rates and official sources
+The latest catalog refresh is dated 2026-10-27. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
 
 GPT-6 Sol and Luna include standard input, output, cache-read, and cache-write
@@ -59,10 +59,28 @@ window, $0.20 cache reads, $5 five-minute cache writes, and $8 one-hour cache
 writes. These entries cover standard processing; service-tier and regional
 pricing modifiers are not included.
 
-Claude Sonnet 5.5 uses $2 input / $10 output per million tokens, $0.20 cache
+Claude Sonnet 5.5 uses $2 input / $10 output per million tokens, $0.10 cache
 reads, $2.50 five-minute cache writes, and $4 one-hour cache writes. These rates
 apply across its context window; thinking tokens count as output.
 See [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing).
+
+Claude Haiku 5.5 uses $0.10 input / $0.50 output per million tokens up to
+100,000 input tokens; above that threshold all token rates increase fivefold.
+Cache reads cost $0.01, five-minute writes $0.125, and one-hour writes $0.20
+at the lower tier. See [Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
+
+GPT-6.1 Terra uses $1 input / $5 output, $0.05 cached input, and $1.25
+cache writes per million tokens for 30-minute retention. Above 272,000 input
+tokens, input and cache rates double and output costs $7.50.
+See [Terra pricing](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
+
+Kimi K3.1 Pro uses $2 input / $10 output per million tokens; Highspeed uses
+$4 / $20. Both charge $0.20 for cache reads. Five-minute writes cost the same
+as input; one-hour writes cost twice as much. The catalog includes five-minute
+write rates for both new models and K3. Chat Completions usage does not expose
+the write TTL, so supply a pricing override when using one-hour caching.
+See [Kimi pricing](https://platform.kimi.ai/docs/pricing/chat) and
+[cache billing](https://platform.kimi.ai/docs/guide/context-caching).
 
 Gemini 4 Argon has no price entry: as of October 1, 2026, Google has announced
 introductory rates of $2 input, $10 output, and $0.10 cached input per million
@@ -81,7 +99,7 @@ cancelled the previously announced September price increase.
 
 GLM-5.3-Flash now uses standard rates after its September 9 promotion ended.
 GLM-5.3-FlashX and GPT Image 2.5 Sunburst/Flare are also included.
-DeepSeek V4.1 Flash uses `deepseek-flash`; the legacy `deepseek-v4-flash` and
+DeepSeek V4.1 Flash-1017 uses `deepseek-flash`; the legacy `deepseek-v4-flash` and
 `deepseek-v4-flash-vision-exp` names share its current rates. Cloudflare model
 IDs retain their separate hosted rates.
 

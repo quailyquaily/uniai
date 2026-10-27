@@ -1,6 +1,8 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-10-01: Claude Sonnet 5.5 standard and cache rates.
+# Refreshed on 2026-10-27: GPT-6.1 Terra, Claude Haiku 5.5, Sonnet 5.5 cache
+# reads, and Kimi K3.1 Pro/Highspeed. DeepSeek Flash-1017 keeps the same rates.
+# Previous refresh on 2026-10-01: Claude Sonnet 5.5 standard and cache rates.
 # Gemini 4 Argon has announced introductory rates but no public API model ID;
 # no price entry is included until the ID is confirmed.
 # Previous refresh on 2026-09-24: Grok 4.7 standard rates and long-context tier.
@@ -61,6 +63,7 @@
 # - OpenAI GPT-6 Astra: https://developers.openai.com/api/docs/models/gpt-6-astra
 # - OpenAI GPT-6 Sol: https://developers.openai.com/api/docs/models/gpt-6-sol
 # - OpenAI GPT-6 Luna: https://developers.openai.com/api/docs/models/gpt-6-luna
+# - OpenAI GPT-6.1 Terra: https://developers.openai.com/api/docs/models/gpt-6.1-terra
 # - OpenAI GPT Image 2.5: https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
 # - OpenAI GPT Image 2.5 Flare: https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
 # - OpenAI GPT-5.4: https://developers.openai.com/api/docs/models/gpt-5.4
@@ -72,6 +75,8 @@
 # - Anthropic Claude Opus 5: https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5
 # - Anthropic Claude Opus 5.5: https://platform.claude.com/docs/en/models/opus-5-5/overview
 # - Anthropic Claude Sonnet 5.5: https://platform.claude.com/docs/en/models/sonnet-5-5/overview
+# - Anthropic Claude Haiku 5.5: https://platform.claude.com/docs/en/models/haiku-5-5/overview
+# - Kimi K3.1 Pro: https://platform.kimi.ai/docs/guide/kimi-k3-1-pro-quickstart
 # - Anthropic Claude Opus 4.8: https://www.anthropic.com/news/claude-opus-4-8
 # - Anthropic model IDs: https://platform.claude.com/docs/en/about-claude/models/overview
 # - Gemini: https://ai.google.dev/gemini-api/docs/pricing
@@ -136,7 +141,7 @@
 #   client's driver/provider name. Callers can optionally pass an explicit
 #   `inference_provider` hint. If that provider exists in the catalog, matching
 #   stays within that provider. Otherwise lookup falls back to model-only matching.
-# - DeepSeek `deepseek-flash` serves V4.1 Flash. Legacy `deepseek-v4-flash`
+# - DeepSeek `deepseek-flash` serves V4.1 Flash-1017. Legacy `deepseek-v4-flash`
 #   and `deepseek-v4-flash-vision-exp` route to it at the same rates.
 #   `deepseek-v4-pro` serves V4-Pro-0813. The retired
 #   `deepseek-chat` and `deepseek-reasoner` model names are not pricing aliases.
@@ -266,6 +271,18 @@ image:
 
 chat:
   # OpenAI
+  - inference_provider: openai
+    model: gpt-6.1-terra
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 1.00
+        cached_input_usd_per_million: 0.05
+        cache_creation_input_usd_per_million: 1.25
+        output_usd_per_million: 5.00
+      - input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.10
+        cache_creation_input_usd_per_million: 2.50
+        output_usd_per_million: 7.50
   - inference_provider: openai
     model: gpt-6-astra
     tiers:
@@ -497,7 +514,7 @@ chat:
   - inference_provider: anthropic
     model: claude-sonnet-5-5
     input_usd_per_million: 2.00
-    cached_input_usd_per_million: 0.20
+    cached_input_usd_per_million: 0.10
     cache_creation_input_usd_per_million: 2.50
     cache_creation_input_detail_usd_per_million:
       ephemeral_5m_input_tokens: 2.50
@@ -570,6 +587,24 @@ chat:
       ephemeral_5m_input_tokens: 3.75
       ephemeral_1h_input_tokens: 6.00
     output_usd_per_million: 15.00
+  - inference_provider: anthropic
+    model: claude-haiku-5-5
+    tiers:
+      - max_input_tokens: 100000
+        input_usd_per_million: 0.10
+        cached_input_usd_per_million: 0.01
+        cache_creation_input_usd_per_million: 0.125
+        cache_creation_input_detail_usd_per_million:
+          ephemeral_5m_input_tokens: 0.125
+          ephemeral_1h_input_tokens: 0.20
+        output_usd_per_million: 0.50
+      - input_usd_per_million: 0.50
+        cached_input_usd_per_million: 0.05
+        cache_creation_input_usd_per_million: 0.625
+        cache_creation_input_detail_usd_per_million:
+          ephemeral_5m_input_tokens: 0.625
+          ephemeral_1h_input_tokens: 1.00
+        output_usd_per_million: 2.50
   - inference_provider: anthropic
     model: claude-haiku-4-5
     aliases:
@@ -783,10 +818,25 @@ chat:
     output_usd_per_million: 4.50
 
   # Moonshot Kimi
+  # Cache-write defaults use the 5m rate. The 1h rate is twice as high;
+  # Chat Completions usage does not identify TTL, so override pricing for 1h.
+  - inference_provider: moonshot
+    model: kimi-k3.1-pro
+    input_usd_per_million: 2.00
+    cached_input_usd_per_million: 0.20
+    cache_creation_input_usd_per_million: 2.00
+    output_usd_per_million: 10.00
+  - inference_provider: moonshot
+    model: kimi-k3.1-pro-highspeed
+    input_usd_per_million: 4.00
+    cached_input_usd_per_million: 0.20
+    cache_creation_input_usd_per_million: 4.00
+    output_usd_per_million: 20.00
   - inference_provider: moonshot
     model: kimi-k3
     input_usd_per_million: 3.00
     cached_input_usd_per_million: 0.30
+    cache_creation_input_usd_per_million: 3.00
     output_usd_per_million: 15.00
   - inference_provider: moonshot
     model: kimi-k2.7-code
