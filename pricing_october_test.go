@@ -9,6 +9,8 @@ func TestOctoberCacheWritePricing(t *testing.T) {
 		input               int
 		cached, write, hour float64
 	}{
+		{"gpt-6.1-sol", 272000, 0.10, 2.50, 2.50},
+		{"gpt-6.1-sol", 272001, 0.20, 5.00, 5.00},
 		{"gpt-6.1-terra", 272000, 0.05, 1.25, 1.25},
 		{"gpt-6.1-terra", 272001, 0.10, 2.50, 2.50},
 		{"claude-haiku-5-5", 100000, 0.01, 0.125, 0.20},

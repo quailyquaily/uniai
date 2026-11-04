@@ -49,7 +49,7 @@ cost or selecting an input-length tier. `CountTokens` estimates do not populate
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-10-27. Model rates and official sources
+The latest catalog refresh is dated 2026-11-04. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
 
 GPT-6 Sol and Luna include standard input, output, cache-read, and cache-write
@@ -69,10 +69,19 @@ Claude Haiku 5.5 uses $0.10 input / $0.50 output per million tokens up to
 Cache reads cost $0.01, five-minute writes $0.125, and one-hour writes $0.20
 at the lower tier. See [Haiku 5.5](https://platform.claude.com/docs/en/models/haiku-5-5/overview).
 
+GPT-6.1 Sol uses $2 input / $10 output, $0.10 cached input, and $2.50
+cache writes per million tokens for 30-minute retention. Above 272,000 input
+tokens, input and cache rates double and output costs $15.
+See [Sol pricing](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+
 GPT-6.1 Terra uses $1 input / $5 output, $0.05 cached input, and $1.25
 cache writes per million tokens for 30-minute retention. Above 272,000 input
 tokens, input and cache rates double and output costs $7.50.
 See [Terra pricing](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
+
+Both GPT-6.1 models also offer 12-hour cache retention at twice the 30-minute
+write rate. Usage payloads do not identify the write TTL, so the catalog
+charges the 30-minute rate; supply a pricing override for 12-hour caching.
 
 Kimi K3.1 Pro uses $2 input / $10 output per million tokens; Highspeed uses
 $4 / $20. Both charge $0.20 for cache reads. Five-minute writes cost the same
