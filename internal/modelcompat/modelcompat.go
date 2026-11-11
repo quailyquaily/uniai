@@ -1,6 +1,9 @@
 package modelcompat
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 func Normalize(model string) string {
 	model = strings.TrimSpace(strings.ToLower(model))
@@ -177,6 +180,24 @@ func IsGPT6(model string) bool {
 
 func OpenAIRequiresResponsesForTools(model string) bool {
 	return IsGPT6Astra(model) || modelHasPrefix(Normalize(model), "gpt-6-1-terra")
+}
+
+// IsOfficialOpenAIBase reports whether a Chat Completions base URL points at
+// OpenAI's own API. An empty base means the SDK default, which is official.
+// The Responses-routing rules for GPT-6 (tool calling must go through
+// /v1/responses) describe api.openai.com; an OpenAI-compatible gateway serving
+// GPT-6 model IDs over Chat Completions handles that translation itself, so
+// those rules are not applied to it.
+func IsOfficialOpenAIBase(base string) bool {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		return true
+	}
+	u, err := url.Parse(base)
+	if err != nil || u.Host == "" {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "api.openai.com")
 }
 
 func IsGPT6Astra(model string) bool {

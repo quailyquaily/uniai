@@ -188,3 +188,21 @@ func TestOpenAIPromptCachePolicy(t *testing.T) {
 		t.Fatalf("gpt-6.1-sol should not inherit GPT-6 reasoning validation")
 	}
 }
+
+func TestIsOfficialOpenAIBase(t *testing.T) {
+	for base, want := range map[string]bool{
+		"":                               true,
+		"  ":                             true,
+		"https://api.openai.com/v1":      true,
+		"https://API.OPENAI.COM/v1/":     true,
+		"https://api.openai.com":         true,
+		"https://openrouter.ai/api/v1":   false,
+		"https://api.openai.com.evil.io": false,
+		"http://localhost:11434/v1":      false,
+		"api.openai.com/v1":              false,
+	} {
+		if got := IsOfficialOpenAIBase(base); got != want {
+			t.Errorf("IsOfficialOpenAIBase(%q) = %v, want %v", base, got, want)
+		}
+	}
+}

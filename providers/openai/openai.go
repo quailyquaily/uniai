@@ -31,6 +31,10 @@ type Provider struct {
 	client       openai.Client
 	defaultModel string
 	debug        bool
+	// officialAPI is true when requests go to api.openai.com. GPT-6 tool
+	// calls are refused on Chat Completions only there; a compatible gateway
+	// is trusted to route them.
+	officialAPI bool
 }
 
 func New(cfg Config) (*Provider, error) {
@@ -49,12 +53,13 @@ func New(cfg Config) (*Provider, error) {
 		client:       openai.NewClient(opts...),
 		defaultModel: cfg.DefaultModel,
 		debug:        cfg.Debug,
+		officialAPI:  modelcompat.IsOfficialOpenAIBase(cfg.BaseURL),
 	}, nil
 }
 
 func (p *Provider) Chat(ctx context.Context, req *chat.Request) (*chat.Result, error) {
 	debugFn := req.Options.DebugFn
-	params, err := buildParams(req, p.defaultModel)
+	params, err := buildParamsForBase(req, p.defaultModel, p.officialAPI)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +122,16 @@ func (p *Provider) chatCompletion(ctx context.Context, params openai.ChatComplet
 	return toResult(&resp), string(data), nil
 }
 
+// buildParams builds Chat Completions parameters for api.openai.com.
 func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionNewParams, error) {
+	return buildParamsForBase(req, defaultModel, true)
+}
+
+// buildParamsForBase builds Chat Completions parameters. officialAPI selects
+// whether OpenAI's GPT-6 Responses-routing rules apply: they do for
+// api.openai.com and not for an OpenAI-compatible gateway, which exposes
+// GPT-6 model IDs over Chat Completions and translates upstream itself.
+func buildParamsForBase(req *chat.Request, defaultModel string, officialAPI bool) (openai.ChatCompletionNewParams, error) {
 	model := req.Model
 	if model == "" {
 		model = defaultModel
@@ -125,7 +139,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if model == "" {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("model is required")
 	}
-	if len(req.Tools) > 0 && modelcompat.OpenAIRequiresResponsesForTools(model) {
+	if officialAPI && len(req.Tools) > 0 && modelcompat.OpenAIRequiresResponsesForTools(model) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q requires the Responses API for tool calling; use provider openai_resp", model)
 	}
 	if req.Options.ReasoningBudget != nil {
@@ -210,7 +224,7 @@ func buildParams(req *chat.Request, defaultModel string) (openai.ChatCompletionN
 	if !modelcompat.OpenAIReasoningEffortSupported(model, string(params.ReasoningEffort)) {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q does not support reasoning effort %q", model, params.ReasoningEffort)
 	}
-	if len(params.Tools) > 0 && modelcompat.IsGPT6(model) && params.ReasoningEffort != "none" {
+	if officialAPI && len(params.Tools) > 0 && modelcompat.IsGPT6(model) && params.ReasoningEffort != "none" {
 		return openai.ChatCompletionNewParams{}, fmt.Errorf("openai model %q requires the Responses API for tool calling with reasoning; use provider openai_resp or reasoning effort none", model)
 	}
 	applyModelParameterOverlay(&params, openAIOptions.HasKey("prompt_cache_options"))

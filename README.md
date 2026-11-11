@@ -300,6 +300,13 @@ Current model compatibility (OpenAI Terra, Claude 5.5, DeepSeek, and Kimi checke
   return a local error directing callers to `openai_resp`. Cache retention and
   text breakpoints use the same mapping as Astra. See
   [OpenAI's parameter migration guide](https://developers.openai.com/api/docs/guides/latest-model#update-api-and-model-parameters).
+- The GPT-6 "tools require `openai_resp`" rules above apply only when the
+  `openai` provider talks to `api.openai.com` (the default `BaseURL`). With a
+  custom `BaseURL`, such as an OpenAI-compatible gateway that lists GPT-6
+  model IDs, tool requests are sent as-is and the gateway is responsible for
+  routing them; its own error is returned if it cannot. Model capability
+  rules (which effort levels a model accepts, dropped sampling fields) still
+  apply regardless of endpoint.
 - `claude-opus-5-5`: omits `temperature`, `top_p`, and `top_k`; accepts `low`,
   `medium`, `high`, `xhigh`, and `max` effort. Omitted effort preserves the
   model's `medium` default with always-on adaptive thinking. `none`, `minimal`,

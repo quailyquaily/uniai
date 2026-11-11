@@ -142,3 +142,64 @@ func TestGPT6SolLunaChatParameters(t *testing.T) {
 		}
 	}
 }
+
+// An OpenAI-compatible gateway exposes GPT-6 model IDs over Chat Completions
+// and translates upstream itself, so the Responses-routing refusals apply only
+// to api.openai.com.
+func TestGPT6ChatToolsThroughGateway(t *testing.T) {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6-sol"} {
+		for _, effort := range []string{"", "low", "medium", "high", "none"} {
+			if effort == "none" && model == "gpt-6-astra" {
+				continue // model capability rule, independent of the endpoint
+			}
+			t.Run(model+"/"+effort, func(t *testing.T) {
+				req := &chat.Request{
+					Model:    model,
+					Messages: []chat.Message{chat.User("hello")},
+					Tools:    []chat.Tool{chat.FunctionTool("lookup", "", nil)},
+				}
+				if effort != "" {
+					value := chat.ReasoningEffort(effort)
+					req.Options.ReasoningEffort = &value
+				}
+
+				params, err := buildParamsForBase(req, "", false)
+				if err != nil {
+					t.Fatalf("gateway: %v", err)
+				}
+				if len(params.Tools) != 1 {
+					t.Fatalf("gateway dropped tools: %+v", params.Tools)
+				}
+				if string(params.ReasoningEffort) != effort {
+					t.Fatalf("gateway effort = %q, want %q", params.ReasoningEffort, effort)
+				}
+
+				_, err = buildParamsForBase(req, "", true)
+				official := err == nil
+				wantOfficial := effort == "none" && model != "gpt-6.1-terra" && model != "gpt-6-astra"
+				if official != wantOfficial {
+					t.Fatalf("official: err = %v, want error %v", err, !wantOfficial)
+				}
+			})
+		}
+	}
+}
+
+func TestNewSetsOfficialAPI(t *testing.T) {
+	for base, want := range map[string]bool{
+		"":                                      true,
+		"https://api.openai.com/v1":             true,
+		"https://api.openai.com":                true,
+		"https://openrouter.ai/api/v1":          false,
+		"http://localhost:8080/v1":              false,
+		"https://gateway.example.com/openai/v1": false,
+	} {
+		p, err := New(Config{APIKey: "sk-test", BaseURL: base})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p.officialAPI != want {
+			t.Errorf("base %q: officialAPI = %v, want %v", base, p.officialAPI, want)
+		}
+	}
+}
