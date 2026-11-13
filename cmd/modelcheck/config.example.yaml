@@ -1,0 +1,78 @@
+# modelcheck config: the latest models from each provider. This file is
+# embedded as the default config; pass --config to use your own copy.
+#
+# Each entry under `providers` is one endpoint plus the models to test on it.
+# Results are named <provider name>/<model>.
+#
+#   name:          required. A uniai route name (openai, openai_resp, anthropic,
+#                  gemini, deepseek, xai, groq, meta, sakana) uses that route and
+#                  its usual env vars. Any other name is an OpenAI-compatible
+#                  gateway that reads <NAME>_API_KEY and <NAME>_API_BASE.
+#   provider:      uniai route, when it differs from the name.
+#   api_key_env:   env var holding the key, overriding the default.
+#   api_base_env:  env var holding the base URL, overriding the default.
+#   api_base:      literal base URL; wins over api_base_env.
+#   models:        model IDs, or mappings with per-model overrides.
+#
+# Route default env vars:
+#   openai, openai_resp: OPENAI_API_KEY        (base: OPENAI_API_BASE, optional)
+#   anthropic:           CLAUDE_API_KEY or ANTHROPIC_API_KEY (base: ANTHROPIC_API_BASE)
+#   gemini:              GEMINI_API_KEY        (base: GEMINI_API_BASE)
+#   deepseek, xai, groq: DEEPSEEK_API_KEY, XAI_API_KEY, GROQ_API_KEY
+#
+# Settings allowed on a provider (defaults for its models) or on a model:
+#   reasoning_effort, max_tokens, json_mode (auto|native|prompt),
+#   cache_breakpoint (auto|on|off), cases ([text, json, cache, tool]),
+#   timeout_seconds
+#
+# A model whose env vars are empty is skipped, not failed.
+
+timeout_seconds: 180
+cache_attempts: 3
+
+providers:
+  # GPT-6 tool calls with reasoning require the Responses API.
+  - name: openai
+    provider: openai_resp
+    models:
+      - gpt-6.1-sol
+      - gpt-6.1-terra
+      - gpt-6-sol
+      - gpt-6-luna
+      - gpt-6-astra
+
+  - name: anthropic
+    models:
+      - claude-opus-5-5
+      - claude-sonnet-5-5
+      - claude-haiku-5-5
+
+  - name: gemini
+    models:
+      - gemini-4-carbon
+      - gemini-4-argon
+      - gemini-4-hydrogen
+      - gemini-3.8-flash
+
+  - name: deepseek
+    models:
+      - deepseek-flash
+      - deepseek-v4-pro
+
+  # Not a route name, so this reads MOONSHOT_API_KEY. The literal base means
+  # MOONSHOT_API_BASE is not needed.
+  - name: moonshot
+    api_base: https://api.moonshot.ai/v1
+    models:
+      - kimi-k3.1-pro
+      - kimi-k3
+
+  # Gateways: uncomment to use. These read OPENROUTER_API_KEY /
+  # OPENROUTER_API_BASE and ABC_API_KEY / ABC_API_BASE.
+  # - name: openrouter
+  #   models:
+  #     - anthropic/claude-sonnet-5.5
+  #     - openai/gpt-6-sol
+  # - name: abc
+  #   models:
+  #     - gpt-6-sol

@@ -946,6 +946,14 @@ Integration tests are enabled by env vars. Common ones:
 - Cloudflare chat/audio: `TEST_CLOUDFLARE_ACCOUNT_ID`, `TEST_CLOUDFLARE_API_TOKEN`, `TEST_CLOUDFLARE_TEXT_MODEL`, `TEST_CLOUDFLARE_AUDIO_MODEL`, `TEST_CLOUDFLARE_AUDIO_FILEPATH`, `TEST_CLOUDFLARE_API_BASE`
 - Embedding/image/rerank/classify: see `env.example.sh`
 
+To run the same live text, JSON, cache-hit, tool-calling, and pricing checks
+across many models and gateways, use [`cmd/modelcheck`](cmd/modelcheck/README.md):
+
+```bash
+go run ./cmd/modelcheck --list   # show which models have credentials
+go run ./cmd/modelcheck
+```
+
 ## Development
 
 Run from the module root that contains `go.mod`:

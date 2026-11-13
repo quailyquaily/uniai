@@ -41,3 +41,7 @@ patches/
 
 # Eval outputs
 out/*
+
+# modelcheck local configs (may name private gateways); config.example.yaml is tracked
+cmd/modelcheck/config.quick.yaml
+cmd/modelcheck/*.local.yaml
