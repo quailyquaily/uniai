@@ -18,6 +18,10 @@ func TestDefaultPricingCatalogCurrentFlatRates(t *testing.T) {
 		provider, model       string
 		input, cached, output float64
 	}{
+		{"gemini", "gemini-4-carbon", 2.00, 0.10, 10.00},
+		{"gemini", "gemini-4-argon", 2.00, 0.10, 10.00},
+		{"gemini", "gemini-4-hydrogen", 1.50, 0.075, 7.50},
+		{"gemini", "models/gemini-4-hydrogen", 1.50, 0.075, 7.50},
 		{"zai", "glm-5.3-flash", 0.15, 0.03, 0.50},
 		{"moonshot", "kimi-k2.7-code", 0.95, 0.19, 4.00},
 		{"moonshot", "kimi-k2.7-code-highspeed", 1.90, 0.38, 8.00},

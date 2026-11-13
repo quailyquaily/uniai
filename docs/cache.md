@@ -493,7 +493,13 @@ Current support is:
 - `openai_resp`: the same text breakpoint support, plus raw Responses breakpoints
 - `azure`: cache stats + backend-dependent provider options, no shared explicit
   cache control
-- `gemini`: no current shared cache API in `uniai`
+- `gemini`: no current shared cache API in `uniai`. Gemini 4 Carbon, Argon,
+  and Hydrogen support only implicit caching, which applies automatically to
+  prompts of at least 4,096 tokens. In multi-turn use, Google caches the prior
+  request only when the new request adds at least 2,050 tokens. Cached tokens
+  are reported in `Usage.Cache.CachedInputTokens`. See
+  [Gemini caching](https://aistudio.google.com/docs/caching), checked on
+  2026-11-13.
 - `cloudflare`: no current cache feature mapping in `uniai`
 
 ## Failure Behavior

@@ -361,13 +361,23 @@ Current model compatibility (OpenAI Terra, Claude 5.5, DeepSeek, and Kimi checke
   See [DeepSeek's change log](https://api-docs.deepseek.com/updates/).
 - `gemini-3.8-flash`: supports `low`, `medium`, and `high` effort; `minimal`
   returns a local error. See [model details](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash).
-
-As of October 1, 2026, Gemini 4 Argon has been announced for invited testers in
-Google's Fairwind program. Google announced introductory prices of $2 input,
-$10 output, and $0.10 cached input per million tokens. The public
-[API model catalog](https://ai.google.dev/gemini-api/docs/models) does not yet
-publish its model ID or request contract, so it has no built-in compatibility
-or pricing rule. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
+- `gemini-4-carbon`, `gemini-4-argon`, and `gemini-4-hydrogen`: Carbon and
+  Argon support `low`, `medium` (default), and `high` effort. Hydrogen supports
+  `low`, `medium`, `high` (default), and `xhigh`. Thinking cannot be disabled.
+  On the `gemini` provider, `none`, `minimal`, `max`, `xhigh` on Carbon or
+  Argon, and manual reasoning budgets return local errors. On Gemini's
+  OpenAI-compatible endpoint (`openai` provider), Google maps `minimal` to
+  `low`, so the library forwards it; other unsupported values return local
+  errors. Both routes omit `temperature` and `top_p`, which these models
+  ignore; the `gemini` provider also omits `top_k`. Synchronous responses stop
+  at 65,536 tokens, including thinking. Explicit caching is not supported; see
+  [cache notes](docs/cache.md). Function calls still require replayed thought
+  signatures; preserve `resp.ToolCalls` as-is. Checked on 2026-11-13 against
+  [thinking levels](https://aistudio.google.com/docs/thinking),
+  [OpenAI compatibility](https://aistudio.google.com/docs/openai), and the
+  model pages for [Carbon](https://aistudio.google.com/docs/whats-new-gemini-4-carbon),
+  [Argon](https://aistudio.google.com/docs/whats-new-gemini-4-argon), and
+  [Hydrogen](https://aistudio.google.com/docs/whats-new-gemini-4-hydrogen).
 
 The native Anthropic and Gemini providers use HTTP/JSON directly, without their
 vendor SDKs. Sonnet 5.5 uses the existing Messages API and version header;

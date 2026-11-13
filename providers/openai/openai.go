@@ -248,6 +248,11 @@ func applyModelParameterOverlay(params *openai.ChatCompletionNewParams, hasPromp
 		params.PresencePenalty = param.Opt[float64]{}
 		params.FrequencyPenalty = param.Opt[float64]{}
 	}
+	if modelcompat.IsGemini4(model) {
+		// Gemini 4 ignores temperature and top_p; omit them rather than imply control.
+		params.Temperature = param.Opt[float64]{}
+		params.TopP = param.Opt[float64]{}
+	}
 	if modelcompat.OpenAIDropsSampling(model, string(params.ReasoningEffort), params.ReasoningEffort != "") {
 		params.Temperature = param.Opt[float64]{}
 		params.TopP = param.Opt[float64]{}

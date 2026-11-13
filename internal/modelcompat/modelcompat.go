@@ -38,6 +38,40 @@ func KimiUsesFixedSampling(model string) bool {
 		modelHasPrefix(model, "kimi-k2-5")
 }
 
+// IsGemini4 reports whether model is a Gemini 4 model with confirmed API rules.
+// Rules were checked on 2026-11-13 against https://aistudio.google.com/docs/thinking
+// and the per-model "What's new" pages. Unlisted Gemini 4 IDs are not covered.
+func IsGemini4(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gemini-4-carbon") ||
+		modelHasPrefix(model, "gemini-4-argon") ||
+		modelHasPrefix(model, "gemini-4-hydrogen")
+}
+
+// Gemini4ThinkingLevelSupported reports whether a native generateContent
+// thinkingLevel is accepted. Gemini 4 models cannot disable thinking and
+// reject minimal; only Hydrogen accepts xhigh.
+func Gemini4ThinkingLevelSupported(model, level string) bool {
+	switch level {
+	case "low", "medium", "high":
+		return true
+	case "xhigh":
+		return modelHasPrefix(Normalize(model), "gemini-4-hydrogen")
+	default:
+		return false
+	}
+}
+
+// Gemini4OpenAIReasoningEffortSupported reports whether the Gemini
+// OpenAI-compatible endpoint accepts reasoning_effort for a Gemini 4 model.
+// Upstream maps minimal to low there; none is not supported.
+func Gemini4OpenAIReasoningEffortSupported(model, effort string) bool {
+	if effort == "" || effort == "minimal" {
+		return true
+	}
+	return Gemini4ThinkingLevelSupported(model, effort)
+}
+
 func DeepSeekUsesThinkingMode(model string) bool {
 	model = Normalize(model)
 	return modelHasPrefix(model, "deepseek-flash") ||
@@ -205,6 +239,9 @@ func IsGPT6Astra(model string) bool {
 }
 
 func OpenAIReasoningEffortSupported(model, effort string) bool {
+	if IsGemini4(model) {
+		return Gemini4OpenAIReasoningEffortSupported(model, effort)
+	}
 	if !openAIUsesGPT6Parameters(Normalize(model)) {
 		return true
 	}

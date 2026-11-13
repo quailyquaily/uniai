@@ -1,12 +1,13 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-11-04: GPT-6.1 Sol standard rates, 30-minute cache writes,
+# Refreshed on 2026-11-13: Gemini 4 Carbon, Argon, and Hydrogen standard rates.
+# Carbon and Argon use introductory rates through 2026-11-30; from 2026-12-01
+# they double to $4 input / $20 output / $0.20 cached input per million tokens.
+# Previous refresh on 2026-11-04: GPT-6.1 Sol standard rates, 30-minute cache writes,
 # and the long-context tier.
 # Previous refresh on 2026-10-27: GPT-6.1 Terra, Claude Haiku 5.5, Sonnet 5.5 cache
 # reads, and Kimi K3.1 Pro/Highspeed. DeepSeek Flash-1017 keeps the same rates.
 # Previous refresh on 2026-10-01: Claude Sonnet 5.5 standard and cache rates.
-# Gemini 4 Argon has announced introductory rates but no public API model ID;
-# no price entry is included until the ID is confirmed.
 # Previous refresh on 2026-09-24: Grok 4.7 standard rates and long-context tier.
 # Previous refresh on 2026-09-23: GPT-6 Sol/Luna and Claude Opus 5.5 standard rates,
 # including long-context tiers and cache reads/writes.
@@ -637,6 +638,22 @@ chat:
     output_usd_per_million: 5.00
 
   # Gemini
+  # Gemini 4 models use implicit caching only and publish no long-context tier.
+  - inference_provider: gemini
+    model: gemini-4-carbon
+    input_usd_per_million: 2.00
+    cached_input_usd_per_million: 0.10
+    output_usd_per_million: 10.00
+  - inference_provider: gemini
+    model: gemini-4-argon
+    input_usd_per_million: 2.00
+    cached_input_usd_per_million: 0.10
+    output_usd_per_million: 10.00
+  - inference_provider: gemini
+    model: gemini-4-hydrogen
+    input_usd_per_million: 1.50
+    cached_input_usd_per_million: 0.075
+    output_usd_per_million: 7.50
   - inference_provider: gemini
     model: gemini-3.8-flash
     input_usd_per_million: 0.75

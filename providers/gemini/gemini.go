@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/uniai/chat"
 	"github.com/quailyquaily/uniai/internal/diag"
 	"github.com/quailyquaily/uniai/internal/httputil"
+	"github.com/quailyquaily/uniai/internal/modelcompat"
 	"github.com/quailyquaily/uniai/internal/toolschema"
 )
 
@@ -809,6 +810,11 @@ func toGenerationConfig(model string, opts chat.Options) (*geminiGenerationConfi
 	if err := applyGeminiReasoningOptions(model, cfg, opts); err != nil {
 		return nil, err
 	}
+	if modelcompat.IsGemini4(model) {
+		// Gemini 4 ignores temperature, topP, and topK, including raw top_k.
+		cfg.Temperature, cfg.TopP, cfg.TopK = nil, nil, nil
+		has = cfg.MaxOutputTokens != nil || len(cfg.StopSequences) > 0
+	}
 
 	if !has {
 		if cfg.TopK == nil && cfg.CandidateCount == nil && cfg.ResponseMIMEType == "" && cfg.ResponseSchema == nil && cfg.ThinkingConfig == nil {
@@ -839,6 +845,17 @@ func applyGeminiReasoningOptions(model string, cfg *geminiGenerationConfig, opts
 	}
 
 	switch {
+	case modelcompat.IsGemini4(model):
+		if opts.ReasoningBudget != nil {
+			return fmt.Errorf("gemini model %q uses reasoning effort, not reasoning budget tokens", model)
+		}
+		if opts.ReasoningEffort != nil {
+			level := string(*opts.ReasoningEffort)
+			if !modelcompat.Gemini4ThinkingLevelSupported(model, level) {
+				return fmt.Errorf("gemini model %q does not support reasoning effort %q; use %s", model, level, gemini4SupportedEfforts(model))
+			}
+			thinking.ThinkingLevel = level
+		}
 	case strings.HasPrefix(model, "gemini-3"):
 		if opts.ReasoningBudget != nil {
 			return fmt.Errorf("gemini model %q uses reasoning effort, not reasoning budget tokens", model)
@@ -880,6 +897,13 @@ func applyGeminiReasoningOptions(model string, cfg *geminiGenerationConfig, opts
 		cfg.ThinkingConfig = thinking
 	}
 	return nil
+}
+
+func gemini4SupportedEfforts(model string) string {
+	if modelcompat.Gemini4ThinkingLevelSupported(model, "xhigh") {
+		return "low, medium, high, or xhigh"
+	}
+	return "low, medium, or high"
 }
 
 func geminiThinkingLevelForEffort(effort chat.ReasoningEffort) (string, error) {

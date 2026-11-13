@@ -91,14 +91,20 @@ the write TTL, so supply a pricing override when using one-hour caching.
 See [Kimi pricing](https://platform.kimi.ai/docs/pricing/chat) and
 [cache billing](https://platform.kimi.ai/docs/guide/context-caching).
 
-Gemini 4 Argon has no price entry: as of October 1, 2026, Google has announced
-introductory rates of $2 input, $10 output, and $0.10 cached input per million
-tokens, but has not published its public API model ID. The catalog does not
-assign rates to a guessed ID. See [Google's announcement](https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-4-argon/).
+Gemini 4 Carbon and Argon use $2 input / $10 output and $0.10 cached input per
+million tokens through 2026-11-30. From 2026-12-01 these rates double to $4 /
+$20 / $0.20. Gemini 4 Hydrogen uses $1.50 input / $7.50 output and $0.075
+cached input. Thinking tokens count as output. None of the three publishes a
+long-context tier, and all three use implicit caching only, so there is no
+cache-storage price. The catalog prices the standard paid tier; Batch, Flex,
+Priority, and Contributor rates differ and need an override.
+See [Gemini pricing](https://aistudio.google.com/docs/pricing), checked on
+2026-11-13.
 
 Some embedded rates have time limits:
 
 - GPT-5.6 Sol promotional rates apply at least through 2026-11-21.
+- Gemini 4 Carbon and Argon introductory rates apply through 2026-11-30.
 - Gemini 3.8, 3.7, and 3.6 Flash introductory rates apply through 2026-12-31.
 
 These are static prices; the catalog does not switch rates by date. Update the
