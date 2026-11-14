@@ -70,7 +70,7 @@ boundary. It does not make their cache policies identical.
 
 | Provider path | Shared boundary support | Value passed to `WithPartCacheControl` | TTL location |
 | --- | --- | --- | --- |
-| `anthropic` | system, user, and assistant parts; tools | `CacheTTL5m()` or `CacheTTL1h()` | each marked part or tool |
+| `anthropic` | system, user, and assistant parts; tool messages (their `tool_result` block); tools | `CacheTTL5m()` or `CacheTTL1h()` | each marked part or tool |
 | Anthropic models through `bedrock` | user and assistant text parts | `CacheTTL5m()` or `CacheTTL1h()` | each marked part |
 | GPT-5.6 and supported GPT-6 models through `openai` | system, user, and assistant text parts | `CacheControl{}` | request-wide; defaults to `30m` |
 | GPT-5.6 and supported GPT-6 models through `openai_resp` | system, user, and assistant text parts; additional shapes through raw `input` | `CacheControl{}` | request-wide; defaults to `30m` |
@@ -118,7 +118,16 @@ Anthropic supports explicit cache control on:
 
 - system text parts
 - user and assistant parts
+- tool messages: a `CacheControl` on a tool message's part marks its
+  `tool_result` block
 - tools
+
+Anthropic writes its cache only at marked blocks. In a tool loop the newest
+tool result ends the request, so marking it lets the next step read everything
+this step sent; without a mark there, each step sends the run's tool calls and
+results uncached again. A request takes at most four marks. See
+[Prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching),
+checked on 2026-11-15.
 
 Example:
 

@@ -388,13 +388,22 @@ func buildRequest(req *chat.Request, model string) (*anthropicRequest, error) {
 			if err != nil {
 				return nil, fmt.Errorf("role %q: %w", m.Role, err)
 			}
+			result := anthropicContentPart{
+				Type:      "tool_result",
+				ToolUseID: m.ToolCallID,
+				Content:   text,
+			}
+			// A cache boundary on a tool message's part marks its tool_result block: in a tool
+			// loop the newest tool result ends the request, where the boundary has to be for the
+			// next step to read this one from cache.
+			for _, part := range chat.NormalizeMessageParts(m) {
+				if part.CacheControl != nil {
+					result.CacheControl = toAnthropicCacheControl(part.CacheControl)
+				}
+			}
 			messages = append(messages, anthropicMessage{
-				Role: "user",
-				Content: []anthropicContentPart{{
-					Type:      "tool_result",
-					ToolUseID: m.ToolCallID,
-					Content:   text,
-				}},
+				Role:    "user",
+				Content: []anthropicContentPart{result},
 			})
 		default:
 			return nil, fmt.Errorf("anthropic provider does not support role %q", m.Role)
