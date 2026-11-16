@@ -1,6 +1,13 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-11-13: Gemini 4 Carbon, Argon, and Hydrogen standard rates.
+# Refreshed on 2026-11-16: Claude Fable 5.2 and Mythos 5.2 standard and cache rates.
+# Claude 4.6-and-later IDs are dateless pinned snapshots, so the 5.x entries carry
+# no dated aliases. Gemini 3.8 Pro is not on the Gemini pricing, models, or changelog
+# pages and has no entry. Added the documented Opus 4.5 snapshot ID
+# `claude-opus-4-5-20251101`. The older `claude-opus-4-5-20250929` and
+# `claude-sonnet-4-6-20260201` aliases are not on Anthropic's model pages; they are
+# kept for existing callers only.
+# Previous refresh on 2026-11-13: Gemini 4 Carbon, Argon, and Hydrogen standard rates.
 # Carbon and Argon use introductory rates through 2026-11-30; from 2026-12-01
 # they double to $4 input / $20 output / $0.20 cached input per million tokens.
 # Previous refresh on 2026-11-04: GPT-6.1 Sol standard rates, 30-minute cache writes,
@@ -75,6 +82,11 @@
 # - OpenAI GPT-5.6 Sol: https://developers.openai.com/api/docs/models/gpt-5.6-sol
 # - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
 # - Anthropic Claude Fable 5.1: https://platform.claude.com/docs/en/models/overview
+# - Anthropic Claude Fable 5.2: https://platform.claude.com/docs/en/models/fable-5-2/overview
+# - Anthropic model ID format: https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
+# - Anthropic dated model IDs: https://platform.claude.com/docs/en/about-claude/model-deprecations
+# - Gemini model IDs: https://ai.google.dev/gemini-api/docs/models
+# - Claude Code `[1m]` suffix: https://code.claude.com/docs/en/model-config
 # - Anthropic Claude Mythos 5.1: https://platform.claude.com/docs/en/models/mythos-5-1/overview
 # - Anthropic Claude Opus 5: https://platform.claude.com/docs/en/about-claude/models/whats-new-opus-5
 # - Anthropic Claude Opus 5.5: https://platform.claude.com/docs/en/models/opus-5-5/overview
@@ -122,7 +134,8 @@
 # - GPT-5.6 Sol promotional rates apply at least through 2026-11-21.
 # - Anthropic cache prices below are derived from Anthropic's published prompt-caching multipliers:
 #   cache read = 0.1x input, 5m cache write = 1.25x input, 1h cache write = 2x input.
-#   Fable 5.1 and Mythos 5.1 instead use 0.025x input for cache reads.
+#   Fable 5.2, Mythos 5.2, Fable 5.1, and Mythos 5.1 instead use 0.025x input for
+#   cache reads.
 #   Opus 5.5 uses 0.05x input for cache reads and flat pricing across 1M context.
 # - Claude Opus 4.8 uses standard pricing across its full 1M token context window.
 # - Claude Sonnet 5 keeps $2/$10 per MTok as its standard price; the previously
@@ -466,6 +479,24 @@ chat:
 
   # Anthropic
   - inference_provider: anthropic
+    model: claude-fable-5-2
+    input_usd_per_million: 8.00
+    cached_input_usd_per_million: 0.20
+    cache_creation_input_usd_per_million: 10.00
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 10.00
+      ephemeral_1h_input_tokens: 16.00
+    output_usd_per_million: 40.00
+  - inference_provider: anthropic
+    model: claude-mythos-5-2
+    input_usd_per_million: 8.00
+    cached_input_usd_per_million: 0.20
+    cache_creation_input_usd_per_million: 10.00
+    cache_creation_input_detail_usd_per_million:
+      ephemeral_5m_input_tokens: 10.00
+      ephemeral_1h_input_tokens: 16.00
+    output_usd_per_million: 40.00
+  - inference_provider: anthropic
     model: claude-fable-5-1
     input_usd_per_million: 10.00
     cached_input_usd_per_million: 0.25
@@ -563,6 +594,7 @@ chat:
     model: claude-opus-4-5
     aliases:
       - claude-opus-4.5
+      - claude-opus-4-5-20251101
       - claude-opus-4-5-20250929
     input_usd_per_million: 5.00
     cached_input_usd_per_million: 0.50

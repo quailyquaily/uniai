@@ -296,7 +296,7 @@ func (c *PricingCatalog) findChatPricingRuleWithInferenceProvider(inferenceProvi
 	if c == nil {
 		return nil
 	}
-	candidates := normalizeModelCandidates(model)
+	candidates := chatModelCandidates(model)
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -983,6 +983,46 @@ func normalizeModelCandidates(model string) []string {
 		}
 	}
 	return candidates
+}
+
+// chatModelCandidates extends normalizeModelCandidates with the base model of
+// an ID decorated by a coding CLI. Decorated names are tried last, so a rule or
+// alias that names the decorated ID still wins.
+func chatModelCandidates(model string) []string {
+	candidates := normalizeModelCandidates(model)
+	for _, candidate := range candidates {
+		if base, ok := stripCodingCLIModelSuffix(candidate); ok {
+			candidates = append(candidates, base)
+		}
+	}
+	return candidates
+}
+
+// stripCodingCLIModelSuffix removes the two suffixes coding CLIs add to a model
+// ID without changing the billed model:
+//   - Claude Code's "[1m]" context-window marker, e.g. "claude-sonnet-5-5[1m]"
+//   - Antigravity CLI's effort marker on Gemini models, e.g.
+//     "gemini-3.8-flash-high"
+//
+// Nothing else is stripped: dated IDs and other variants need an explicit rule
+// or alias.
+func stripCodingCLIModelSuffix(model string) (string, bool) {
+	if base, ok := strings.CutSuffix(model, "[1m]"); ok {
+		return base, base != "" && !strings.HasSuffix(base, "/")
+	}
+	name := model
+	if slash := strings.LastIndex(model, "/"); slash >= 0 {
+		name = model[slash+1:]
+	}
+	if !strings.HasPrefix(name, "gemini-") {
+		return "", false
+	}
+	for _, effort := range []string{"-low", "-medium", "-high"} {
+		if base, ok := strings.CutSuffix(model, effort); ok {
+			return base, len(name) > len("gemini-")+len(effort)
+		}
+	}
+	return "", false
 }
 
 func normalizeNumericVersionDots(model string) string {

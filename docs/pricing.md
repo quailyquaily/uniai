@@ -330,10 +330,19 @@ Matching is conservative:
 3. if you call `EstimateChatCostWithInferenceProvider(...)` or `EstimateImageCostWithInferenceProvider(...)` and that `inference_provider` exists in the relevant catalog section, matching stays within that provider only
 4. if no provider hint is passed, or the hinted provider does not exist in the catalog, matching falls back to model-only lookup
 5. if the runtime model looks like `vendor/model`, lookup first tries the full name, then falls back to the suffix `model`
-6. model and alias names in YAML must be unique within the same `inference_provider`
-7. if multiple rules share the same model across different `inference_provider` values and no usable hint is provided, the first match in YAML order wins
+6. for chat pricing only, if nothing has matched yet, two coding-CLI suffixes are removed and the base model is tried: Claude Code's `[1m]` context marker (`claude-sonnet-5-5[1m]` -> `claude-sonnet-5-5`) and Antigravity CLI's `-low` / `-medium` / `-high` effort marker on `gemini-` models (`gemini-3.8-flash-high` -> `gemini-3.8-flash`)
+7. model and alias names in YAML must be unique within the same `inference_provider`
+8. if multiple rules share the same model across different `inference_provider` values and no usable hint is provided, the first match in YAML order wins
 
 Normalization lowercases names, strips a leading `models/`, and treats `.` between digits as `-`. This lets `grok-4.1-fast-reasoning` match a `grok-4-1-fast-reasoning` rule.
+
+The suffix fallback in step 6 is the only non-exact step. A rule or alias that
+names the suffixed ID always wins over it, and the base model must itself be in
+the catalog. The matched rule is applied unchanged, so a `[1m]` ID still uses
+that rule's `tiers` by the request's input tokens (for example Claude Haiku 5.5
+above 100,000 input tokens). Effort suffixes on non-Gemini models, dated IDs,
+and other variants are not stripped. Image and Evaluate pricing do not use this
+fallback.
 
 `uniai` does not guess prices from model family names.
 
