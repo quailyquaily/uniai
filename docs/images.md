@@ -64,6 +64,7 @@ OpenAI uses the Images API:
 
 The OpenAI path supports GPT image models such as:
 
+- `gpt-image-2.6-sunburst` and `gpt-image-2.6-flare`
 - `gpt-image-2.5-sunburst` and `gpt-image-2.5-flare`, including dated snapshots
 - `gpt-image-2`
 - `gpt-image-2-*` snapshot IDs
@@ -83,10 +84,32 @@ Cloudflare Workers AI accepts `@cf/...` model IDs and forwards provider-specific
 
 `EditImage` is currently implemented for:
 
-- OpenAI GPT Image 2.5 Sunburst/Flare, `gpt-image-2`, `gpt-image-2-*`, `gpt-image-1`, and `gpt-image-1-*`
+- OpenAI GPT Image 2.6 and 2.5 Sunburst/Flare, `gpt-image-2`, `gpt-image-2-*`, `gpt-image-1`, and `gpt-image-1-*`
 - Gemini `gemini-3-pro-image`, `gemini-3.1-flash-image`, and `gemini-3.1-flash-lite-image`
 
 Cloudflare image editing is not implemented yet.
+
+## OpenAI GPT Image 2.6
+
+`gpt-image-2.6-sunburst` and `gpt-image-2.6-flare` accept every GPT Image 2.5
+option below, plus:
+
+- `complexity`: `low`, `medium`, or `high`. If omitted, OpenAI uses `high`.
+  Only 2.6 models accept it.
+- `output_format: "svg"`: generation only. Requires a count of 1 and rejects
+  `output_compression` and a transparent background. `EditImage` rejects it
+  before sending. The result MIME type is `image/svg+xml`.
+- `output_format: "gif"`: generation and editing. Optional `frame_count`
+  (2-16, default 9) and `frame_duration_ms` (20-2000, default 200) are valid
+  only with GIF output. `size` describes each frame and must be `auto` or
+  edges that are multiples of 16. OpenAI also enforces a total request pixel
+  budget that it does not publish, so oversized requests fail upstream. GIF
+  rejects `output_compression` and a transparent background. The result MIME
+  type is `image/gif`.
+
+Markup-guided edits (`markup`) are available upstream for 2.5 and 2.6 but are
+not implemented in `EditImage` yet.
+Checked on 2026-11-18 against the [GPT Image 2.6 guide](https://developers.openai.com/api/docs/guides/image-generation#gpt-image-26).
 
 ## OpenAI GPT Image 2.5
 

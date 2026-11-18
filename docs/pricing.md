@@ -49,7 +49,7 @@ cost or selecting an input-length tier. `CountTokens` estimates do not populate
 
 ## Current Catalog Rates
 
-The latest catalog refresh is dated 2026-11-04. Model rates and official sources
+The latest catalog refresh is dated 2026-11-18. Model rates and official sources
 are recorded in [`pricing.example.yaml`](../pricing.example.yaml).
 
 GPT-6 Sol and Luna include standard input, output, cache-read, and cache-write
@@ -79,9 +79,28 @@ cache writes per million tokens for 30-minute retention. Above 272,000 input
 tokens, input and cache rates double and output costs $7.50.
 See [Terra pricing](https://developers.openai.com/api/docs/models/gpt-6.1-terra).
 
-Both GPT-6.1 models also offer 12-hour cache retention at twice the 30-minute
-write rate. Usage payloads do not identify the write TTL, so the catalog
+GPT-6.2 Astra uses $8 input / $40 output, $0.40 cached input, and $10
+cache writes per million tokens for 30-minute retention. GPT-6.2 Sol uses
+$2 input / $10 output, $0.10 cached input, and $2.50 cache writes. Above
+272,000 input tokens, input and cache rates double and output costs 1.5x
+($60 for Astra, $15 for Sol). See [Astra pricing](https://developers.openai.com/api/docs/models/gpt-6.2-astra)
+and [Sol pricing](https://developers.openai.com/api/docs/models/gpt-6.2-sol),
+checked on 2026-11-18.
+
+The GPT-6.1 and GPT-6.2 models also offer 12-hour cache retention at twice the
+30-minute write rate. Usage payloads do not identify the write TTL, so the catalog
 charges the 30-minute rate; supply a pricing override for 12-hour caching.
+
+GPT-6.2 Astra and Sol, GPT-6.1 Terra, and GPT-6 Luna also have beta background
+completion windows on the Responses API, at 30% (two-hour) or 40% (eight-hour)
+below Standard. The catalog prices Standard only; supply an override for
+these windows, Batch, fast, or Ultrafast modes.
+
+GPT Image 2.6 Sunburst and Flare use the same token rates as GPT Image 2.5:
+$5 text input, $1.25 cached text input, $8 image input, $2 cached image input,
+and $30 image output per million tokens. For SVG output OpenAI also bills the
+authoring model's tokens, which the image usage payload does not break out, so
+local SVG cost estimates cover only the reported image-model tokens.
 
 Kimi K3.1 Pro uses $2 input / $10 output per million tokens; Highspeed uses
 $4 / $20. Both charge $0.20 for cache reads. Five-minute writes cost the same

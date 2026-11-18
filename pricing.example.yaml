@@ -1,6 +1,8 @@
 # Example pricing catalog for uniai.
 #
-# Refreshed on 2026-11-16: Claude Fable 5.2 and Mythos 5.2 standard and cache rates.
+# Refreshed on 2026-11-18: GPT-6.2 Astra and Sol standard rates, 30-minute
+# cache writes, and long-context tiers; GPT Image 2.6 Sunburst and Flare.
+# Previous refresh on 2026-11-16: Claude Fable 5.2 and Mythos 5.2 standard and cache rates.
 # Claude 4.6-and-later IDs are dateless pinned snapshots, so the 5.x entries carry
 # no dated aliases. Gemini 3.8 Pro is not on the Gemini pricing, models, or changelog
 # pages and has no entry. Added the documented Opus 4.5 snapshot ID
@@ -75,6 +77,10 @@
 # - OpenAI GPT-6 Luna: https://developers.openai.com/api/docs/models/gpt-6-luna
 # - OpenAI GPT-6.1 Sol: https://developers.openai.com/api/docs/models/gpt-6.1-sol
 # - OpenAI GPT-6.1 Terra: https://developers.openai.com/api/docs/models/gpt-6.1-terra
+# - OpenAI GPT-6.2 Astra: https://developers.openai.com/api/docs/models/gpt-6.2-astra
+# - OpenAI GPT-6.2 Sol: https://developers.openai.com/api/docs/models/gpt-6.2-sol
+# - OpenAI GPT Image 2.6: https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+# - OpenAI GPT Image 2.6 Flare: https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
 # - OpenAI GPT Image 2.5: https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst
 # - OpenAI GPT Image 2.5 Flare: https://developers.openai.com/api/docs/models/gpt-image-2.5-flare
 # - OpenAI GPT-5.4: https://developers.openai.com/api/docs/models/gpt-5.4
@@ -216,6 +222,20 @@ evaluate:
 image:
   # OpenAI Images API
   - inference_provider: openai
+    model: gpt-image-2.6-sunburst
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8.00
+    cached_image_input_usd_per_million: 2.00
+    output_usd_per_million: 30.00
+  - inference_provider: openai
+    model: gpt-image-2.6-flare
+    text_input_usd_per_million: 5.00
+    cached_text_input_usd_per_million: 1.25
+    image_input_usd_per_million: 8.00
+    cached_image_input_usd_per_million: 2.00
+    output_usd_per_million: 30.00
+  - inference_provider: openai
     model: gpt-image-2.5-sunburst
     aliases:
       - gpt-image-2.5-sunburst-2026-09-08
@@ -291,6 +311,30 @@ image:
 
 chat:
   # OpenAI
+  - inference_provider: openai
+    model: gpt-6.2-astra
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 8.00
+        cached_input_usd_per_million: 0.40
+        cache_creation_input_usd_per_million: 10.00
+        output_usd_per_million: 40.00
+      - input_usd_per_million: 16.00
+        cached_input_usd_per_million: 0.80
+        cache_creation_input_usd_per_million: 20.00
+        output_usd_per_million: 60.00
+  - inference_provider: openai
+    model: gpt-6.2-sol
+    tiers:
+      - max_input_tokens: 272000
+        input_usd_per_million: 2.00
+        cached_input_usd_per_million: 0.10
+        cache_creation_input_usd_per_million: 2.50
+        output_usd_per_million: 10.00
+      - input_usd_per_million: 4.00
+        cached_input_usd_per_million: 0.20
+        cache_creation_input_usd_per_million: 5.00
+        output_usd_per_million: 15.00
   - inference_provider: openai
     model: gpt-6.1-sol
     tiers:

@@ -87,7 +87,7 @@ func TestSeptemberChatPricing(t *testing.T) {
 func TestSeptemberImagePricing(t *testing.T) {
 	catalog := DefaultPricingCatalog()
 	usage := imagepkg.CreateImageUsage{InputTokens: 15, InputTextTokens: 10, InputImageTokens: 5, CachedTextTokens: 2, CachedImageTokens: 1, OutputTokens: 100}
-	for _, model := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2.5-flare-2026-09-08"} {
+	for _, model := range []string{"gpt-image-2.5-sunburst", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst-2026-09-08", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2.6-sunburst", "gpt-image-2.6-flare"} {
 		cost, ok := catalog.EstimateImageCost(model, usage)
 		if !ok {
 			t.Errorf("%s: missing image price", model)

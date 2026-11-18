@@ -566,7 +566,7 @@ func applyModelParameterOverlay(params *responses.ResponseNewParams, hasPromptCa
 		params.TopP = param.Opt[float64]{}
 		params.TopLogprobs = param.Opt[int64]{}
 	}
-	if modelcompat.IsGPT6(model) && dropSampling {
+	if (modelcompat.IsGPT6(model) || modelcompat.IsGPT62(model)) && dropSampling {
 		params.Include = slices.DeleteFunc(params.Include, func(item responses.ResponseIncludable) bool {
 			return item == "message.output_text.logprobs"
 		})

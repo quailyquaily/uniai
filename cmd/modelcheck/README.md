@@ -29,7 +29,7 @@ go run ./cmd/modelcheck --json ./out/modelcheck.json -v
 ```
 
 Without `--config`, the built-in [config.example.yaml](config.example.yaml)
-is used. It lists current GPT-6 / GPT-6.1, Claude 5.5, Gemini 4 and 3.8 Flash,
+is used. It lists current GPT-6 / GPT-6.1 / GPT-6.2, Claude 5.5, Gemini 4 and 3.8 Flash,
 Kimi K3 / K3.1 Pro, `deepseek-flash`, and `deepseek-v4-pro`. Models whose key
 variable is empty are skipped, not failed.
 For your own models or gateways, copy it to `cmd/modelcheck/<name>.local.yaml`.

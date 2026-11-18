@@ -169,6 +169,10 @@ func NormalizeKimiReasoningEffort(model, effort string) (string, bool) {
 
 func OpenAIDropsSampling(model, reasoningEffort string, reasoningRequested bool) bool {
 	model = Normalize(model)
+	if IsGPT62(model) {
+		// GPT-6.2 rejects effort none, so sampling and logprobs are never accepted.
+		return true
+	}
 	if IsGPT6(model) {
 		return IsGPT6Astra(model) || strings.TrimSpace(strings.ToLower(reasoningEffort)) != "none"
 	}
@@ -195,7 +199,7 @@ func OpenAIRequires24hPromptCacheRetention(model string) bool {
 // of the legacy prompt_cache_retention field. Keep in sync with docs/cache.md.
 func OpenAIUsesPromptCacheOptions(model string) bool {
 	model = Normalize(model)
-	return openAIUsesGPT6Parameters(model) || modelHasPrefix(model, "gpt-6-1-sol")
+	return openAIUsesGPT6Parameters(model) || modelHasPrefix(model, "gpt-6-1-sol") || IsGPT62(model)
 }
 
 // OpenAIRejectsPromptCacheOptions reports whether model is known to use only the
@@ -213,7 +217,21 @@ func IsGPT6(model string) bool {
 }
 
 func OpenAIRequiresResponsesForTools(model string) bool {
-	return IsGPT6Astra(model) || modelHasPrefix(Normalize(model), "gpt-6-1-terra")
+	return IsGPT6Astra(model) || modelHasPrefix(Normalize(model), "gpt-6-1-terra") || IsGPT62(model)
+}
+
+// IsGPT62 reports whether model is GPT-6.2 Astra or Sol. Rules were checked on
+// 2026-11-18 against https://developers.openai.com/api/docs/models/gpt-6.2-astra,
+// https://developers.openai.com/api/docs/models/gpt-6.2-sol, and the
+// latest-model, reasoning, and prompt-caching guides. Both reject effort none,
+// require omitting sampling and logprob fields, require the Responses API for
+// tool calling, and use prompt_cache_options. OpenAI does not yet publish their
+// full effort list or reasoning.context support, so only none is rejected
+// locally and context is not validated. GPT-6.2 does not inherit the GPT-6
+// parameter checks.
+func IsGPT62(model string) bool {
+	model = Normalize(model)
+	return modelHasPrefix(model, "gpt-6-2-astra") || modelHasPrefix(model, "gpt-6-2-sol")
 }
 
 // IsOfficialOpenAIBase reports whether a Chat Completions base URL points at
@@ -242,6 +260,9 @@ func OpenAIReasoningEffortSupported(model, effort string) bool {
 	if IsGemini4(model) {
 		return Gemini4OpenAIReasoningEffortSupported(model, effort)
 	}
+	if IsGPT62(model) {
+		return effort != "none"
+	}
 	if !openAIUsesGPT6Parameters(Normalize(model)) {
 		return true
 	}
@@ -256,7 +277,7 @@ func OpenAIReasoningEffortSupported(model, effort string) bool {
 }
 
 func OpenAIReasoningModeSupported(model, mode string) bool {
-	if !openAIUsesGPT6Parameters(Normalize(model)) {
+	if !openAIUsesGPT6Parameters(Normalize(model)) && !IsGPT62(model) {
 		return true
 	}
 	switch mode {

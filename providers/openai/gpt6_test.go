@@ -11,7 +11,7 @@ import (
 )
 
 func TestGPT6ChatParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra"} {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol", "openai/gpt-6.2-sol"} {
 		temperature, topP, maxTokens := 0.7, 0.9, 1024
 		for _, explicit := range []bool{false, true} {
 			opts := structs.JSONMap{"prompt_cache_retention": "24h", "logprobs": true, "top_logprobs": 3}
@@ -202,4 +202,71 @@ func TestNewSetsOfficialAPI(t *testing.T) {
 			t.Errorf("base %q: officialAPI = %v, want %v", base, p.officialAPI, want)
 		}
 	}
+}
+
+// GPT-6.2 rejects effort none, so sampling and logprobs are always dropped and
+// tool calling always requires Responses on api.openai.com. Only none is
+// rejected locally because OpenAI has not published the full effort list.
+func TestGPT62ChatParameters(t *testing.T) {
+	for _, model := range []string{"gpt-6.2-astra", "gpt-6.2-sol", "openai/gpt-6-2-sol"} {
+		for _, effort := range []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+			for _, raw := range []bool{false, true} {
+				t.Run(model+"/"+effort+fmt.Sprint("/raw=", raw), func(t *testing.T) {
+					temperature, topP := 0.7, 0.9
+					req := &chat.Request{Model: model, Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{
+						Temperature: &temperature, TopP: &topP,
+						OpenAI: structs.JSONMap{"logprobs": true, "top_logprobs": 3, "prompt_cache_retention": "24h"},
+					}}
+					value := chat.ReasoningEffort(effort)
+					if raw {
+						req.Options.OpenAI["reasoning_effort"] = effort
+					} else if effort != "" {
+						req.Options.ReasoningEffort = &value
+					}
+					params, err := buildParams(req, "")
+					if effort == "none" {
+						if err == nil || !strings.Contains(err.Error(), "reasoning effort") {
+							t.Fatalf("expected effort error, got %v", err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, _ := json.Marshal(params)
+					var payload map[string]any
+					if err := json.Unmarshal(data, &payload); err != nil {
+						t.Fatal(err)
+					}
+					for _, field := range []string{"temperature", "top_p", "logprobs", "top_logprobs", "prompt_cache_retention"} {
+						if _, ok := payload[field]; ok {
+							t.Errorf("unexpected %s: %s", field, data)
+						}
+					}
+					if string(params.ReasoningEffort) != effort || params.PromptCacheOptions.Ttl != "30m" {
+						t.Errorf("wrong effort or cache TTL: %s", data)
+					}
+					if len(req.Options.OpenAI) != 3+boolInt(raw) || temperature != 0.7 {
+						t.Errorf("caller options mutated: %+v", req.Options.OpenAI)
+					}
+
+					req.Tools = []chat.Tool{chat.FunctionTool("lookup", "", nil)}
+					if _, err := buildParamsForBase(req, "", true); err == nil || !strings.Contains(err.Error(), "openai_resp") {
+						t.Fatalf("expected Responses routing error, got %v", err)
+					}
+					params, err = buildParamsForBase(req, "", false)
+					if err != nil || len(params.Tools) != 1 {
+						t.Fatalf("gateway: tools=%d err=%v", len(params.Tools), err)
+					}
+				})
+			}
+		}
+	}
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

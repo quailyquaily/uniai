@@ -69,6 +69,8 @@ func TestDefaultPricingCatalogCurrentTierBoundaries(t *testing.T) {
 		longInput, longCached, longOutput float64
 	}{
 		{"openai", "gpt-6.1-sol", 272000, 2.00, 0.10, 10.00, 4.00, 0.20, 15.00},
+		{"openai", "gpt-6.2-astra", 272000, 8.00, 0.40, 40.00, 16.00, 0.80, 60.00},
+		{"openai", "gpt-6.2-sol", 272000, 2.00, 0.10, 10.00, 4.00, 0.20, 15.00},
 		{"openai", "gpt-6.1-terra", 272000, 1.00, 0.05, 5.00, 2.00, 0.10, 7.50},
 		{"anthropic", "claude-haiku-5-5", 100000, 0.10, 0.01, 0.50, 0.50, 0.05, 2.50},
 		{"openai", "gpt-5.4", 272000, 2.50, 0.25, 15.00, 5.00, 0.50, 22.50},

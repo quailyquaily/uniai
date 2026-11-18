@@ -19,6 +19,9 @@ type openAICreateImagesInput struct {
 	Model             string `json:"model"`
 	Prompt            string `json:"prompt"`
 	Background        string `json:"background,omitempty"`
+	Complexity        string `json:"complexity,omitempty"`
+	FrameCount        *int   `json:"frame_count,omitempty"`
+	FrameDurationMS   *int   `json:"frame_duration_ms,omitempty"`
 	Moderation        string `json:"moderation,omitempty"`
 	N                 int    `json:"n"`
 	OutputCompression *int   `json:"output_compression,omitempty"`
@@ -118,6 +121,9 @@ func EditImages(ctx context.Context, token, base, model, prompt string, images [
 	if err := verifyOpenAIImagesInput(payload); err != nil {
 		return nil, nil, err
 	}
+	if payload.OutputFormat == "svg" {
+		return nil, nil, fmt.Errorf("svg output is supported only for image generation, not edits")
+	}
 	if err := verifyOpenAIEditImages(images); err != nil {
 		return nil, nil, err
 	}
@@ -167,6 +173,15 @@ func buildOpenAIImagesInput(model, prompt string, count int, options structs.JSO
 	if options.HasKey("output_compression") {
 		compression := int(options.GetInt64("output_compression"))
 		payload.OutputCompression = &compression
+	}
+	payload.Complexity = options.GetString("complexity")
+	if options.HasKey("frame_count") {
+		frameCount := int(options.GetInt64("frame_count"))
+		payload.FrameCount = &frameCount
+	}
+	if options.HasKey("frame_duration_ms") {
+		frameDuration := int(options.GetInt64("frame_duration_ms"))
+		payload.FrameDurationMS = &frameDuration
 	}
 	payload.Moderation = options.GetString("moderation")
 	payload.User = options.GetString("user")
@@ -232,6 +247,15 @@ func buildOpenAIEditImagesMultipart(payload *openAICreateImagesInput, images []I
 	}
 	if payload.Moderation != "" {
 		fields["moderation"] = payload.Moderation
+	}
+	if payload.Complexity != "" {
+		fields["complexity"] = payload.Complexity
+	}
+	if payload.FrameCount != nil {
+		fields["frame_count"] = strconv.Itoa(*payload.FrameCount)
+	}
+	if payload.FrameDurationMS != nil {
+		fields["frame_duration_ms"] = strconv.Itoa(*payload.FrameDurationMS)
 	}
 	if payload.User != "" {
 		fields["user"] = payload.User
@@ -339,13 +363,17 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	input.Size = strings.ToLower(strings.TrimSpace(input.Size))
 	input.Background = strings.ToLower(strings.TrimSpace(input.Background))
 	input.Moderation = strings.ToLower(strings.TrimSpace(input.Moderation))
+	input.Complexity = strings.ToLower(strings.TrimSpace(input.Complexity))
 	input.OutputFormat = normalizeOutputFormat(input.OutputFormat)
 
 	quality := []string{"high", "medium", "low", "auto"}
-	if isGPTImage25Model(input.Model) {
+	if isGPTImage25Model(input.Model) || isGPTImage26Model(input.Model) {
 		quality = append(quality, "xhigh", "max")
 	}
 	outputFormat := []string{"", "webp", "png", "jpeg"}
+	if isGPTImage26Model(input.Model) {
+		outputFormat = append(outputFormat, "svg", "gif")
+	}
 	background := []string{"auto", "opaque", "transparent"}
 	moderation := []string{"", "auto", "low"}
 
@@ -361,11 +389,18 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	if !slices.Contains(quality, input.Quality) {
 		return fmt.Errorf("quality must be one of %v", quality)
 	}
-	if err := verifyOpenAIImageSize(input.Model, input.Size); err != nil {
-		return err
-	}
 	if !slices.Contains(outputFormat, input.OutputFormat) {
 		return fmt.Errorf("output format must be one of %v", outputFormat)
+	}
+	if input.OutputFormat == "gif" {
+		if err := verifyOpenAIGIFFrameSize(input.Size); err != nil {
+			return err
+		}
+	} else if err := verifyOpenAIImageSize(input.Model, input.Size); err != nil {
+		return err
+	}
+	if err := verifyOpenAIImage26Options(input); err != nil {
+		return err
 	}
 	if !slices.Contains(background, input.Background) {
 		return fmt.Errorf("background must be one of %v", background)
@@ -376,7 +411,7 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	if isGPTImage2Model(input.Model) && input.Background == "transparent" {
 		return fmt.Errorf("gpt-image-2 does not support transparent background")
 	}
-	if input.Background == "transparent" && input.OutputFormat == "jpeg" {
+	if input.Background == "transparent" && input.OutputFormat != "" && input.OutputFormat != "png" && input.OutputFormat != "webp" {
 		return fmt.Errorf("transparent background requires png or webp output format")
 	}
 	if input.OutputCompression != nil {
@@ -390,11 +425,58 @@ func verifyOpenAIImagesInput(input *openAICreateImagesInput) error {
 	return nil
 }
 
+// verifyOpenAIImage26Options checks the GPT-Image-2.6 complexity, SVG, and
+// animated GIF options. Rules were checked on 2026-11-18 against
+// https://developers.openai.com/api/docs/guides/image-generation#gpt-image-26.
+func verifyOpenAIImage26Options(input *openAICreateImagesInput) error {
+	if input.Complexity != "" {
+		if !isGPTImage26Model(input.Model) {
+			return fmt.Errorf("complexity is supported only by GPT-Image-2.6 models")
+		}
+		if !slices.Contains([]string{"low", "medium", "high"}, input.Complexity) {
+			return fmt.Errorf("complexity must be one of [low medium high]")
+		}
+	}
+	if input.OutputFormat == "svg" && input.N != 1 {
+		return fmt.Errorf("svg output requires n=1")
+	}
+	if input.OutputFormat != "gif" {
+		if input.FrameCount != nil || input.FrameDurationMS != nil {
+			return fmt.Errorf("frame_count and frame_duration_ms require gif output format")
+		}
+		return nil
+	}
+	if input.FrameCount != nil && (*input.FrameCount < 2 || *input.FrameCount > 16) {
+		return fmt.Errorf("frame_count must be between 2 and 16")
+	}
+	if input.FrameDurationMS != nil && (*input.FrameDurationMS < 20 || *input.FrameDurationMS > 2000) {
+		return fmt.Errorf("frame_duration_ms must be between 20 and 2000")
+	}
+	return nil
+}
+
+// verifyOpenAIGIFFrameSize checks the documented per-frame size rule. OpenAI
+// also enforces model size limits and a total request pixel budget for GIFs
+// but does not publish the budget, so it is left to the API.
+func verifyOpenAIGIFFrameSize(size string) error {
+	if size == "auto" {
+		return nil
+	}
+	width, height, err := parseImageSize(size)
+	if err != nil {
+		return fmt.Errorf("size must be auto or <width>x<height>: %w", err)
+	}
+	if width%16 != 0 || height%16 != 0 {
+		return fmt.Errorf("gif frame size edges must be multiples of 16")
+	}
+	return nil
+}
+
 func verifyOpenAIImageSize(model, size string) error {
 	if size == "auto" {
 		return nil
 	}
-	if isGPTImage2Model(model) || isGPTImage25Model(model) {
+	if isGPTImage2Model(model) || isGPTImage25Model(model) || isGPTImage26Model(model) {
 		return verifyOpenAICustomImageSize(size)
 	}
 
@@ -466,8 +548,17 @@ func isGPTImage25Model(model string) bool {
 		model == "gpt-image-2.5-flare" || strings.HasPrefix(model, "gpt-image-2.5-flare-")
 }
 
+func isGPTImage26Model(model string) bool {
+	return model == "gpt-image-2.6-sunburst" || strings.HasPrefix(model, "gpt-image-2.6-sunburst-") ||
+		model == "gpt-image-2.6-flare" || strings.HasPrefix(model, "gpt-image-2.6-flare-")
+}
+
 func getMimeType(format string) string {
 	switch normalizeOutputFormat(format) {
+	case "svg":
+		return "image/svg+xml"
+	case "gif":
+		return "image/gif"
 	case "webp":
 		return "image/webp"
 	case "png":

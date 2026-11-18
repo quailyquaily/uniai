@@ -121,6 +121,13 @@ func TestOpenAIReasoningEffortModelBoundaries(t *testing.T) {
 		{"gpt-6-solar", "minimal", true},
 		{"openai/gpt-5.6-sol", "none", true},
 		{"gpt-5.5", "none", true},
+		{"gpt-6.2-astra", "none", false},
+		{"gpt-6.2-sol", "none", false},
+		{"openai/gpt-6-2-sol-2026-11-17", "none", false},
+		{"gpt-6.2-astra", "", true},
+		{"gpt-6.2-sol", "minimal", true},
+		{"gpt-6.2-sol", "max", true},
+		{"gpt-6.2-solar", "none", true},
 	} {
 		t.Run(tt.model+"/"+tt.effort, func(t *testing.T) {
 			if got := OpenAIReasoningEffortSupported(tt.model, tt.effort); got != tt.want {
@@ -169,6 +176,9 @@ func TestOpenAIPromptCachePolicy(t *testing.T) {
 		{"gpt-6.1-sol", true, false},
 		{"openai/gpt-6.1-sol", true, false},
 		{"GPT-6.1-Sol-2026-09-30", true, false},
+		{"gpt-6.2-astra", true, false},
+		{"openai/gpt-6.2-sol", true, false},
+		{"gpt-6.2-solar", false, false},
 		{"gpt-5.5", false, true},
 		{"gpt-5.5-pro", false, true},
 		{"openai/gpt-5.4", false, true},
@@ -204,5 +214,25 @@ func TestIsOfficialOpenAIBase(t *testing.T) {
 		if got := IsOfficialOpenAIBase(base); got != want {
 			t.Errorf("IsOfficialOpenAIBase(%q) = %v, want %v", base, got, want)
 		}
+	}
+}
+
+func TestGPT62Rules(t *testing.T) {
+	for _, model := range []string{"gpt-6.2-astra", "gpt-6.2-sol", "models/GPT-6.2-SOL"} {
+		if !IsGPT62(model) || IsGPT6(model) {
+			t.Errorf("%s: IsGPT62=%v IsGPT6=%v", model, IsGPT62(model), IsGPT6(model))
+		}
+		if !OpenAIDropsSampling(model, "", false) || !OpenAIRequiresResponsesForTools(model) {
+			t.Errorf("%s: expected sampling drop and Responses-only tools", model)
+		}
+		if !OpenAIReasoningModeSupported(model, "pro") || OpenAIReasoningModeSupported(model, "invalid") {
+			t.Errorf("%s: wrong reasoning mode validation", model)
+		}
+		if !OpenAIReasoningContextSupported(model, "anything") {
+			t.Errorf("%s: reasoning context is not documented and should not be validated", model)
+		}
+	}
+	if IsGPT62("gpt-6.2-astral") || IsGPT62("gpt-6.2") || IsGPT62("gpt-6.2-terra") {
+		t.Fatal("unexpected GPT-6.2 match")
 	}
 }

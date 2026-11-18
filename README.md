@@ -278,8 +278,19 @@ sessions and independent subtasks. Subscription requests still use `store: false
 and both TTL options remain filtered. Ordinary `openai_resp` requests retain their
 existing cache behavior and do not derive session headers from the cache key.
 
-Current model compatibility (OpenAI Terra, Claude 5.5, DeepSeek, and Kimi checked 2026-10-27):
+Current model compatibility (OpenAI GPT-6.2 checked 2026-11-18; OpenAI Terra, Claude 5.5, DeepSeek, and Kimi checked 2026-10-27):
 
+- `gpt-6.2-astra` and `gpt-6.2-sol`: both reject reasoning effort `none`
+  locally on `openai` and `openai_resp`. OpenAI has not published the full
+  effort list or default, so other values, including `minimal`, are sent
+  unchanged and the API decides. Sampling and logprob fields (and the
+  Responses `message.output_text.logprobs` include) are always omitted. Tool
+  calling always requires `openai_resp`. `reasoning.mode` accepts `standard`
+  or `pro`; `reasoning.context` is not validated locally. Cache retention and
+  text breakpoints use the GPT-6 mapping. These models do not inherit the
+  other GPT-6 parameter checks. See [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra),
+  [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol), and
+  the [migration guide](https://developers.openai.com/api/docs/guides/latest-model).
 - `gpt-6.1-terra`: the published Terra API ID. Supports `none`, `low`,
   `medium` (default), `high`, `xhigh`, and `max`; rejects `minimal`.
   Sampling and logprob fields are omitted unless effort is `none`.

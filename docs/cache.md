@@ -225,7 +225,7 @@ model support changes.
 
 | Models | Lifetime field | Supported values | When omitted | Explicit breakpoints | Legacy field handling | Fails locally |
 | --- | --- | --- | --- | --- | --- | --- |
-| GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol/Terra | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
+| GPT-5.6 variants; GPT-6 Astra/Sol/Luna; GPT-6.1 Sol/Terra; GPT-6.2 Astra/Sol | `prompt_cache_options.ttl` (plus `mode`) | `ttl: "30m"` (also the default); `mode: "implicit"` or `"explicit"` | Neither field is sent; the API default applies | Yes: system, user, and assistant text parts, plus raw Responses `prompt_cache_breakpoint` | A non-empty `prompt_cache_retention` is removed and replaced with `ttl: "30m"`. If `prompt_cache_options` is also supplied, it is sent unchanged and wins | Any `ttl` other than `30m`; any `mode` other than `implicit` or `explicit`; `CacheControl.TTL` on a part; cache control on non-text parts, tool messages, or tools |
 | GPT-5.5, GPT-5.5 Pro | `prompt_cache_retention` | `"24h"` only | Neither field is sent | No | When `prompt_cache_key` or any retention value is set, `prompt_cache_retention` is forced to `"24h"` | `prompt_cache_options`; any shared `CacheControl` |
 | GPT-5.4 variants | `prompt_cache_retention` | `"in_memory"`; `"24h"` where supported | Neither field is sent | No | Sent unchanged | `prompt_cache_options`; any shared `CacheControl` |
 | Other and unknown models (earlier OpenAI models, gateway aliases, custom names) | Whatever the caller sends | No model-specific rules; generic validation still applies | Neither field is sent | No | No conversion; both fields are sent as supplied (after generic validation) | Generic `prompt_cache_options` errors (`mode` other than `implicit`/`explicit`, `ttl` other than `30m`); any shared `CacheControl` |
@@ -272,10 +272,22 @@ the usage payload does not distinguish TTLs. See
 GPT-6.1 Sol shares the GPT-6 cache policy only. It does not yet inherit the
 GPT-6 sampling or reasoning parameter checks.
 
-Official sources, checked 2026-10-16:
+GPT-6.2 Astra and Sol use the GPT-6 cache policy and support text breakpoints
+on `openai` and `openai_resp`. Their cached reads cost 0.05x input, and
+30-minute writes cost 1.25x input.
+
+Known gap: OpenAI's Responses API also accepts `prompt_cache_options.ttl:
+"12h"` and a per-breakpoint `prompt_cache_breakpoint.ttl` for GPT-5.6 and later
+(12-hour writes cost 2.5x input). `uniai` still accepts only `30m` and rejects
+`12h` locally. The guide does not say whether Chat Completions accepts `12h`.
+
+Official sources, checked 2026-11-18 (GPT-6.2 and the 12-hour TTL) and
+2026-10-16 (earlier models):
 
 - [Prompt caching: cache lifetime and model differences](https://developers.openai.com/api/docs/guides/prompt-caching#cache-lifetime)
 - [GPT-6 migration: API and model parameters](https://developers.openai.com/api/docs/guides/latest-model#gpt-6-astra-update-api-and-model-parameters)
+- [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra) and
+  [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol)
 
 ### GPT-5.6 and GPT-6 Explicit Breakpoints
 

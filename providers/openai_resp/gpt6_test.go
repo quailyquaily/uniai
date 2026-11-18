@@ -13,7 +13,7 @@ import (
 )
 
 func TestGPT6ResponsesParameters(t *testing.T) {
-	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra"} {
+	for _, model := range []string{"gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "openai/gpt-6.1-terra", "gpt-6.2-astra", "gpt-6.2-sol"} {
 		temperature, topP := 0.7, 0.9
 		for _, explicit := range []bool{false, true} {
 			opts := structs.JSONMap{
@@ -189,5 +189,67 @@ func TestGPT6ResponsesIncludePreservation(t *testing.T) {
 				t.Errorf("legacy include = %v, want %v", legacy.Include, original)
 			}
 		})
+	}
+}
+
+// GPT-6.2 drops sampling and logprob include fields at every accepted effort,
+// including when no reasoning is requested. Only none is rejected locally;
+// reasoning.context is forwarded because OpenAI has not documented it for 6.2.
+func TestGPT62ResponsesParameters(t *testing.T) {
+	for _, model := range []string{"gpt-6.2-astra", "gpt-6.2-sol", "openai/gpt-6-2-astra"} {
+		for _, effort := range []string{"", "none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+			for _, raw := range []bool{false, true} {
+				t.Run(model+"/"+effort+fmt.Sprint("/raw=", raw), func(t *testing.T) {
+					temperature, topP := 0.7, 0.9
+					include := []responses.ResponseIncludable{"message.output_text.logprobs", "reasoning.encrypted_content"}
+					req := &chat.Request{Model: model, Messages: []chat.Message{chat.User("hello")},
+						Tools:   []chat.Tool{chat.FunctionTool("lookup", "", nil)},
+						Options: chat.Options{Temperature: &temperature, TopP: &topP, OpenAI: structs.JSONMap{"include": include, "top_logprobs": 3}},
+					}
+					value := chat.ReasoningEffort(effort)
+					if raw {
+						req.Options.OpenAI["reasoning"] = map[string]any{"effort": effort, "mode": "pro", "context": "all_turns"}
+					} else if effort != "" {
+						req.Options.ReasoningEffort = &value
+					}
+					params, err := buildParams(req, "", false)
+					if effort == "none" {
+						if err == nil || !strings.Contains(err.Error(), "reasoning effort") {
+							t.Fatalf("expected effort error, got %v", err)
+						}
+						return
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, _ := json.Marshal(params)
+					var payload map[string]any
+					if err := json.Unmarshal(data, &payload); err != nil {
+						t.Fatal(err)
+					}
+					for _, field := range []string{"temperature", "top_p", "top_logprobs"} {
+						if _, ok := payload[field]; ok {
+							t.Errorf("unexpected %s: %s", field, data)
+						}
+					}
+					if strings.Contains(string(data), "message.output_text.logprobs") || !strings.Contains(string(data), "reasoning.encrypted_content") {
+						t.Errorf("wrong include: %s", data)
+					}
+					if include[0] != "message.output_text.logprobs" {
+						t.Errorf("caller include mutated: %v", include)
+					}
+					if len(params.Tools) != 1 || string(params.Reasoning.Effort) != effort {
+						t.Errorf("lost tools or effort: %s", data)
+					}
+					if raw && (params.Reasoning.Mode != "pro" || params.Reasoning.Context != "all_turns") {
+						t.Errorf("lost reasoning mode or context: %s", data)
+					}
+				})
+			}
+		}
+	}
+	req := &chat.Request{Model: "gpt-6.2-sol", Messages: []chat.Message{chat.User("hello")}, Options: chat.Options{OpenAI: structs.JSONMap{"reasoning": map[string]any{"mode": "invalid"}}}}
+	if _, err := buildParams(req, "", false); err == nil || !strings.Contains(err.Error(), "reasoning mode") {
+		t.Errorf("expected invalid reasoning mode error, got %v", err)
 	}
 }
